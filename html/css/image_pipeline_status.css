@@ -1,0 +1,145 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+table.standard {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.standard th {
+  background: #e7e7e7;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  text-align: left;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.sample th {
+  padding-right: 10px;
+  font-weight: bold;
+}
+
+#scrollarea {
+  overflow-y: scroll;
+  height: 1000px;
+}
+
+/* Process flow */
+.flow {
+  float: left;
+  width: 250px;
+  padding-bottom: 10px;
+}
+
+.queue {
+    text-align: center;
+    position: float;
+    margin: 0 0 0 25px;
+    width: 150px;
+}
+
+.process {
+    border: 1px solid black;
+    border-radius: 15px;
+    text-align: center;
+    position: float;
+    margin: 0 0 0 25px;
+    padding-top: 10px;
+    background:#52b447;
+    width: 150px;
+    height: 40px;
+}
+
+.error_queue {
+    margin: 11px 0 0 0;
+}
+
+.special {
+    border: 1px solid black;
+    border-radius: 15px;
+    text-align: center;
+    position: float;
+    margin: 0 0 0 25px;
+    padding-top: 10px;
+    background:#f90;
+    width: 150px;
+    height: 40px;
+}
+
+.downarrow {
+  position: float;
+  text-align: center;
+  margin: 0 0 0 80px;
+  width: 40px;
+  font-size: 20px;
+}
+
+.rightarrow {
+  float: left;
+  margin-top: 6px;
+  font-size: 20px;
+}
+
+.details {
+  float: left;
+  max-width: 1000px;
+  max-height: 710px;
+  padding: 10px;
+  border: 1px solid #eee;
+  overflow-y: scroll;
+}
+
+h2 {
+  color: #04338b;
+}
+
+.badge-start {
+  background-color: #90c;
+}
+
+.badge-empty {
+  background-color: #ccc;
+}
+
+.badge-error {
+  background-color: #900;
+}
+
+.badge-full, .badge-queue {
+  background-color: #4072b4;
+}
+
+.badge-complete {
+  background-color: #090;
+}
+
+.badge-warning {
+  background-color: #990;
+}
+
+.badge-late {
+  background-color: #f93;
+}
+
+.tooltip .tooltip-inner {
+  background-color: #52b447;
+}
+
+.btn-primary {
+  background-color: #058D95;
+}
+
+.btn-success {
+  background-color: #52B447;
+}
