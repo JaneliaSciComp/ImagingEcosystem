@@ -21,6 +21,8 @@ table.standard {
 
 .standard td {
   text-align: left;
+  background: #445 !important;
+  color: #bbc !important;
   border: 1px solid #058d95;
   padding: 0 2px 0 2px;
 }
@@ -140,6 +142,14 @@ table.standard {
 
 .btn-success {
   background-color: #52B447;
+}
+
+/* Overrides of bootstrap */
+.navbar-default {
+  background-color: #222;
+}
+.panel-body {
+  background-color: #333;
 }
 
 /* Overrides of janelia_common */
