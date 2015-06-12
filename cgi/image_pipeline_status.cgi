@@ -58,8 +58,8 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
              . 'image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id '
              . "AND ip1.type='slide_code') "
              . 'JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND '
-             . "ip2.type='data_set') WHERE TIMESTAMPDIFF(DAY,NOW(),"
-             . 'i.create_date) BETWEEN -7 AND 0 ORDER BY 6',
+             . "ip2.type='data_set') WHERE TIMESTAMPDIFF(HOUR,NOW(),"
+             . "i.create_date) >= $WS_LIMIT_HOURS ORDER BY 6",
 # -----------------------
 WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
 WS_Tasking => "SELECT e.name,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Status') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
