@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+
+<step>
+  <name>tmog</name>
+  <description>tmog</description>
+</step>
+<step>
+  <name>Indexing</name>
+  <description>Indexing with SAGE loader</description>
+</step>
+<step>
+  <name>MV</name>
+  <description>Build materialized view</description>
+</step>
+<step>
+  <name>Discovery</name>
+  <description>Janelia Workstation discovery service</description>
+</step>
+<step>
+  <name>Tasking</name>
+  <description>Janelia Workstation task creation</description>
+</step>
+<step>
+  <name>Pipeline</name>
+  <description>Janelia Workstation pipeline</description>
+</step>
+
+</config>
