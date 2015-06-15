@@ -61,9 +61,11 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
              . "ip2.type='data_set') WHERE TIMESTAMPDIFF(HOUR,NOW(),"
              . "i.create_date) >= $WS_LIMIT_HOURS ORDER BY 6",
 # -----------------------
-WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
 WS_Tasking => "SELECT e.name,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Status') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
 WS_Pipeline => "SELECT e.name,t.description,t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type FROM task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id AND parameter_name='sample entity id') JOIN entity e ON (e.id=tp.parameter_value),(SELECT task_id,MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE x.task_id = t.task_id AND x.event_no = t.event_no AND TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 3",
+# -----------------------
+WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
+WS_Error => "SELECT s.name,IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON ssed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error' AND s.name NOT LIKE '%~%' UNION SELECT s.name, IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON sed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error'",
 );
 
 
@@ -111,6 +113,12 @@ sub displayQueues
   # Build HTML
   &printHeader();
   my (%process,%queue);
+  $sth{Error}->execute();
+  my $ar0 = $sth{Error}->fetchall_arrayref();
+  my %error;
+  foreach (@$ar0) {
+    $error{$_->[0]} = [$_->[1],$_->[2]];
+  }
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$SCICOMP);
     $sth{$s}->execute();
@@ -128,6 +136,7 @@ sub displayQueues
     foreach (@$ar) {
       if ($s eq 'Pipeline') {
         my $event = pop(@$_);
+        my $sam = $_->[0];
         $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
                      target => '_blank'},$_->[0]);
         if ($event eq 'created') {
@@ -143,6 +152,11 @@ sub displayQueues
         }
         elsif ($event eq 'error') {
           pop(@$_);
+          splice(@$_,1,0,'Unknown');
+          if (exists $error{$sam}) {
+            $_->[1] = $error{$sam}[0];
+            $_->[2] = $error{$sam}[1];
+          }
           push @{$process{Pipeline_Error}},$_;
         }
       }
@@ -278,10 +292,11 @@ sub stepContents
   $badge = $step . $badge if ($type ne 'queue');
   my $estep = $step . '_Error';
   if ($type eq 'process' && exists($href->{$estep})) {
-    $table2 = h3("$step process (Errors)") . br . $js .
+    $table2 = h3("$step process (Errors)") 
+              . &generateFilter($href->{$estep}) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
-                    thead(Tr(th(['Sample ID','Description','Error date']))),
-                    tbody (map {Tr(td($_))}
+                    thead(Tr(th(['Sample ID','Class','Description','Error date']))),
+                    tbody (map {Tr({class => $_->[1]},td($_))}
                            @{$href->{$estep}}));
     $badge = div({class => $type,style => "float: left"},$badge);
     my $badge2 = a({href => '#',
@@ -363,6 +378,21 @@ __EOT__
              . '],color: "#3c3"}]});';
       $js .= '});</script>';
   return($state,$js);
+}
+
+
+sub generateFilter
+{
+  my $arr = shift;
+  my %filt;
+  $filt{$_->[1]}++ foreach (@$arr);
+  my $html = join((NBSP)x4,
+                  map { checkbox(&identify('show_'.$_),
+                                 -label => " $_",
+                                 -checked => 1,
+                                 -onClick => "toggleClass('$_');")
+                      } sort keys %filt);
+  div({class => 'bg-info'},'Filter: ',(NBSP)x5,$html);
 }
 
 
