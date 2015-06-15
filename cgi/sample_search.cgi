@@ -213,11 +213,13 @@ sub getRecord
     }
     $sample{$_->[0]}{$_->[1]} = $_->[2];
   }
-  $html .= &bootstrapPanel('Multiple entities',
-                           'Found ' . scalar(keys %sample)
-                           . " entities for $id",'warning')
-    if (scalar(keys %sample) > 1);
-  foreach my $eid (sort keys %sample) {
+  if (scalar(keys %sample) > 1) {
+    my $msg = 'Found ' . scalar(keys %sample) .  " entities for $id" . br
+              . 'Entities are shown most-recent first. Entities in '
+              . '"Desync" status are maked with a red header.';
+    $html .= &bootstrapPanel('Multiple entities',$msg,'warning');
+  }
+  foreach my $eid (sort {$b <=> $a} keys %sample) {
     $sth{uc($type)}->execute($eid);
     my $ar2 = $sth{uc($type)}->fetchall_arrayref();
     my $tasks = '';
@@ -226,12 +228,14 @@ sub getRecord
                      thead(Tr(th([qw(Event Description Date)]))),
                      tbody(map {Tr(td($_))} @$ar2));
     }
-    $html .= div({class => 'boxed'},
-                 h3("Entity ID $eid"),br,
-                 table({class => 'tablesorter standard'},
-                        thead(Tr(th([qw(Attribute Value)]))),
-                        tbody(map {Tr(td([$_,$sample{$eid}{$_}]))} sort keys %{$sample{$eid}})),
-                 br,$tasks) . br;
+    my $class = ($sample{$eid}{Status} eq 'Desync')
+                ? 'danger' : 'primary';
+    $html .= &bootstrapPanel("Entity ID $eid",
+                             table({class => 'tablesorter standard'},
+                                   thead(Tr(th([qw(Attribute Value)]))),
+                                   tbody(map {Tr(td([$_,$sample{$eid}{$_}]))}
+                                             sort keys %{$sample{$eid}}))
+                             . $tasks,$class);
   }
   return($html);
 }
