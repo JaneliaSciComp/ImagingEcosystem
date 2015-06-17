@@ -7,6 +7,7 @@ use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
 use Data::Dumper;
 use DBI;
+use IO::File;
 use POSIX qw(ceil strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -29,6 +30,7 @@ my @BREADCRUMBS = ('Imagery tools',
 use constant NBSP => '&nbsp;';
 my %STEP;
 my @STEPS;
+my $BASE = "/var/www/html/output/";
 # Total days of history to fetch from the Workstation
 my $WS_LIMIT_DAYS = 30;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
@@ -37,9 +39,13 @@ my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 # * Globals                                                                  *
 # ****************************************************************************
 
+# Export
+my $handle;
 # Database
-our ($dbh,$dbhw);
+our ($dbh,$dbhf,$dbhw);
 my %sth = (
+FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,seh.cross_type,seh.lab_project,cross_barcode,seh.wish_list FROM stock_event_history_vw seh JOIN Project_Crosses pc ON (pc.__kp_ProjectCrosses_Serial_Number = cross_barcode) WHERE event='cross' AND seh.project='Fly Light' AND seh.lab_project != 'Truman' AND RedoCheckbox IS NULL AND TIMESTAMPDIFF(DAY,NOW(),event_date) BETWEEN -90 AND -14 ORDER BY event_date",
+# -----------------------
 Indexing => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,i.create_date '
             . 'FROM image_vw i JOIN image_property_vw ip1 ON '
             . "(i.id=ip1.image_id AND ip1.type='slide_code') "
@@ -64,6 +70,7 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
 WS_Tasking => "SELECT e.name,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Status') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
 WS_Pipeline => "SELECT e.name,t.description,t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type FROM task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id AND parameter_name='sample entity id') JOIN entity e ON (e.id=tp.parameter_value),(SELECT task_id,MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE x.task_id = t.task_id AND x.event_no = t.event_no AND TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 3",
 # -----------------------
+Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE type='cross_barcode'",
 WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
 WS_Error => "SELECT s.name,IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON ssed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error' AND s.name NOT LIKE '%~%' UNION SELECT s.name, IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON sed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error'",
 );
@@ -95,11 +102,16 @@ sub initializeProgram
   %STEP = map { $_->{name} => $_ } @{$p->{step}};
   # Connect to databases
   &dbConnect(\$dbh,'sage');
+  &dbConnect(\$dbhf,'flyboy');
   &dbConnect(\$dbhw,'workstation');
   foreach (keys %sth) {
     if (/^WS/) {
       (my $n = $_) =~ s/WS_//;
       $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+    }
+    elsif (/^FB/) {
+      (my $n = $_) =~ s/FB_//;
+      $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr)
     }
     else {
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
@@ -133,6 +145,16 @@ sub displayQueues
         push @$ar,$_ unless ($p);
       }
     }
+    elsif ($s eq 'tmog') {
+      my @arr = @$ar;
+      @$ar = ();
+      $sth{Barcode}->execute();
+      my $bc = $sth{Barcode}->fetchall_arrayref();
+      my %bh = map {$_->[0] => 1} @$bc;
+      foreach (@arr) {
+        push @$ar,$_ unless (exists $bh{$_->[6]});
+      }
+    }
     foreach (@$ar) {
       if ($s eq 'Pipeline') {
         my $event = pop(@$_);
@@ -163,6 +185,16 @@ sub displayQueues
       elsif ($s eq 'Tasking') {
         $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
                      target => '_blank'},$_->[0]);
+        push @{$queue{$s}},$_;
+      }
+      elsif ($s eq 'tmog') {
+        $_->[0] =~ s/ .*//;
+        foreach my $i (1..2) {
+          $_->[$i] = a({href => "lineman.cgi?line=" . $_->[$i],
+                        target => '_blank'},$_->[$i]);
+        }
+        $_->[6] = a({href => "/flyboy_search.php?kcross=" . $_->[6],
+                     target => '_blank'},$_->[6]);
         push @{$queue{$s}},$_;
       }
       else {
@@ -243,7 +275,6 @@ sub stepContents
   my ($table,$table2) = ('')x2;
   my $type_title = ($type eq 'special') ? '' : $type;
   my $now = strftime "%Y-%m-%d %H:%M:%S",localtime;
-  my $late = 0;
   my $head = ['Line','Slide code','Image','Data set','tmog date'];
   my ($js,$state) = ('','');
   if ($items) {
@@ -251,6 +282,10 @@ sub stepContents
       if ($step =~ /(?:Discovery|Tasking|Pipeline)/);
     if ($step eq 'Tasking') {
       $head = ['Sample ID','Discovery date']
+    }
+    elsif ($step eq 'tmog') {
+      $head = ['Cross date','Line','Line 2','Effector','Type','Project','Barcode','Wish list'];
+      $state = 'late';
     }
     elsif ($step eq 'Pipeline') {
       $head = ($type eq 'queue')
@@ -260,9 +295,11 @@ sub stepContents
     elsif ($step eq 'Complete') {
       $head = ['Sample ID','Description','Completion date'];
     }
+    # Create export file
+    my $link = &createExportFile($href->{$step},"_$step",$head);
     $type_title = "$type_title ($STEP{$step}{description})"
       unless ($step =~ /(?:Complete)/);
-    $table = h3("$step $type_title") . br . $js .
+    $table = h3("$step $type_title") . $link . br . $js .
              table({id => "t$step",class => 'tablesorter standard'},
                    thead(Tr(th($head))),
                    tbody (map {Tr(td($_))}
@@ -292,16 +329,22 @@ sub stepContents
   $badge = $step . $badge if ($type ne 'queue');
   my $estep = $step . '_Error';
   if ($type eq 'process' && exists($href->{$estep})) {
-    $table2 = h3("$step process (Errors)") 
-              . &generateFilter($href->{$estep}) . $js .
+    my %count;
+    $count{$_->[1]}++ foreach @{$href->{$estep}};
+    my $total = scalar @{$href->{$estep}};
+    $count{$_} = (sprintf '%.2f%%',$count{$_}/$total*100) foreach (keys %count);
+    $head = ['Sample ID','Class','Description','Error date'];
+    my $link = &createExportFile($href->{$estep},"_$estep",$head);
+    $table2 = h3("$step process (Errors)") . $link 
+              . &generateFilter($href->{$estep},\%count) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
-                    thead(Tr(th(['Sample ID','Class','Description','Error date']))),
+                    thead(Tr(th($head))),
                     tbody (map {Tr({class => $_->[1]},td($_))}
                            @{$href->{$estep}}));
     $badge = div({class => $type,style => "float: left"},$badge);
     my $badge2 = a({href => '#',
                     onclick => "showDetails('$type" . '_' . "$estep')"},
-                   div({class => "badge badge-error"},scalar @{$href->{$estep}}));
+                   div({class => "badge badge-error"},$total));
     $badge = div({style => "float: left"},
                  $badge,
                  div({class => 'rightarrow'},'&rarr;'),
@@ -314,6 +357,30 @@ sub stepContents
   return($badge,
          div({&identify($type.'_'.$step),class => 'detailarea'},$table),
          ($table2) ? div({&identify($type.'_'.$step.'_Error'),class => 'detailarea'},$table2) : '');
+}
+
+
+sub createExportFile
+{
+  my($ar,$suffix,$head) = @_;
+  my $filename = (strftime "%Y%m%d%H:%M:%S",localtime)
+                 . "$suffix.xls";
+  $handle = new IO::File $BASE.$filename,'>';
+  print $handle join("\t",@$head) . "\n";
+  foreach (@$ar) {
+    my @l = @$_;
+    foreach my $i (0..2,6) {
+      if ($l[$i] =~ /href/) {
+        $l[$i] =~ s/.+=//;
+        $l[$i] =~ s/".+//;
+      }
+    }
+    print $handle join("\t",@l) . "\n";
+  }
+  $handle->close;
+  my $link = a({class => 'btn btn-success btn-xs',
+                href => '/output/' . $filename},"Export data");
+  return($link);
 }
 
 
@@ -383,12 +450,12 @@ __EOT__
 
 sub generateFilter
 {
-  my $arr = shift;
+  my($arr,$href) = @_;
   my %filt;
   $filt{$_->[1]}++ foreach (@$arr);
   my $html = join((NBSP)x4,
                   map { checkbox(&identify('show_'.$_),
-                                 -label => " $_",
+                                 -label => " $_ (".$href->{$_}.')',
                                  -checked => 1,
                                  -onClick => "toggleClass('$_');")
                       } sort keys %filt);
