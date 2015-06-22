@@ -133,6 +133,7 @@ sub displayQueues
   }
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$SCICOMP);
+    next if ($s eq 'Scheduling');
     $sth{$s}->execute();
     my $ar = $sth{$s}->fetchall_arrayref;
     if ($s eq 'Discovery') {
@@ -163,9 +164,12 @@ sub displayQueues
                      target => '_blank'},$_->[0]);
         if ($event eq 'created') {
           splice(@$_,1,1);
-          push @{$queue{$s}},$_;
+          push @{$queue{Scheduling}},$_;
         }
         elsif ($event eq 'pending') {
+          push @{$queue{$_}},$_;
+        }
+        elsif ($event eq 'running') {
           push @{$process{$s}},$_;
         }
         elsif ($event eq 'completed') {
@@ -231,29 +235,39 @@ sub displayQueues
   }
   my $instructions = <<__EOT__;
 <h3>Instructions</h3><br>
-The diagram to the left shows the image processing pipeline, with green boxes
+The diagram to the left shows the image processing pipeline, with rounded boxes
 representing process steps. The areas between the process steps are queues;
-holding areas for images that have completed a process step
+holding areas for items that have completed a process step
 but not yet started another. An "empty" in a queue area indicates that
-there are no images waiting to enter the next process step, a
+there are no items waiting to enter the next process step, a
 number indicates that there are that many waiting.
 <br><br>
+An item will be one of the following:
+<ul>
+<li>Up to tmog: cross barcode</li>
+<li>Indexing: image (LSM)</li>
+<li>Discovery and subsequent steps: sample</li>
+</ul>
+<br>
 Clicking on any of the numbers found in the queue or process areas to the
-left will display details on the images at that particular
+left will display details on the items at that particular
 point in the process flow.
 Completion and error data includes only samples from the last $WS_LIMIT_DAYS days.
 <br><br>
 Legend:<br>
-<span class="badge badge-full">&nbsp;&nbsp;&nbsp;</span> Images/samples < 2 days old<br>
-<span class="badge badge-warning">&nbsp;&nbsp;&nbsp;</span> Images/samples 2-7 days old<br>
-<span class="badge badge-late">&nbsp;&nbsp;&nbsp;</span> Images/samples >= 7 days old<br>
+<span class="badge badge-full">&nbsp;&nbsp;&nbsp;</span> Items < 2 days old<br>
+<span class="badge badge-warning">&nbsp;&nbsp;&nbsp;</span> Items 2-7 days old<br>
+<span class="badge badge-late">&nbsp;&nbsp;&nbsp;</span> Items >= 7 days old<br>
 <span class="badge badge-complete">&nbsp;&nbsp;&nbsp;</span> Samples that completed processing<br>
 <span class="badge badge-error">&nbsp;&nbsp;&nbsp;</span> Samples that did not complete processing<br>
 __EOT__
   unshift @details,div({&identify('instructions')},$instructions);
   print div({style => 'clear: both;'},NBSP);
   print div({class => 'boxed',style => 'float:left;width:100%'},
-            div({align => 'center'},h2('Image processing pipeline status')),br,
+            div({align => 'center'},
+                h2(a({href => '#',
+                      onclick => "showDetails('instructions')"},$APPLICATION))),
+                br,
             div({style => 'float: left;'},
                 div({style => 'float: left;'},
                     div({class => 'flow'},
@@ -279,9 +293,12 @@ sub stepContents
   my ($js,$state) = ('','');
   if ($items) {
     ($state,$js) = &generateHistograms($step,$href)
-      if ($step =~ /(?:Discovery|Tasking|Pipeline)/);
+      if ($step =~ /(?:Discovery|Tasking|Scheduling|Pipeline)/);
     if ($step eq 'Tasking') {
       $head = ['Sample ID','Discovery date']
+    }
+    if ($step eq 'Scheduling') {
+      $head = ['Sample ID','Tasking date']
     }
     elsif ($step eq 'tmog') {
       $head = ['Cross date','Line','Line 2','Effector','Type','Project','Barcode','Wish list'];
@@ -327,8 +344,11 @@ sub stepContents
                $badge);
   }
   $badge = $step . $badge if ($type ne 'queue');
+  my $style = $STEP{$step}{style} || '';
+  $style = '' unless ($type eq 'process');
   my $estep = $step . '_Error';
   if ($type eq 'process' && exists($href->{$estep})) {
+    # Error queue
     my %count;
     $count{$_->[1]}++ foreach @{$href->{$estep}};
     my $total = scalar @{$href->{$estep}};
@@ -341,7 +361,7 @@ sub stepContents
                     thead(Tr(th($head))),
                     tbody (map {Tr({class => $_->[1]},td($_))}
                            @{$href->{$estep}}));
-    $badge = div({class => $type,style => "float: left"},$badge);
+    $badge = div({class => $type,style => "float: left; $style"},$badge);
     my $badge2 = a({href => '#',
                     onclick => "showDetails('$type" . '_' . "$estep')"},
                    div({class => "badge badge-error"},$total));
@@ -352,7 +372,7 @@ sub stepContents
                 );
   }
   else {
-    $badge = div({class => $type},$badge);
+    $badge = div({class => $type,style => $style},$badge);
   }
   return($badge,
          div({&identify($type.'_'.$step),class => 'detailarea'},$table),
