@@ -50,6 +50,15 @@ SAMPLE => "SELECT t.event_type,t.description,t.event_timestamp FROM "
 ED => "SELECT parent_entity_id,entity_att,value FROM entityData ed "
       . "JOIN entity e ON (e.id=ed.parent_entity_id AND entity_type='Sample') "
       . "WHERE e.name=? ORDER BY 1,2",
+EED => "SELECT ed.id,e.name,entity_type,entity_att,value,child_entity_id FROM entityData ed "
+       . "JOIN entity e ON (e.id=ed.parent_entity_id) "
+       . "WHERE parent_entity_id=? ORDER BY 4",
+# ----------------------------------------------------------------------
+SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
+           . "(SELECT id FROM image_data_mv WHERE slide_code=? AND line=?)",
+# ----------------------------------------------------------------------
+FB_CT2 => "SELECT DATEDIFF(?,MAX(event_date)) FROM stock_event_history_vw "
+          . "WHERE cross_barcode=?",
 );
 my @TAB_ORDER = qw(line slide sample);
 
@@ -62,12 +71,28 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 my $SCICOMP = ($Session->param('scicomp'));
 
-our ($dbh);
+our ($dbh,$dbhf,$dbhs);
 # Connect to databases
 &dbConnect(\$dbh,'workstation')
   || &terminateProgram("Could not connect to Fly Portal: ".$DBI::errstr);
-$sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
-  foreach (keys %sth);
+&dbConnect(\$dbhf,'flyboy')
+  || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
+&dbConnect(\$dbhs,'sage')
+  || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
+foreach (keys %sth) {
+  if (/^SAGE_/) {
+    (my $n = $_) =~ s/SAGE_//;
+    $sth{$n} = $dbhs->prepare($sth{$_}) || &terminateProgram($dbhs->errstr);
+  }
+  elsif (/^FB_/) {
+    (my $n = $_) =~ s/FB_//;
+    $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr);
+  }
+  else {
+    $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
+  }
+
+}
 
 &showOutput();
 
@@ -89,7 +114,10 @@ sub showOutput
   # ----- Page header -----
   print &pageHead(),start_form;
   if (param('sample_id')) {
-    print &getRecord('sample',param('sample_id'));
+    print &getSample('sample',param('sample_id'));
+  }
+  elsif (param('entity_id')) {
+    print &getEntity(param('entity_id'),0);
   }
   else {
     print &showQuery();
@@ -189,30 +217,59 @@ sub showQuery {
 }
 
 
-sub getRecord
+sub getEntity
+{
+  my($id,$skip_header) = @_;
+  $sth{EED}->execute($id);
+  my $ar = $sth{EED}->fetchall_arrayref();
+  my ($name,$type) = ('')x2;
+  my %att;
+  my $html = '';
+  foreach (@$ar) {
+    unless ($name) {
+      ($name,$type) = ($_->[1],$_->[2]);
+      $html = h2($type . ": $name") . br unless ($skip_header);
+    }
+    if ($_->[3] eq 'Line') {
+      $_->[4] = a({href => "lineman.cgi?line=".$_->[4],
+                   target => '_blank'},$_->[4]);
+    }
+    elsif ($_->[3] eq 'Slide Code') {
+      $_->[4] = a({href => "/slide_search.php?term=slide_code&id=".$_->[4],
+                   target => '_blank'},$_->[4]);
+    }
+    elsif ($SCICOMP && ($_->[4] =~ /\.png$/)) {
+      (my $i = $_->[4]) =~ s/.+filestore\///;
+      $i = "/imagery_links/ws_imagery/$i";
+      $_->[4] .= NBSP . img({src => $i,
+                             width => '10%'});
+    }
+    # EID -> [attribute, value, child EID]
+    $att{$_->[0]} = [$_->[3],$_->[4],$_->[5]];
+  }
+  my $msg = h6('Attributes that are links may be followed to look at the child entity for that attribute.');
+  my $t = table({class => 'tablesorter standard'},
+                thead(Tr(th([qw(Attribute Value)]))),
+                tbody(map {my $l = ($att{$_}[2])
+                                   ? a({href => "?entity_id=".$att{$_}[2],
+                                        target => '_blank'},$att{$_}[0])
+                                   : $att{$_}[0];
+                           Tr(td([$l,$att{$_}[1]]))
+                          } sort {$att{$a}[0] cmp $att{$b}[0]} keys %att));
+  $html .= ($skip_header) ? ($t . $msg)
+                          : &bootstrapPanel("Entity ID $id",$t.$msg,'standard');
+  return($html);
+}
+
+
+sub getSample
 {
   my($type,$id) = @_;
   my $html = h2(ucfirst($type) . " $id") . br;
   $sth{ED}->execute($id);
   my $ar = $sth{ED}->fetchall_arrayref();
   my %sample;
-  foreach (@$ar) {
-    if ($_->[1] eq 'Line') {
-      $_->[2] = a({href => "lineman.cgi?line=".$_->[2],
-                   target => '_blank'},$_->[2]);
-    }
-    elsif ($_->[1] eq 'Slide Code') {
-      $_->[2] = a({href => "/slide_search.php?term=slide_code&id=".$_->[2],
-                   target => '_blank'},$_->[2]);
-    }
-    elsif ($SCICOMP && ($_->[2] =~ /\.png$/)) {
-      (my $i = $_->[2]) =~ s/.+filestore\///;
-      $i = "/imagery_links/ws_imagery/$i";
-      $_->[2] .= NBSP . img({src => $i,
-                             width => '10%'});
-    }
-    $sample{$_->[0]}{$_->[1]} = $_->[2];
-  }
+  $sample{$_->[0]}{$_->[1]} = $_->[2] foreach (@$ar);
   if (scalar(keys %sample) > 1) {
     my $msg = 'Found ' . scalar(keys %sample) .  " entities for $id" . br
               . 'Entities are shown most-recent first. Entities in '
@@ -227,15 +284,31 @@ sub getRecord
       $tasks = table({class => 'tablesorter standard'},
                      thead(Tr(th([qw(Event Description Date)]))),
                      tbody(map {Tr(td($_))} @$ar2));
+      my($last_event,$last_time) = ($ar2->[-1][0],$ar2->[-1][2]);
+      my($cross,$line,$slide) = ('')x2;
+      foreach $a (keys %sample) {
+        $cross = $sample{$a}{'Cross Barcode'} if (exists $sample{$a}{'Slide Code'});
+        $slide = $sample{$a}{'Slide Code'} if (exists $sample{$a}{'Slide Code'});
+        $line = $sample{$a}{Line} if (exists $sample{$a}{Line});
+      }
+      if ($last_event eq 'completed' && $line && $slide) {
+        $sth{CT}->execute($last_time,$slide,$line);
+        my($ct) = $sth{CT}->fetchrow_array();
+        if ($ct) {
+          my $c = sprintf 'tmog &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
+          $tasks .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
+        }
+        $sth{CT2}->execute($last_time,$cross);
+        ($ct) = $sth{CT2}->fetchrow_array();
+        if ($ct) {
+          my $c = sprintf 'Cross &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
+          $tasks .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
+        }
+      }
     }
     my $class = ($sample{$eid}{Status} eq 'Desync')
                 ? 'danger' : 'primary';
-    $html .= &bootstrapPanel("Entity ID $eid",
-                             table({class => 'tablesorter standard'},
-                                   thead(Tr(th([qw(Attribute Value)]))),
-                                   tbody(map {Tr(td([$_,$sample{$eid}{$_}]))}
-                                             sort keys %{$sample{$eid}}))
-                             . $tasks,$class);
+    $html .= &bootstrapPanel("Entity ID $eid",&getEntity($eid,1).$tasks,$class);
   }
   return($html);
 }
