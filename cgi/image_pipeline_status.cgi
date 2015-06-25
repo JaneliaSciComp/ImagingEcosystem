@@ -67,8 +67,8 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
              . "ip2.type='data_set') WHERE TIMESTAMPDIFF(HOUR,NOW(),"
              . "i.create_date) >= $WS_LIMIT_HOURS ORDER BY 6",
 # -----------------------
-WS_Tasking => "SELECT e.name,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Status') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
-WS_Pipeline => "SELECT e.name,t.description,t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type FROM task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id AND parameter_name='sample entity id') JOIN entity e ON (e.id=tp.parameter_value),(SELECT task_id,MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE x.task_id = t.task_id AND x.event_no = t.event_no AND TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 3",
+WS_Tasking => "SELECT e.name,ed1.value,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND ed.entity_att='Status') JOIN entityData ed1 ON (e.id=ed1.parent_entity_id AND ed1.entity_att='Data Set Identifier') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
+WS_Pipeline => "SELECT e.name,ed.value,t.description,t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type FROM task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id AND parameter_name='sample entity id') JOIN entity e ON (e.id=tp.parameter_value) JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Data Set Identifier'),(SELECT task_id,MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE x.task_id = t.task_id AND x.event_no = t.event_no AND TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 4",
 # -----------------------
 Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE type='cross_barcode'",
 WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
@@ -163,7 +163,7 @@ sub displayQueues
         $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
                      target => '_blank'},$_->[0]);
         if ($event eq 'created') {
-          splice(@$_,1,1);
+          splice(@$_,2,1);
           push @{$queue{Scheduling}},$_;
         }
         elsif ($event eq 'pending') {
@@ -178,10 +178,10 @@ sub displayQueues
         }
         elsif ($event eq 'error') {
           pop(@$_);
-          splice(@$_,1,0,'Unknown');
+          splice(@$_,2,0,'Unknown');
           if (exists $error{$sam}) {
-            $_->[1] = $error{$sam}[0];
-            $_->[2] = $error{$sam}[1];
+            $_->[2] = $error{$sam}[0];
+            $_->[3] = $error{$sam}[1];
           }
           push @{$process{Pipeline_Error}},$_;
         }
@@ -295,10 +295,10 @@ sub stepContents
     ($state,$js) = &generateHistograms($step,$href)
       if ($step =~ /(?:Discovery|Tasking|Scheduling|Pipeline)/);
     if ($step eq 'Tasking') {
-      $head = ['Sample ID','Discovery date']
+      $head = ['Sample ID','Data set','Discovery date']
     }
     if ($step eq 'Scheduling') {
-      $head = ['Sample ID','Tasking date']
+      $head = ['Sample ID','Data set','Tasking date']
     }
     elsif ($step eq 'tmog') {
       $head = ['Cross date','Line','Line 2','Effector','Type','Project','Barcode','Wish list'];
@@ -306,11 +306,11 @@ sub stepContents
     }
     elsif ($step eq 'Pipeline') {
       $head = ($type eq 'queue')
-        ? ['Sample ID','Tasking date']
-        : ['Sample ID','Description','Pipeline start'];
+        ? ['Sample ID','Data set','Tasking date']
+        : ['Sample ID','Data set','Description','Pipeline start'];
     }
     elsif ($step eq 'Complete') {
-      $head = ['Sample ID','Description','Completion date'];
+      $head = ['Sample ID','Data set','Description','Completion date'];
     }
     # Create export file
     my $link = &createExportFile($href->{$step},"_$step",$head);
@@ -350,16 +350,16 @@ sub stepContents
   if ($type eq 'process' && exists($href->{$estep})) {
     # Error queue
     my %count;
-    $count{$_->[1]}++ foreach @{$href->{$estep}};
+    $count{$_->[2]}++ foreach @{$href->{$estep}};
     my $total = scalar @{$href->{$estep}};
     $count{$_} = (sprintf '%.2f%%',$count{$_}/$total*100) foreach (keys %count);
-    $head = ['Sample ID','Class','Description','Error date'];
+    $head = ['Sample ID','Data set','Class','Description','Error date'];
     my $link = &createExportFile($href->{$estep},"_$estep",$head);
     $table2 = h3("$step process (Errors)") . $link 
               . &generateFilter($href->{$estep},\%count) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
                     thead(Tr(th($head))),
-                    tbody (map {Tr({class => $_->[1]},td($_))}
+                    tbody (map {Tr({class => $_->[2]},td($_))}
                            @{$href->{$estep}}));
     $badge = div({class => $type,style => "float: left; $style"},$badge);
     my $badge2 = a({href => '#',
@@ -472,7 +472,7 @@ sub generateFilter
 {
   my($arr,$href) = @_;
   my %filt;
-  $filt{$_->[1]}++ foreach (@$arr);
+  $filt{$_->[2]}++ foreach (@$arr);
   my $html = join((NBSP)x4,
                   map { checkbox(&identify('show_'.$_),
                                  -label => " $_ (".$href->{$_}.')',
