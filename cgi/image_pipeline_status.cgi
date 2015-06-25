@@ -5,7 +5,6 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
-use Data::Dumper;
 use DBI;
 use IO::File;
 use POSIX qw(ceil strftime);
@@ -38,13 +37,19 @@ my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 # ****************************************************************************
 # * Globals                                                                  *
 # ****************************************************************************
-
 # Export
 my $handle;
 # Database
 our ($dbh,$dbhf,$dbhw);
 my %sth = (
-FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,seh.cross_type,seh.lab_project,cross_barcode,seh.wish_list FROM stock_event_history_vw seh JOIN Project_Crosses pc ON (pc.__kp_ProjectCrosses_Serial_Number = cross_barcode) WHERE event='cross' AND seh.project='Fly Light' AND seh.lab_project != 'Truman' AND RedoCheckbox IS NULL AND TIMESTAMPDIFF(DAY,NOW(),event_date) BETWEEN -90 AND -14 ORDER BY event_date",
+FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,"
+           . "seh.cross_type,seh.lab_project,cross_barcode,seh.wish_list FROM "
+           . "stock_event_history_vw seh JOIN Project_Crosses pc ON "
+           . "(pc.__kp_ProjectCrosses_Serial_Number = cross_barcode) WHERE "
+           . "event='cross' AND seh.project='Fly Light' AND "
+           . "seh.lab_project != 'Truman' AND RedoCheckbox IS NULL AND "
+           . "TIMESTAMPDIFF(DAY,NOW(),event_date) BETWEEN -90 AND -14 "
+           . "ORDER BY event_date",
 # -----------------------
 Indexing => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,i.create_date '
             . 'FROM image_vw i JOIN image_property_vw ip1 ON '
@@ -66,17 +71,58 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
              . 'JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND '
              . "ip2.type='data_set') WHERE TIMESTAMPDIFF(HOUR,NOW(),"
              . "i.create_date) >= $WS_LIMIT_HOURS ORDER BY 6",
-# -----------------------
-WS_Tasking => "SELECT e.name,ed1.value,e.creation_date,TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id AND ed.entity_att='Status') JOIN entityData ed1 ON (e.id=ed1.parent_entity_id AND ed1.entity_att='Data Set Identifier') WHERE e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL AND e.name NOT LIKE '%~%'",
-WS_Pipeline => "SELECT e.name,ed.value,t.description,t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type FROM task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id AND parameter_name='sample entity id') JOIN entity e ON (e.id=tp.parameter_value) JOIN entityData ed ON (e.id=ed.parent_entity_id AND entity_att='Data Set Identifier'),(SELECT task_id,MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE x.task_id = t.task_id AND x.event_no = t.event_no AND TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 4",
-# -----------------------
-Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE type='cross_barcode'",
+# -----------------------------------------------------------------------------
+WS_Tasking => "SELECT e.name,ed1.value,e.creation_date,"
+              . "TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e "
+              . "LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id "
+              . "AND ed.entity_att='Status') JOIN entityData ed1 ON "
+              . "(e.id=ed1.parent_entity_id AND "
+              . "ed1.entity_att='Data Set Identifier') WHERE "
+              . "e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),"
+              . "e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL "
+              . "AND e.name NOT LIKE '%~%' ORDER BY 3",
+WS_Pipeline => "SELECT e.name,ed.value,t.description,t.event_timestamp,"
+               . "TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type "
+               . "FROM task_event t JOIN task_parameter tp ON "
+               . "(tp.task_id=t.task_id AND parameter_name='sample entity id') "
+               . "JOIN entity e ON (e.id=tp.parameter_value) JOIN "
+               . "entityData ed ON (e.id=ed.parent_entity_id AND "
+               . "entity_att='Data Set Identifier'),(SELECT task_id,"
+               . "MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE "
+               . "x.task_id = t.task_id AND x.event_no = t.event_no AND "
+               . "TIMESTAMPDIFF(HOUR,NOW(),"
+               . "t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 4",
+# -----------------------------------------------------------------------------
+Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE "
+           . "type='cross_barcode'",
 WS_Entity => "SELECT id FROM entity WHERE entity_type='LSM stack' AND name=?",
-WS_Error => "SELECT s.name,IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON ssed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error' AND s.name NOT LIKE '%~%' UNION SELECT s.name, IFNULL(ced.value,'UnclassifiedError') classification, ded.value description FROM entity e LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND ced.entity_att='Classification' LEFT OUTER JOIN entityData ded ON ded.parent_entity_id=e.id AND ded.entity_att='Description' JOIN entityData pred ON pred.child_entity_id=e.id JOIN entityData ssed ON pred.parent_entity_id=ssed.child_entity_id JOIN entityData sed ON ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON sed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE e.entity_type='Error'",
+WS_Error => "SELECT s.name,IFNULL(ced.value,'UnclassifiedError') "
+            . "classification, ded.value description FROM entity e "
+            . "LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND "
+            . "ced.entity_att='Classification' LEFT OUTER JOIN entityData ded "
+            . "ON ded.parent_entity_id=e.id AND ded.entity_att='Description' "
+            . "JOIN entityData pred ON pred.child_entity_id=e.id JOIN "
+            . "entityData ssed ON pred.parent_entity_id=ssed.child_entity_id "
+            . "JOIN entityData sed ON "
+            . "ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON "
+            . "ssed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE "
+            . "e.entity_type='Error' AND s.name NOT LIKE '%~%' UNION "
+            . "SELECT s.name, IFNULL(ced.value,'UnclassifiedError') "
+            . "classification, ded.value description FROM entity e "
+            . "LEFT OUTER JOIN entityData ced ON ced.parent_entity_id=e.id AND "
+            . "ced.entity_att='Classification' LEFT OUTER JOIN entityData ded "
+            . "ON ded.parent_entity_id=e.id AND ded.entity_att='Description' "
+            . "JOIN entityData pred ON pred.child_entity_id=e.id JOIN "
+            . "entityData ssed ON pred.parent_entity_id=ssed.child_entity_id "
+            . "JOIN entityData sed ON "
+            . "ssed.parent_entity_id=sed.child_entity_id JOIN entity s ON "
+            . "sed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE "
+            . "e.entity_type='Error'",
 );
 
-
-
+# ****************************************************************************
+# * Main                                                                     *
+# ****************************************************************************
 # Session authentication
 my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
@@ -89,6 +135,10 @@ my $SCICOMP = ($Session->param('scicomp'));
 
 exit(0);
 
+
+# ****************************************************************************
+# * Subroutines                                                              *
+# ****************************************************************************
 
 sub initializeProgram
 {
