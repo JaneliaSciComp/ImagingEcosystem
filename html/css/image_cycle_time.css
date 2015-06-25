@@ -1,0 +1,38 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+table.standard {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.standard th {
+  background: #e7e7e7;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  text-align: left;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.tooltip .tooltip-inner {
+  background-color: #52b447;
+}
+
+.btn-primary {
+  background-color: #058D95;
+}
+
+.btn-success {
+  background-color: #52B447;
+}
