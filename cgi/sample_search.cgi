@@ -241,8 +241,11 @@ sub getEntity
     elsif ($SCICOMP && ($_->[4] =~ /\.png$/)) {
       (my $i = $_->[4]) =~ s/.+filestore\///;
       $i = "/imagery_links/ws_imagery/$i";
-      $_->[4] .= NBSP . img({src => $i,
-                             width => '10%'});
+      $_->[4] .= NBSP
+                 . a({href => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
+                      target => '_blank'},
+                     img({src => $i,
+                          width => '10%'}));
     }
     # EID -> [attribute, value, child EID]
     $att{$_->[0]} = [$_->[3],$_->[4],$_->[5]];
