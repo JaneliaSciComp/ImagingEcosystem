@@ -43,10 +43,10 @@ SLIDESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
 LINESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
            . "(e.id=ed.parent_entity_id AND ed.entity_att='Line') "
            . "WHERE ed.value LIKE ? AND e.entity_type='Sample'",
-SAMPLE => "SELECT t.event_type,t.description,t.event_timestamp FROM "
-          . "task_event t JOIN task_parameter tp ON (tp.task_id=t.task_id "
-          . "AND parameter_name='sample entity id') "
-          . "WHERE tp.parameter_value=? ORDER BY 3",
+SAMPLE => "SELECT te.event_type,t.job_name,te.description,te.event_timestamp FROM "
+          . "task_event te JOIN task_parameter tp ON (tp.task_id=te.task_id "
+          . "AND parameter_name='sample entity id') JOIN task t ON "
+          . "(t.task_id=te.task_id) WHERE tp.parameter_value=? ORDER BY 4",
 ED => "SELECT parent_entity_id,entity_att,value FROM entityData ed "
       . "JOIN entity e ON (e.id=ed.parent_entity_id AND entity_type='Sample') "
       . "WHERE e.name=? ORDER BY 1,2",
@@ -54,6 +54,8 @@ EED => "SELECT ed.id,e.name,entity_type,entity_att,value,child_entity_id FROM en
        . "JOIN entity e ON (e.id=ed.parent_entity_id) "
        . "WHERE parent_entity_id=? ORDER BY 4",
 # ----------------------------------------------------------------------
+SAGE_LSMS => "SELECT family,name,area,tile FROM image_data_mv WHERE "
+             . "slide_code=? AND line=? ORDER BY 1",
 SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
            . "(SELECT id FROM image_data_mv WHERE slide_code=? AND line=?)",
 # ----------------------------------------------------------------------
@@ -284,28 +286,46 @@ sub getSample
     my $ar2 = $sth{uc($type)}->fetchall_arrayref();
     my $tasks = '';
     if (scalar @$ar2) { 
-      $tasks = table({class => 'tablesorter standard'},
-                     thead(Tr(th([qw(Event Description Date)]))),
-                     tbody(map {Tr(td($_))} @$ar2));
-      my($last_event,$last_time) = ($ar2->[-1][0],$ar2->[-1][2]);
+      foreach (@$ar2) {
+        $_->[1] = a({href => "/flow_ws.php?flow=$_->[1]",
+                     target => '_blank'},$_->[1]) if ($_->[1]);
+      }
+      $tasks = h3('Task events')
+               . table({class => 'tablesorter standard'},
+                       thead(Tr(th([qw(Event Job Description Date)]))),
+                       tbody(map {Tr(td($_))} @$ar2));
+      my($last_event,$last_time) = ($ar2->[-1][0],$ar2->[-1][3]);
       my($cross,$line,$slide) = ('')x2;
       foreach $a (keys %sample) {
         $cross = $sample{$a}{'Cross Barcode'} if (exists $sample{$a}{'Slide Code'});
         $slide = $sample{$a}{'Slide Code'} if (exists $sample{$a}{'Slide Code'});
         $line = $sample{$a}{Line} if (exists $sample{$a}{Line});
       }
-      if ($last_event eq 'completed' && $line && $slide) {
-        $sth{CT}->execute($last_time,$slide,$line);
-        my($ct) = $sth{CT}->fetchrow_array();
-        if ($ct) {
-          my $c = sprintf 'tmog &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
-          $tasks .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
-        }
-        $sth{CT2}->execute($last_time,$cross);
-        ($ct) = $sth{CT2}->fetchrow_array();
-        if ($ct) {
-          my $c = sprintf 'Cross &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
-          $tasks .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
+      if ($line && $slide) {
+        $sth{LSMS}->execute($slide,$line);
+        $ar = $sth{LSMS}->fetchall_arrayref();
+        $tasks .= h3('Associated LSM files')
+                  . table({class => 'tablesorter standard'},
+                          thead(Tr(td(['Name','Area','Tile']))),
+                          tbody(map {$a = a({href => "view_sage_imagery.cgi?_op=stack;_family=$_->[0];_image=$_->[1]",
+                                             target => '_blank'},$_->[1]);
+                                     Tr(td([$a,$_->[2],$_->[3]]) )
+                                    } @$ar)) if (scalar @$ar);
+        if ($last_event eq 'completed' && $line && $slide) {
+          my $ctm;
+          $sth{CT}->execute($last_time,$slide,$line);
+          my($ct) = $sth{CT}->fetchrow_array();
+          if ($ct) {
+            my $c = sprintf 'tmog &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
+            $ctm .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
+          }
+          $sth{CT2}->execute($last_time,$cross);
+          ($ct) = $sth{CT2}->fetchrow_array();
+          if ($ct) {
+            my $c = sprintf 'Cross &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
+            $ctm .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
+          }
+          $tasks .= h3('Cycle time') . $ctm if ($ctm);
         }
       }
     }
