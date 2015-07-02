@@ -7,7 +7,6 @@ use CGI::Session;
 use CGI::Carp qw(fatalsToBrowser);
 use DBI;
 use XML::Simple;
-
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
@@ -50,11 +49,11 @@ SAMPLE => "SELECT te.event_type,t.job_name,te.description,te.event_timestamp FRO
 ED => "SELECT parent_entity_id,entity_att,value FROM entityData ed "
       . "JOIN entity e ON (e.id=ed.parent_entity_id AND entity_type='Sample') "
       . "WHERE e.name=? ORDER BY 1,2",
-EED => "SELECT ed.id,e.name,entity_type,entity_att,value,child_entity_id FROM entityData ed "
-       . "JOIN entity e ON (e.id=ed.parent_entity_id) "
-       . "WHERE parent_entity_id=? ORDER BY 4",
+EED => "SELECT ed.id,e.name,e.entity_type,ed.entity_att,ed.value,ed.child_entity_id,e1.entity_type FROM entity e "
+       . "LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id) LEFT OUTER JOIN entity e1 ON (e1.id=ed.child_entity_id) "
+       . "WHERE e.id=? ORDER BY 4",
 # ----------------------------------------------------------------------
-SAGE_LSMS => "SELECT family,name,area,tile FROM image_data_mv WHERE "
+SAGE_LSMS => "SELECT family,name,objective,area,tile FROM image_data_mv WHERE "
              . "slide_code=? AND line=? ORDER BY 1",
 SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
            . "(SELECT id FROM image_data_mv WHERE slide_code=? AND line=?)",
@@ -224,10 +223,12 @@ sub getEntity
   my($id,$skip_header) = @_;
   $sth{EED}->execute($id);
   my $ar = $sth{EED}->fetchall_arrayref();
+  # Entity ID, name, entity type, entity attribute, value, child entity ID
   my ($name,$type) = ('')x2;
   my %att;
   my $html = '';
   foreach (@$ar) {
+    my $cet = pop @$_;
     unless ($name) {
       ($name,$type) = ($_->[1],$_->[2]);
       $html = h2($type . ": $name") . br unless ($skip_header);
@@ -239,6 +240,9 @@ sub getEntity
     elsif ($_->[3] eq 'Slide Code') {
       $_->[4] = a({href => "/slide_search.php?term=slide_code&id=".$_->[4],
                    target => '_blank'},$_->[4]);
+    }
+    elsif ($_->[3] eq 'Entity' && length($cet)) {
+      $_->[3] = "Entity ($cet)";
     }
     elsif ($SCICOMP && ($_->[4] =~ /\.png$/)) {
       (my $i = $_->[4]) =~ s/.+filestore\///;
@@ -252,17 +256,24 @@ sub getEntity
     # EID -> [attribute, value, child EID]
     $att{$_->[0]} = [$_->[3],$_->[4],$_->[5]];
   }
-  my $msg = h6('Attributes that are links may be followed to look at the child entity for that attribute.');
-  my $t = table({class => 'tablesorter standard'},
-                thead(Tr(th([qw(Attribute Value)]))),
-                tbody(map {my $l = ($att{$_}[2])
-                                   ? a({href => "?entity_id=".$att{$_}[2],
-                                        target => '_blank'},$att{$_}[0])
-                                   : $att{$_}[0];
-                           Tr(td([$l,$att{$_}[1]]))
-                          } sort {$att{$a}[0] cmp $att{$b}[0]} keys %att));
-  $html .= ($skip_header) ? ($t . $msg)
-                          : &bootstrapPanel("Entity ID $id",$t.$msg,'standard');
+  if (scalar keys %att > 1) {
+    my $msg = h6('Attributes that are links may be followed to look at the child entity for that attribute.');
+    my $t = table({class => 'tablesorter standard'},
+                  thead(Tr(th([qw(Attribute Value)]))),
+                  tbody(map {my $l = ($att{$_}[2])
+                                     ? a({href => "?entity_id=".$att{$_}[2],
+                                          target => '_blank'},$att{$_}[0])
+                                     : $att{$_}[0];
+                             Tr(td([$l,$att{$_}[1]]))
+                            } sort {$att{$a}[0] cmp $att{$b}[0]} keys %att));
+    $html .= ($skip_header) ? ($t . $msg)
+                            : &bootstrapPanel("Entity ID $id",$t.$msg,'standard');
+  }
+  else {
+    my $msg = h4('This entity has no attributes');
+    $html .= ($skip_header) ? $msg
+                            : &bootstrapPanel("Entity ID $id",$msg,'standard');
+  }
   return($html);
 }
 
@@ -306,10 +317,10 @@ sub getSample
         $ar = $sth{LSMS}->fetchall_arrayref();
         $tasks .= h3('Associated LSM files')
                   . table({class => 'tablesorter standard'},
-                          thead(Tr(td(['Name','Area','Tile']))),
+                          thead(Tr(td(['Name','Objective','Area','Tile']))),
                           tbody(map {$a = a({href => "view_sage_imagery.cgi?_op=stack;_family=$_->[0];_image=$_->[1]",
                                              target => '_blank'},$_->[1]);
-                                     Tr(td([$a,$_->[2],$_->[3]]) )
+                                     Tr(td([$a,@$_[2,3,4]]) )
                                     } @$ar)) if (scalar @$ar);
         if ($last_event eq 'completed' && $line && $slide) {
           my $ctm;
