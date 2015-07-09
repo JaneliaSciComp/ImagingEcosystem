@@ -256,7 +256,7 @@ sub getEntity
     # EID -> [attribute, value, child EID]
     $att{$_->[0]} = [$_->[3],$_->[4],$_->[5]];
   }
-  if (scalar keys %att > 1) {
+  if (scalar keys %att) {
     my $msg = h6('Attributes that are links may be followed to look at the child entity for that attribute.');
     my $t = table({class => 'tablesorter standard'},
                   thead(Tr(th([qw(Attribute Value)]))),
