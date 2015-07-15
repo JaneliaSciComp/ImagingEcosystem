@@ -34,14 +34,19 @@ SLIDES => "SELECT DISTINCT value FROM entityData WHERE "
           . "entity_att='slide code' ORDER BY 1",
 LINES => "SELECT DISTINCT value FROM entityData WHERE entity_att='line' "
          . "ORDER BY 1",
+DATASETS => "SELECT DISTINCT value FROM entityData WHERE entity_att='Data Set Identifier' "
+           . "ORDER BY 1",
 SAMPLESUM => "SELECT name FROM entity WHERE entity_type='Sample' AND "
              . "name LIKE ? AND name NOT LIKE '%~%' ORDER BY 1",
 SLIDESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
             . "(e.id=ed.parent_entity_id AND ed.entity_att='Slide Code') "
-            . "WHERE ed.value LIKE ? AND e.entity_type='Sample'",
+            . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
 LINESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
            . "(e.id=ed.parent_entity_id AND ed.entity_att='Line') "
-           . "WHERE ed.value LIKE ? AND e.entity_type='Sample'",
+           . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+DATASETSUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
+           . "(e.id=ed.parent_entity_id AND ed.entity_att='Data Set Identifier') "
+           . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
 SAMPLE => "SELECT te.event_type,t.job_name,te.description,te.event_timestamp FROM "
           . "task_event te JOIN task_parameter tp ON (tp.task_id=te.task_id "
           . "AND parameter_name='sample entity id') JOIN task t ON "
@@ -61,7 +66,7 @@ SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
 FB_CT2 => "SELECT DATEDIFF(?,MAX(event_date)) FROM stock_event_history_vw "
           . "WHERE cross_barcode=?",
 );
-my @TAB_ORDER = qw(line slide sample);
+my @TAB_ORDER = qw(line slide dataset sample);
 
 # ****************************************************************************
 # * Main                                                                     *
@@ -141,6 +146,9 @@ sub showQuery {
              line => {active => '',
                       title => 'Search by line',
                       populate => 'LINES'},
+             dataset => {active => '',
+                         title => 'Search by data set',
+                         populate => 'DATASETS'},
             );
   my $found = 0;
   # Set active search
