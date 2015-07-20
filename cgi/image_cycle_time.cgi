@@ -11,6 +11,7 @@ use Getopt::Long;
 use IO::File;
 use POSIX qw(ceil strftime);
 use Statistics::Basic qw(:all);
+use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
@@ -46,7 +47,7 @@ my $Session;
 our ($dbh,$dbhw);
 # General
 my %summary;
-my ($CHART,$MEASUREMENT,$MODE,$UNIT);
+my ($BIN,$CHART,$MEASUREMENT,$MODE,$UNIT);
 
 # ****************************************************************************
 my $RUNMODE = ('apache' eq getpwuid($<)
@@ -61,10 +62,11 @@ if ($RUNMODE eq 'web') {
   $USERNAME = $Session->param('user_name');
   $change_startdate = param('start') if (param('start'));
   $change_stopdate = param('stop') if (param('stop'));
-  $CHART = param('chart') || 'areaspline';
-  $MODE = param('mode') || 'percent';
   $UNIT = param('unit') || 'LSMs';
   $MEASUREMENT = param('measurement') || 'discovered';
+  $CHART = param('chart') || 'areaspline';
+  $MODE = param('mode') || 'percent';
+  $BIN = param('bin') || '';
 }
 else {
 GetOptions('start=s' => \$change_startdate,
@@ -84,17 +86,23 @@ my $SUBTITLE = "All samples imaged $STARTDATE - $STOPDATE";
 my $TERM = ($STARTDATE eq $STOPDATE)
   ? "DATE(i.create_date)='$STARTDATE'"
   : "DATE(i.create_date) BETWEEN '$STARTDATE' AND '$STOPDATE'";
+my $q;
 if ($UNIT eq 'Lines') {
-  $TERM .= ' GROUP BY 1';
+  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line, create_date DESC) x GROUP BY line";
 }
 elsif ($UNIT eq 'Samples') {
-  $TERM .= ' GROUP BY 1,2,3';
+  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line,ip1.value,create_date DESC) x GROUP BY line,slidecode";
 }
+else {
+  $q = "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY 5";
+}
+$TERM =~ s/i.create_date/ed1.value/g;
 my %sth = (
-tmog => "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY 5",
+tmog => $q,
 # -----------------------------------------------------------------------------
+WS_full => "SELECT 'line','slidecode','dataset',name,ed1.value AS tmogged,e.creation_date,ed2.value AS completed,TIMESTAMPDIFF(HOUR,ed1.value,ed2.value) AS ct FROM entity e JOIN entityData siEd on siEd.parent_entity_id=e.id and siEd.entity_att='SAGE Id' LEFT OUTER JOIN entityData ed1 ON (e.id=ed1.parent_entity_id AND ed1.entity_att='TMOG Date') LEFT OUTER JOIN entityData ed2 ON (e.id=ed2.parent_entity_id AND ed2.entity_att='Completion Date') WHERE entity_type='LSM Stack' AND $TERM ORDER BY 5",
 WS_exists => "SELECT creation_date,TIMESTAMPDIFF(HOUR,?,creation_date) FROM entity WHERE entity_type='LSM Stack' AND name=?",
-WS_entity => "SELECT e.id,name,ed3.value FROM entity e JOIN entityData ed1 ON (e.id=ed1.parent_entity_id AND ed1.entity_att='Line' AND ed1.value=?) JOIN entityData ed2 ON (e.id=ed2.parent_entity_id AND ed2.entity_att='Slide Code' AND ed2.value=?) LEFT OUTER JOIN entityData ed3 ON (e.id=ed3.parent_entity_id AND ed3.entity_att='Status') WHERE entity_type='Sample' AND name NOT LIKE '%-Retired' AND name NOT LIKE '%~%' ORDER BY e.id DESC",
+WS_entity => "SELECT ed2.value,TIMESTAMPDIFF(HOUR,?,ed2.value) FROM entity e JOIN entityData siEd on siEd.parent_entity_id=e.id and siEd.entity_att='SAGE Id'  LEFT OUTER JOIN entityData ed2 ON (e.id=ed2.parent_entity_id AND ed2.entity_att='Completion Date') WHERE entity_type='LSM Stack' AND name LIKE ?",
 );
 
 
@@ -169,27 +177,30 @@ __EOT__
                  popup_menu(&identify('unit'),
                             -values => [qw(LSMs Samples Lines)],
                             -default => 'LSMs'));
-  $dd = {'discovered' => 'tmog -> Workstation discovery',};
-#         'completed processing' => 'tmog -> Workstation completion'};
+  $dd = {'discovered' => 'tmog -> Workstation discovery',
+         'completed processing' => 'tmog -> Workstation completion'};
   my $meas = div({-id => 'meas_dropdown'},
                  popup_menu(&identify('measurement'),
                             -values => [sort keys %$dd],
                             -labels => $dd,
-                            -default => 'tmog -> Workstation discovery'));
+                            -default => 'completed processing'));
+  my $bin = div({-id => 'bin_dropdown'},
+                popup_menu(&identify('bin'),
+                           -values => ['Day','Week','Month'],
+                           -default => 'Day'));
   print table(Tr(th('Start date'),
                  td(input({&identify('start'),
                            value => $STARTDATE}))),
               Tr(th('Stop date'),
                  td(input({&identify('stop'),
                            value => $STOPDATE}))),
+              Tr(th('Units to graph'),td($unit)),
+              Tr(th('Measurement'),td($meas)),
+              Tr(th('Binning'),td($bin)),
               Tr(th({valign => 'top'},'Graph mode:'),
                  td($radio)),
               Tr(th({valign => 'top'},'Chart type'),
                  td($dropdown)),
-              Tr(th({valign => 'top'},'Units to graph'),
-                 td($unit)),
-              Tr(th({valign => 'top'},'Measurement'),
-                 td($meas)),
              ),br,
         div({align => 'center'},
             submit({&identify('submit'),
@@ -203,31 +214,59 @@ sub displayCompletionStatus
 {
   &printHeader() if ($RUNMODE eq 'web');
   my (%hash,%total);
+  my @delta;
   my @export;
   $sth{tmog}->execute();
   my $ar = $sth{tmog}->fetchall_arrayref();
-  my $minimum = 2;
-  my $maximum = 54;
+  if ($MEASUREMENT ne 'discovered') {
+    my @arr = &measureCompletion($ar);
+    $ar = \@arr;
+  }
   foreach (@$ar) {
-    # Line, slide code, data set, name, date
+    if ($MEASUREMENT ne 'discovered') {
+      foreach my $i (4..6) {
+        next unless ($_->[$i]);
+        $_->[$i] =~ s/T/ /;
+        $_->[$i] =~ s/-\d+:\d+$//;
+      }
+    }
+    # Line, slide code, data set, name, TMOG date
     (my $name = $_->[3]) =~ s/.*\///;
     (my $date = $_->[4]) =~ s/ .*//;
-#$date =~ s/-\d+$//;
-    # ********************* Testing *********************
-    my $days = $minimum + int(rand($maximum - $minimum));
-    # ***************************************************
-    $sth{exists}->execute($_->[4],$name);
-    my($cd,$delta) = $sth{exists}->fetchrow_array();
+    if ($BIN eq 'Month') {
+      $date =~ s/-\d+$//;
+    }
+    elsif ($BIN eq 'Week') {
+      my @f = split(/-/,$date);
+      my $epoch_secs = timelocal(2,2,2,$f[2],$f[1]-1,$f[0]);
+      my $nd = strftime( "%Y-%V",localtime($epoch_secs));
+      $date = $nd;
+    }
+    # Get cycle end date and delta
+    my ($cd,$delta);
+    if ($MEASUREMENT eq 'discovered') {
+      $sth{exists}->execute($_->[4],$name);
+      ($cd,$delta) = $sth{exists}->fetchrow_array();
+    }
+    else {
+      ($cd,$delta) = ($_->[-2],$_->[-1]);
+      $_->[-3] = $_->[-2];
+      pop(@$_); pop(@$_); pop(@$_);
+    }
+    if ($cd) {
+      push @delta,$delta;
+    }
+    # ----------------------------
     my $unprocessed = ($cd) ? 0 : 1;
     $total{$date}++;
     $hash{$date}{Unprocessed}++ if ($MODE eq 'percent');
     push @export,[@$_,$cd,$delta];
+    my $days;
     if ($unprocessed) {
       $hash{$date}{Unprocessed}++ if ($MODE =~ /^abs/);
       $summary{Unprocessed}++;
     }
     else {
-      $days /= 24;
       $days = $delta / 24;
       $hash{$date}{99}++ if ($MODE eq 'percent');
       if ($days > 2) {
@@ -262,19 +301,27 @@ sub displayCompletionStatus
   }
   # Build HTML
   if ($RUNMODE eq 'web') {
-    my $html = '';
+    my $html = br;
     # Export file
+    my $title = ($MEASUREMENT eq 'discovered') ? 'Discovered' : 'Completed';
     my $export = &createExportFile(\@export,'cycle_time',
                                    ['Line','Slide code','Data set','Image',
-                                    'tmog date','Completed','Delta (hours)']);
+                                    'tmog date',$title,'Delta (hours)']);
     # Table
     my @row = (Tr(th($UNIT),td(scalar(@$ar))));
-    push @row,Tr(th('Unprocessed'),td($summary{Unprocessed}))
+    $title = ($MEASUREMENT eq 'discovered') ? 'Undiscovered' : 'Unprocessed';
+    push @row,Tr(th($title),td($summary{Unprocessed}))
       if (exists $summary{Unprocessed});
     push @row,Tr(th('> 2 days'),td($summary{99})) if (exists $summary{99});
     push @row,Tr(th('<= 2 days'),td($summary{2})) if (exists $summary{2});
     push @row,Tr(th('<= 1 day'),td($summary{1})) if (exists $summary{1});
-    my $table = div({style => 'float: left; margin: 140px 10px 0 0;'},
+    $title = ($MEASUREMENT eq 'discovered') ? 'Discovery' : 'Completion';
+    push @row,Tr(td({style => 'padding-top: 15px',
+                     colspan => 2},"$title time (days)")),
+              Tr(th("Average"),td(&toDay(mean(\@delta)))),
+              Tr(th("Median"),td(&toDay(median(@delta)))),
+              Tr(th("&sigma;"),td(&toDay(stddev(@delta))));
+    my $table = div({style => 'float: left; margin: 60px 10px 0 0;'},
                     table({class => 'summary'},@row),
                     br,$export);
     # Charts
@@ -293,6 +340,44 @@ sub displayCompletionStatus
     $html .= div({style => 'clear: both'},'');
     print $html,end_form,&sessionFooter($Session),end_html;
   }
+}
+
+
+sub toDay
+{
+  my $num = shift;
+  sprintf '%.2f',($num/24);
+}
+
+
+sub measureCompletion
+{
+  my($ar) = shift;
+  # Line, slide code, data set, name, TMOG date
+  my %lookup;
+  my @arr;
+  foreach (@$ar) {
+    (my $name = $_->[3]) =~ s/.+\///;
+    $name =~ s/\.bz2//;
+    $lookup{$name} = $_;
+  }
+  $sth{full}->execute();
+  $ar = $sth{full}->fetchall_arrayref();
+  # Line, slide code, data set, name, TMOG date, discovery date,
+  # completion date, cycle time
+  foreach my $row (@$ar) {
+    my $name = $row->[3];
+    if (exists $lookup{$name}) {
+      $row->[$_] = $lookup{$name}[$_]
+        foreach(0..3);
+      push @arr,[@$row];
+      delete $lookup{$name};
+    }
+  }
+  push @arr,[@{$lookup{$_}},'','','']
+    foreach (keys %lookup);
+  @arr = sort {$a->[4] cmp $b->[4]} @arr;
+  return(@arr);
 }
 
 
@@ -418,13 +503,8 @@ sub createExportFile
   print $handle join("\t",@$head) . "\n";
   foreach (@$ar) {
     my @l = @$_;
-    foreach my $i (1) {
-      if ($l[$i] =~ /href/) {
-        $l[$i] =~ s/.+=//;
-        $l[$i] =~ s/".+//;
-      }
-    }
-    $l[4] ||= ''; # Cross barcode
+    $l[5] ||= '';
+    $l[6] ||= '';
     print $handle join("\t",@l) . "\n";
   }
   $handle->close;
