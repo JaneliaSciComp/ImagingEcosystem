@@ -36,17 +36,10 @@ LINES => "SELECT DISTINCT value FROM entityData WHERE entity_att='line' "
          . "ORDER BY 1",
 DATASETS => "SELECT DISTINCT value FROM entityData WHERE entity_att='Data Set Identifier' "
            . "ORDER BY 1",
-SAMPLESUM => "SELECT name FROM entity WHERE entity_type='Sample' AND "
-             . "name LIKE ? AND name NOT LIKE '%~%' ORDER BY 1",
-SLIDESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
-            . "(e.id=ed.parent_entity_id AND ed.entity_att='Slide Code') "
-            . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
-LINESUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
-           . "(e.id=ed.parent_entity_id AND ed.entity_att='Line') "
-           . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
-DATASETSUM => "SELECT DISTINCT e.name FROM entity e JOIN entityData ed ON "
-           . "(e.id=ed.parent_entity_id AND ed.entity_att='Data Set Identifier') "
-           . "WHERE ed.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+SAMPLESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE e.name LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+SLIDESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE eds.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+LINESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE edl.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+DATASETSUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE edd.value=? AND e.entity_type='Sample' ORDER BY 1",
 SAMPLE => "SELECT te.event_type,t.job_name,te.description,te.event_timestamp FROM "
           . "task_event te JOIN task_parameter tp ON (tp.task_id=te.task_id "
           . "AND parameter_name='sample entity id') JOIN task t ON "
@@ -75,7 +68,9 @@ my @TAB_ORDER = qw(line slide dataset sample);
 # Session authentication
 my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
-my $SCICOMP = ($Session->param('scicomp'));
+our $SCICOMP = ($Session->param('scicomp'));
+our $USERID = $Session->param('user_id');
+our $USERNAME = $Session->param('user_name');
 
 our ($dbh,$dbhf,$dbhs);
 # Connect to databases
@@ -138,14 +133,11 @@ sub showQuery {
   my $html = '';
   my $ar;
   my %tab = (sample => {active => '',
-                        title => 'Search by Sample ID',
-                        populatex => 'SAMPLES'},
+                        title => 'Search by Sample ID'},
              slide => {active => '',
-                       title => 'Search by slide code',
-                       populate => 'SLIDES'},
-             line => {active => '',
-                      title => 'Search by line',
-                      populate => 'LINES'},
+                       title => 'Search by slide code'},
+             line => {active => 1,
+                      title => 'Search by line'},
              dataset => {active => '',
                          title => 'Search by data set',
                          populate => 'DATASETS'},
@@ -165,8 +157,7 @@ sub showQuery {
   }
   $tab{line}{active} = 'active' unless ($found);
   foreach (@TAB_ORDER) {
-    next if ($active_search && !param($_ . '_search'));
-    if (exists $tab{$_}{populate} && !param($_ . '_search')) {
+    if (exists $tab{$_}{populate}) {
       $sth{$tab{$_}{populate}}->execute();
       $ar = $sth{$tab{$_}{populate}}->fetchall_arrayref();
       $tab{$_}{content} = ucfirst($_) . ': '
@@ -195,17 +186,39 @@ sub showQuery {
       $ar = $sth{$cur}->fetchall_arrayref();
       if (scalar @$ar) {
         my $t = $_;
+        my @row;
+        my @header = ('Sample','Line','Slide code','Data set');
+        push @header,'Default image' if ($USERID eq 'svirskasr');
+        foreach my $r (@$ar) {
+          if ($USERID eq 'svirskasr') {
+            (my $i = $r->[4]) =~ s/.+filestore\///;
+            if ($i) {
+              $i = "/imagery_links/ws_imagery/$i";
+              $r->[4] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[4]",
+                           target => '_blank'},
+                          img({src => $i,
+                               width => '10%'}));
+            }
+            else {
+              $r->[4] = '(no image found)';
+            }
+          }
+          else {
+            pop @$r;
+          }
+          push @row,td([a({href => "?sample_id=".$r->[0]},$r->[0]),@{$r}[1..$#$r]]);
+        }
         $tab{$_}{content} .= br
                              . 'Number of records: ' . scalar(@$ar)
                              . table({class => 'tablesorter standard'},
-                                     thead(Tr(th('Sample'))),
-                                     tbody(map {Tr(td(a({href => "?sample_id=".$_->[0]},$_->[0])))} @$ar));
+                                     thead(Tr(th(\@header))),
+                                     tbody(map {Tr($_)} @row));
       }
       else {
         $tab{$_}{content} .= br
                              . &bootstrapPanel('Not found',ucfirst(lc($_))
                                                . " IDs containing "
-                                               . param($_ . '_id')
+                                               . param($_ . '_idi')
                                                . " were not found",'danger');
       }
     }
@@ -293,6 +306,7 @@ sub getSample
   $sth{ED}->execute($id);
   my $ar = $sth{ED}->fetchall_arrayref();
   my %sample;
+  my $completion_time;
   $sample{$_->[0]}{$_->[1]} = $_->[2] foreach (@$ar);
   if (scalar(keys %sample) > 1) {
     my $msg = 'Found ' . scalar(keys %sample) .  " entities for $id" . br
@@ -319,6 +333,7 @@ sub getSample
         $cross = $sample{$a}{'Cross Barcode'} if (exists $sample{$a}{'Slide Code'});
         $slide = $sample{$a}{'Slide Code'} if (exists $sample{$a}{'Slide Code'});
         $line = $sample{$a}{Line} if (exists $sample{$a}{Line});
+        $completion_time = $sample{$a}{'Completion Date'} if (exists $sample{$a}{'Completion Date'});
       }
       if ($line && $slide) {
         $sth{LSMS}->execute($slide,$line);
@@ -332,13 +347,13 @@ sub getSample
                                     } @$ar)) if (scalar @$ar);
         if ($last_event eq 'completed' && $line && $slide) {
           my $ctm;
-          $sth{CT}->execute($last_time,$slide,$line);
+          $sth{CT}->execute($completion_time,$slide,$line);
           my($ct) = $sth{CT}->fetchrow_array();
           if ($ct) {
             my $c = sprintf 'tmog &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
             $ctm .= p({class => ($ct < 0) ? 'bg-danger' : 'bg-primary'},$c);
           }
-          $sth{CT2}->execute($last_time,$cross);
+          $sth{CT2}->execute($completion_time,$cross);
           ($ct) = $sth{CT2}->fetchrow_array();
           if ($ct) {
             my $c = sprintf 'Cross &rarr; Image processing completion cycle time: %d day%s',$ct,(1 == $ct) ? '' : 's';
