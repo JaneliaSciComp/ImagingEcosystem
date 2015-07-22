@@ -27,6 +27,7 @@ my @BREADCRUMBS = ('Imagery tools',
 # * Globals                                                                  *
 # ****************************************************************************
 # Database
+my $SELECTOR = "SELECT DISTINCT e.name,edl.value,eds.value,ede.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData ede ON (e.id=ede.parent_entity_id AND ede.entity_att='Effector') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') ";
 my %sth = (
 SAMPLES => "SELECT name FROM entity WHERE entity_type='Sample' AND name "
            . "NOT LIKE '%~%' ORDER BY 1",
@@ -36,10 +37,10 @@ LINES => "SELECT DISTINCT value FROM entityData WHERE entity_att='line' "
          . "ORDER BY 1",
 DATASETS => "SELECT DISTINCT value FROM entityData WHERE entity_att='Data Set Identifier' "
            . "ORDER BY 1",
-SAMPLESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE e.name LIKE ? AND e.entity_type='Sample' ORDER BY 1",
-SLIDESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE eds.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
-LINESUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE edl.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
-DATASETSUM => "SELECT DISTINCT e.name,edl.value,eds.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') WHERE edd.value=? AND e.entity_type='Sample' ORDER BY 1",
+SAMPLESUM => "$SELECTOR WHERE e.name LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+SLIDESUM => "$SELECTOR WHERE eds.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+LINESUM => "$SELECTOR WHERE edl.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
+DATASETSUM => "$SELECTOR WHERE edd.value LIKE ? AND e.entity_type='Sample' ORDER BY 1",
 SAMPLE => "SELECT te.event_type,t.job_name,te.description,te.event_timestamp FROM "
           . "task_event te JOIN task_parameter tp ON (tp.task_id=te.task_id "
           . "AND parameter_name='sample entity id') JOIN task t ON "
@@ -187,20 +188,20 @@ sub showQuery {
       if (scalar @$ar) {
         my $t = $_;
         my @row;
-        my @header = ('Sample','Line','Slide code','Data set');
+        my @header = ('Sample','Line','Slide code','Effector','Data set');
         push @header,'Default image' if ($USERID eq 'svirskasr');
         foreach my $r (@$ar) {
           if ($USERID eq 'svirskasr') {
-            (my $i = $r->[4]) =~ s/.+filestore\///;
+            (my $i = $r->[-1]) =~ s/.+filestore\///;
             if ($i) {
               $i = "/imagery_links/ws_imagery/$i";
-              $r->[4] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[4]",
+              $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[4]",
                            target => '_blank'},
                           img({src => $i,
                                width => '10%'}));
             }
             else {
-              $r->[4] = '(no image found)';
+              $r->[-1] = '(no image found)';
             }
           }
           else {
