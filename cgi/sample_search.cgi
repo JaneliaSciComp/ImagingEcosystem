@@ -6,6 +6,8 @@ use CGI qw/:standard :cgi-lib/;
 use CGI::Session;
 use CGI::Carp qw(fatalsToBrowser);
 use DBI;
+use IO::File;
+use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
@@ -20,12 +22,15 @@ use constant NBSP => '&nbsp;';
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Janelia Workstation sample search';
+my $BASE = "/var/www/html/output/";
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 
 # ****************************************************************************
 # * Globals                                                                  *
 # ****************************************************************************
+# Export
+my $handle;
 # Database
 my $SELECTOR = "SELECT DISTINCT e.name,edl.value,eds.value,ede.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData ede ON (e.id=ede.parent_entity_id AND ede.entity_att='Effector') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') ";
 my %sth = (
@@ -69,9 +74,10 @@ my @TAB_ORDER = qw(line slide dataset sample);
 # Session authentication
 my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
-our $SCICOMP = ($Session->param('scicomp'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
+my $DISPLAY = param('display') || '';
+my $AUTHORIZED = ($Session->param('scicomp'));
 
 our ($dbh,$dbhf,$dbhs);
 # Connect to databases
@@ -189,16 +195,16 @@ sub showQuery {
         my $t = $_;
         my @row;
         my @header = ('Sample','Line','Slide code','Effector','Data set');
-        push @header,'Default image' if ($USERID eq 'svirskasr');
+        push @header,'Default image' if ($AUTHORIZED);
         foreach my $r (@$ar) {
-          if ($USERID eq 'svirskasr') {
+          if ($AUTHORIZED) {
             (my $i = $r->[-1]) =~ s/.+filestore\///;
             if ($i) {
               $i = "/imagery_links/ws_imagery/$i";
-              $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[4]",
+              $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
                            target => '_blank'},
                           img({src => $i,
-                               width => '10%'}));
+                               width => '100'}));
             }
             else {
               $r->[-1] = '(no image found)';
@@ -207,13 +213,27 @@ sub showQuery {
           else {
             pop @$r;
           }
-          push @row,td([a({href => "?sample_id=".$r->[0]},$r->[0]),@{$r}[1..$#$r]]);
+          if ($DISPLAY) {
+            push @row,div({class => 'sample'},$r->[-1],br,$r->[0]);
+          }
+          else {
+            push @row,[a({href => "?sample_id=".$r->[0]},$r->[0]),
+                       @{$r}[1..$#$r]];
+          }
         }
-        $tab{$_}{content} .= br
+        $tab{$_}{content} .= div({style => 'clear: both;'},NBSP)
                              . 'Number of records: ' . scalar(@$ar)
-                             . table({class => 'tablesorter standard'},
+                             . (NBSP)x5
+                             . &createExportFile($ar,'_sample_search',\@header)
+                             . br;
+        if ($DISPLAY) {
+          $tab{$_}{content} .= div({class => 'sample_container'},@row);
+        }
+        else {
+          $tab{$_}{content} .= table({class => 'tablesorter standard'},
                                      thead(Tr(th(\@header))),
-                                     tbody(map {Tr($_)} @row));
+                                     tbody(map {Tr(td($_))} @row));
+        }
       }
       else {
         $tab{$_}{content} .= br
@@ -237,6 +257,24 @@ sub showQuery {
                        } @TAB_ORDER
                   ));
   $html = div({class => 'boxed'},$html);
+}
+
+
+sub createExportFile
+{
+  my($ar,$suffix,$head) = @_;
+  my $filename = (strftime "%Y%m%d_%H:%M:%S",localtime)
+                 . "$suffix.xls";
+  $handle = new IO::File $BASE.$filename,'>';
+  print $handle join("\t",@$head) . "\n";
+  foreach (@$ar) {
+    my @l = @$_;
+    print $handle join("\t",@l) . "\n";
+  }
+  $handle->close;
+  my $link = a({class => 'btn btn-success btn-xs',
+                href => '/output/' . $filename},"Export data");
+  return($link);
 }
 
 
@@ -266,7 +304,7 @@ sub getEntity
     elsif ($_->[3] eq 'Entity' && length($cet)) {
       $_->[3] = "Entity ($cet)";
     }
-    elsif ($SCICOMP && ($_->[4] =~ /\.png$/)) {
+    elsif ($AUTHORIZED && ($_->[4] =~ /\.png$/)) {
       (my $i = $_->[4]) =~ s/.+filestore\///;
       $i = "/imagery_links/ws_imagery/$i";
       $_->[4] .= NBSP
