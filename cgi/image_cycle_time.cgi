@@ -11,6 +11,7 @@ use Getopt::Long;
 use IO::File;
 use POSIX qw(ceil strftime);
 use Statistics::Basic qw(:all);
+use Switch;
 use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -148,7 +149,8 @@ sub displayQuery
                           -values => ['percent','absolute'],
                           -labels => {percent => 'Percent',
                                       absolute => 'Count'},
-                          -default => 'percent');
+                          -default => 'percent',
+                          -onchange => "changeMode();");
   $radio .= <<__EOT__;
 <br>
 <div style='width: 350px'>
@@ -317,7 +319,7 @@ sub displayCompletionStatus
     push @row,Tr(th('<= 1 day'),td($summary{1})) if (exists $summary{1});
     $title = ($MEASUREMENT eq 'discovered') ? 'Discovery' : 'Completion';
     push @row,Tr(td({style => 'padding-top: 15px',
-                     colspan => 2},"$title time (days)")),
+                     colspan => 2},"$title time")),
               Tr(th("Average"),td(&toDay(mean(\@delta)))),
               Tr(th("Median"),td(&toDay(median(@delta)))),
               Tr(th("&sigma;"),td(&toDay(stddev(@delta))));
@@ -346,7 +348,9 @@ sub displayCompletionStatus
 sub toDay
 {
   my $num = shift;
-  sprintf '%.2f',($num/24);
+  my($unit) = ($num > 24) ? 'days' : 'hours';
+  $num = $num/24 if ($num >= 24);
+  sprintf '%.2f %s',$num,$unit;
 }
 
 
@@ -464,10 +468,15 @@ sub barPercentageChart
   my $series = '';
   foreach my $days (reverse sort keys %$hr) {
     $series .= ', ' if ($series);
-    $series .= sprintf "{name: '%s',data: [%d]}",$days,$hr->{$days};
+    my $name;
+    switch ($days) {
+      case 99  { $name = '> 2'; }
+      else     { $name = $days; }
+    }
+    $series .= sprintf "{name: '%s',data: [%d]}",$name,$hr->{$days};
   }
   my $code = <<__EOT__;
-<div id="$container" style="position: relative; width: 100px; height: 300px; margin: 50px 0 0 0; float: left;"></div>
+<div id="$container" style="position: relative; width: 120px; height: 300px; margin: 50px 0 0 0; float: left;"></div>
 <script type="text/javascript">
 \$(function () {
 Highcharts.setOptions({
@@ -483,7 +492,8 @@ Highcharts.setOptions({
   yAxis: {gridLineWidth: 0,
           labels: {enabled: false},
           title: {text: ''}},
-  tooltip: {pointFormat: '<span style="color:{series.color}">{series.name}</span>: <b>{point.y}</b> ({point.percentage:.0f}%)<br/>',
+  tooltip: {backgroundColor: '#fff',
+            pointFormat: '<span style="color:{series.color}; font-size: 8pt;">{series.name}</span>: <b>{point.y}</b> ({point.percentage:.0f}%)<br/>',
             shared: true},
   plotOptions: {column: {stacking: 'percent'},borderColor: '#222'},
   series: [$series]
@@ -497,7 +507,7 @@ __EOT__
 sub createExportFile
 {
   my($ar,$suffix,$head) = @_;
-  my $filename = (strftime "%Y%m%d%H:%M:%S",localtime)
+  my $filename = (strftime "%Y%m%d_%H:%M:%S",localtime)
                  . "$suffix.xls";
   $handle = new IO::File $BASE.$filename,'>';
   print $handle join("\t",@$head) . "\n";
