@@ -183,6 +183,7 @@ sub displayQueues
   }
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$SCICOMP);
+    next if ($s eq 'MV');
     next if ($s eq 'Scheduling');
     $sth{$s}->execute();
     my $ar = $sth{$s}->fetchall_arrayref;
@@ -217,7 +218,7 @@ sub displayQueues
           push @{$queue{Scheduling}},$_;
         }
         elsif ($event eq 'pending') {
-          push @{$queue{$_}},$_;
+          push @{$queue{$s}},$_;
         }
         elsif ($event eq 'running') {
           push @{$process{$s}},$_;
@@ -267,9 +268,11 @@ sub displayQueues
       }
     }
   }
+  # Display
   my (@details,@special,@status);
   foreach my $step (@STEPS,'Complete') {
     next if (($step eq 'MV') && !$SCICOMP);
+next if ($step eq 'MV');
     my ($block,$data,$data2);
     unless ($step eq $STEPS[0]) {
       ($block,$data) = &stepContents(\%queue,$step,'queue');
@@ -433,7 +436,7 @@ sub stepContents
 sub createExportFile
 {
   my($ar,$suffix,$head) = @_;
-  my $filename = (strftime "%Y%m%d%H:%M:%S",localtime)
+  my $filename = (strftime "%Y%m%d_%H:%M:%S",localtime)
                  . "$suffix.xls";
   $handle = new IO::File $BASE.$filename,'>';
   print $handle join("\t",@$head) . "\n";
