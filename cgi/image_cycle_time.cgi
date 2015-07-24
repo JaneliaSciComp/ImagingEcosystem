@@ -47,7 +47,7 @@ my $Session;
 # Database
 our ($dbh,$dbhw);
 # General
-my %summary;
+my (%lookup,%summary);
 my ($BIN,$CHART,$MEASUREMENT,$MODE,$UNIT);
 
 # ****************************************************************************
@@ -312,8 +312,13 @@ sub displayCompletionStatus
     # Table
     my @row = (Tr(th($UNIT),td(scalar(@$ar))));
     $title = ($MEASUREMENT eq 'discovered') ? 'Undiscovered' : 'Unprocessed';
-    push @row,Tr(th($title),td($summary{Unprocessed}))
-      if (exists $summary{Unprocessed});
+    if (exists $summary{Unprocessed}) {
+      push @row,Tr(th($title),td($summary{Unprocessed}));
+      if ($a = (scalar keys %lookup)) {
+        push @row,Tr(th(((NBSP)x2).'Not discovered'),td($a));
+        push @row,Tr(th(((NBSP)x2).'Not completed'),td($summary{Unprocessed}-$a));
+      }
+    }
     push @row,Tr(th('> 2 days'),td($summary{99})) if (exists $summary{99});
     push @row,Tr(th('<= 2 days'),td($summary{2})) if (exists $summary{2});
     push @row,Tr(th('<= 1 day'),td($summary{1})) if (exists $summary{1});
@@ -358,7 +363,6 @@ sub measureCompletion
 {
   my($ar) = shift;
   # Line, slide code, data set, name, TMOG date
-  my %lookup;
   my @arr;
   foreach (@$ar) {
     (my $name = $_->[3]) =~ s/.+\///;
