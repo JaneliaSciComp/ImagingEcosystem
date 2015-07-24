@@ -81,17 +81,16 @@ WS_Tasking => "SELECT e.name,ed1.value,e.creation_date,"
               . "e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),"
               . "e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL "
               . "AND e.name NOT LIKE '%~%' ORDER BY 3",
-WS_Pipeline => "SELECT e.name,ed.value,t.description,t.event_timestamp,"
-               . "TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp),t.event_type "
-               . "FROM task_event t JOIN task_parameter tp ON "
-               . "(tp.task_id=t.task_id AND parameter_name='sample entity id') "
-               . "JOIN entity e ON (e.id=tp.parameter_value) JOIN "
-               . "entityData ed ON (e.id=ed.parent_entity_id AND "
-               . "entity_att='Data Set Identifier'),(SELECT task_id,"
-               . "MAX(event_no) event_no FROM task_event GROUP BY 1) x WHERE "
-               . "x.task_id = t.task_id AND x.event_no = t.event_no AND "
-               . "TIMESTAMPDIFF(HOUR,NOW(),"
-               . "t.event_timestamp) >= $WS_LIMIT_HOURS ORDER BY 4",
+WS_Pipeline => "SELECT * FROM (SELECT e.name,ed.value,t.description,"
+               . "t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),"
+               . "t.event_timestamp),t.event_type FROM task_event t "
+               . "JOIN task_parameter tp ON (tp.task_id=t.task_id AND "
+               . "parameter_name='sample entity id') JOIN entity e ON "
+               . "(e.id=tp.parameter_value) JOIN entityData ed ON "
+               . "(e.id=ed.parent_entity_id AND "
+               . "entity_att='Data Set Identifier') WHERE "
+               . "TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= "
+               . "$WS_LIMIT_HOURS ORDER BY 4 DESC,event_no DESC) x GROUP BY 1",
 # -----------------------------------------------------------------------------
 Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE "
            . "type='cross_barcode'",
