@@ -64,7 +64,7 @@ input:focus { background: #222; }
 input:hover { background: #333; }
 
 /* Links */
-a:link, a:visited { color: #4863a0; }
+a:link, a:visited { color: #6883c0; }
 
 a:hover, a:active {
   color: #666;

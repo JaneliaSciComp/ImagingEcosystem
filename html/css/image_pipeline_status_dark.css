@@ -52,33 +52,20 @@ table.standard {
 }
 
 .process {
-    border: 1px solid black;
-    border-radius: 15px;
+    border: 1px solid white;
+    border-radius: 5px;
     text-align: center;
     position: float;
     margin: 0 0 0 25px;
-    padding-top: 10px;
+    padding-top: 5px;
     background:#52b447;
     width: 150px;
-    height: 40px;
+    height: 30px;
     color: #222;
 }
 
 .error_queue {
-    margin: 11px 0 0 0;
-}
-
-.special {
-    border: 1px solid black;
-    border-radius: 15px;
-    text-align: center;
-    position: float;
-    margin: 0 0 0 25px;
-    padding-top: 10px;
-    background:#f90;
-    width: 150px;
-    height: 40px;
-    color: #222;
+    margin: 6px 0 0 0;
 }
 
 .downarrow {
@@ -86,12 +73,12 @@ table.standard {
   text-align: center;
   margin: 0 0 0 80px;
   width: 40px;
-  font-size: 20px;
+  font-size: 15px;
 }
 
 .rightarrow {
   float: left;
-  margin-top: 6px;
+  margin-top: 0px;
   font-size: 20px;
 }
 
@@ -109,6 +96,7 @@ table.standard {
 }
 
 .badge-empty {
+  color: #003;
   background-color: #ccc;
 }
 
@@ -169,7 +157,7 @@ input:focus { background: #222; }
 input:hover { background: #333; }
 
 /* Links */
-a:link, a:visited { color: #4863a0; }
+a:link, a:visited { color: #6883c0; }
 
 a:hover, a:active {
   color: #666;
