@@ -77,7 +77,9 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
 my $DISPLAY = param('display') || '';
+my $WIDTH = param('width') || 150;
 my $AUTHORIZED = ($Session->param('scicomp'));
+$DISPLAY = '' unless ($AUTHORIZED);
 
 our ($dbh,$dbhf,$dbhs);
 # Connect to databases
@@ -204,7 +206,7 @@ sub showQuery {
               $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
                            target => '_blank'},
                           img({src => $i,
-                               width => '100'}));
+                               width => $WIDTH}));
             }
             else {
               $r->[-1] = '(no image found)';
@@ -242,6 +244,7 @@ sub showQuery {
                                                . param($_ . '_idi')
                                                . " were not found",'danger');
       }
+      $tab{$_}{content} .= br;
     }
   }
   $html .= div({role => 'tabpanel'},
@@ -256,6 +259,15 @@ sub showQuery {
                             br . $tab{$_}{content})
                        } @TAB_ORDER
                   ));
+  if ($AUTHORIZED) {
+    $html .= checkbox(&identify('display'),
+                      -label => ' Display imagery',
+                      -checked => 0)
+          . (NBSP)x5 . 'width: '
+          . input({&identify('width'),
+                   size => '3em',
+                   value => $WIDTH});
+  }
   $html = div({class => 'boxed'},$html);
 }
 
@@ -311,7 +323,7 @@ sub getEntity
                  . a({href => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
                       target => '_blank'},
                      img({src => $i,
-                          width => '10%'}));
+                          width => $WIDTH}));
     }
     # EID -> [attribute, value, child EID]
     $att{$_->[0]} = [$_->[3],$_->[4],$_->[5]];
