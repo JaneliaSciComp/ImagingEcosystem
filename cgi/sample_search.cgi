@@ -56,6 +56,7 @@ ED => "SELECT parent_entity_id,entity_att,value FROM entityData ed "
 EED => "SELECT ed.id,e.name,e.entity_type,ed.entity_att,ed.value,ed.child_entity_id,e1.entity_type FROM entity e "
        . "LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id) LEFT OUTER JOIN entity e1 ON (e1.id=ed.child_entity_id) "
        . "WHERE e.id=? ORDER BY 4",
+CED => "SELECT value FROM entityData WHERE parent_entity_id=? AND entity_att=?",
 # ----------------------------------------------------------------------
 SAGE_LSMS => "SELECT family,name,objective,area,tile FROM image_data_mv WHERE "
              . "slide_code=? AND line=? ORDER BY 1",
@@ -315,6 +316,16 @@ sub getEntity
     }
     elsif ($_->[3] eq 'Entity' && length($cet)) {
       $_->[3] = "Entity ($cet)";
+      if ($cet eq 'Pipeline Run' && $_->[5]) {
+        $sth{CED}->execute($_->[5],'Pipeline Process');
+        my($v) = $sth{CED}->fetchrow_array();
+        $_->[4] = a({href => "/flow_ws.php?dataset=PipelineConfig_$v",
+                     target => '_blank'},$v) if ($v);
+      }
+    }
+    elsif ($_->[3] eq 'Pipeline Process') {
+      $_->[4] = a({href => "/flow_ws.php?dataset=PipelineConfig_$_->[4]",
+                   target => '_blank'},$_->[4]) if ($_->[4]);
     }
     elsif ($AUTHORIZED && ($_->[4] =~ /\.png$/)) {
       (my $i = $_->[4]) =~ s/.+filestore\///;
