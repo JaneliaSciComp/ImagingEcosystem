@@ -58,8 +58,9 @@ EED => "SELECT ed.id,e.name,e.entity_type,ed.entity_att,ed.value,ed.child_entity
        . "WHERE e.id=? ORDER BY 4",
 CED => "SELECT value FROM entityData WHERE parent_entity_id=? AND entity_att=?",
 # ----------------------------------------------------------------------
-SAGE_LSMS => "SELECT family,name,objective,area,tile FROM image_data_mv WHERE "
-             . "slide_code=? AND line=? ORDER BY 1",
+SAGE_LSMS => "SELECT family,i.name,objective,area,tile,url FROM "
+             . "image_data_mv id JOIN image i ON (i.id=id.id) "
+             . "WHERE slide_code=? AND line=? ORDER BY 1",
 SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
            . "(SELECT id FROM image_data_mv WHERE slide_code=? AND line=?)",
 # ----------------------------------------------------------------------
@@ -405,6 +406,10 @@ sub getSample
                           thead(Tr(td(['Name','Objective','Area','Tile']))),
                           tbody(map {$a = a({href => "view_sage_imagery.cgi?_op=stack;_family=$_->[0];_image=$_->[1]",
                                              target => '_blank'},$_->[1]);
+                                     $a .= ' '
+                                        . a({class => 'btn btn-info btn-xs',
+                                             href => $_->[5]},'Download')
+                                       if ($_->[5]);
                                      Tr(td([$a,@$_[2,3,4]]) )
                                     } @$ar)) if (scalar @$ar);
         if ($last_event eq 'completed' && $line && $slide) {
