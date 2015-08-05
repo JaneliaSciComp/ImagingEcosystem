@@ -45,11 +45,13 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
+my $AUTHORIZED = ($Session->param('scicomp'))
+   || ($Session->param('workstation_flylight'));
 &terminateProgram('You are not authorized to view Workstation imagery')
-  unless ($Session->param('scicomp'));
+  unless ($AUTHORIZED);
 our $DATASET = param('dataset') || '';
 my $OPTIONS = ($DATASET ne 'All datasets') ? "WHERE edd.value='$DATASET'"
-                                             : '';
+                                           : '';
 my %sth = (
 DATASETS => "SELECT edd.value,COUNT(1) FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') GROUP BY 1",
 ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') $OPTIONS ORDER BY 1",

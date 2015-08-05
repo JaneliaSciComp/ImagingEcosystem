@@ -80,7 +80,8 @@ our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
 my $DISPLAY = param('display') || '';
 my $WIDTH = param('width') || 150;
-my $AUTHORIZED = ($Session->param('scicomp')) || ($USERID eq 'jeterj');
+my $AUTHORIZED = ($Session->param('scicomp'))
+   || ($Session->param('workstation_flylight'));
 $DISPLAY = '' unless ($AUTHORIZED);
 
 our ($dbh,$dbhf,$dbhs);
