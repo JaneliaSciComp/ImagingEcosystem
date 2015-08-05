@@ -78,11 +78,9 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
-my $DISPLAY = param('display') || '';
 my $WIDTH = param('width') || 150;
 my $AUTHORIZED = ($Session->param('scicomp'))
    || ($Session->param('workstation_flylight'));
-$DISPLAY = '' unless ($AUTHORIZED);
 
 our ($dbh,$dbhf,$dbhs);
 # Connect to databases
@@ -182,7 +180,17 @@ sub showQuery {
       $tab{$_}{content} = "Enter a " . ucfirst($_)
                           . ' ID (or a portion of one): '
                           . input({&identify($_.'_idi'),
-                                   value => param($_.'_id')||''})
+                                   value => param($_.'_id')||param($_.'_idi')||''})
+    }
+    if ($AUTHORIZED) {
+      $tab{$_}{content} .= br
+                           . checkbox(&identify($_.'_display'),
+                                      -label => ' Display imagery',
+                                      -checked => 0)
+                           . (NBSP)x5 . 'Width: '
+                           . input({&identify($_.'_width'),
+                                    size => '3em',
+                                    value => param($_.'_width')||$WIDTH});
     }
     $tab{$_}{content} .= br
                          div({align => 'center'},
@@ -190,6 +198,9 @@ sub showQuery {
                                      class => 'btn btn-success',
                                      value => 'Search'}));
     if (param($_ . '_search')) {
+      my $DISPLAY = param($_ . '_display') || '';
+      $DISPLAY = '' unless ($AUTHORIZED);
+      $WIDTH = param($_ . '_width') || $WIDTH;
       my $cur = uc($_) . 'SUM';
       my($term) = param($_ . '_idi')
                   ? '%' . param($_ . '_idi') . '%'
@@ -262,15 +273,6 @@ sub showQuery {
                             br . $tab{$_}{content})
                        } @TAB_ORDER
                   ));
-  if ($AUTHORIZED) {
-    $html .= checkbox(&identify('display'),
-                      -label => ' Display imagery',
-                      -checked => 0)
-          . (NBSP)x5 . 'width: '
-          . input({&identify('width'),
-                   size => '3em',
-                   value => $WIDTH});
-  }
   $html = div({class => 'boxed'},$html);
 }
 
