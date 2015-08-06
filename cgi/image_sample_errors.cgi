@@ -63,6 +63,11 @@ ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityD
 # ****************************************************************************
 &initializeProgram();
 (param('dataset')) ? &displayErrors() : &displayQuery();
+# We're done!
+if ($dbh) {
+  ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
+  $dbh->disconnect;
+}
 exit(0);
 
 

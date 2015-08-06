@@ -132,6 +132,12 @@ my $SCICOMP = ($Session->param('scicomp'));
 &initializeProgram();
 &displayQueues();
 
+# We're done!
+if ($dbh) {
+  $dbh->disconnect;
+  $dbhf->disconnect;
+  $dbhw->disconnect;
+}
 exit(0);
 
 

@@ -118,6 +118,11 @@ if (($RUNMODE eq 'web') && !(param('submit'))) {
 else {
   &displayCompletionStatus();
 }
+# We're done!
+if ($dbh) {
+  $dbh->disconnect;
+  $dbhw->disconnect;
+}
 exit(0);
 
 
