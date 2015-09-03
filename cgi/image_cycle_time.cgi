@@ -89,13 +89,13 @@ my $TERM = ($STARTDATE eq $STOPDATE)
   : "DATE(i.create_date) BETWEEN '$STARTDATE' AND '$STOPDATE'";
 my $q;
 if ($UNIT eq 'Lines') {
-  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line, create_date DESC) x GROUP BY line";
+  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,i.create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line,i.create_date DESC) x GROUP BY line";
 }
 elsif ($UNIT eq 'Samples') {
-  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line,ip1.value,create_date DESC) x GROUP BY line,slidecode";
+  $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,i.create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line,ip1.value,i.create_date DESC) x GROUP BY line,slidecode";
 }
 else {
-  $q = "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY 5";
+  $q = "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,i.create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY 5";
 }
 $TERM =~ s/i.create_date/ed1.value/g;
 my %sth = (
