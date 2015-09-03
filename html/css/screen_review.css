@@ -1,0 +1,110 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+#scrollarea {
+  overflow-y: scroll;
+  height: 1000px;
+}
+
+.line {
+  background-color: #333;
+  color: #fff;
+  padding: 5px;
+  margin-bottom: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+.line h3 { font-size: 18pt; }
+
+table.standard {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 11pt;
+  margin-bottom: 10px;
+}
+
+.standard th {
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  text-align: left;
+  padding: 0 5px 0 0;
+}
+
+table.basic {
+  border-collapse: collapse;
+}
+
+.basic td {
+  text-align: left;
+  padding: 0 5px 0 0;
+}
+
+.imgoptions {
+  width: 10%;
+  background: #f7f7f7;
+}
+
+table.halves {
+  background: #f7f7f7;
+  color: #000;
+  border-collapse: collapse;
+  font-size: 11pt;
+}
+
+.halves th {
+  padding: 0 5px 0 10px;
+}
+
+.halves td {
+  text-align: left;
+  padding: 0 5px 0 5px;
+}
+
+.inputblock {
+  float: left;
+  margin: 5px 0 0 0;
+}
+
+.single_mip {
+  float: left;
+  border: 1px solid #666;
+  background-color: #333;
+  text-align: center;
+  margin: 5px 5px 0 0;
+}
+
+.checkboxes {
+  float: left;
+  background-color: #333;
+}
+
+table.verify {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 11pt;
+}
+
+.verify th {
+  background: #e7e7e7;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+.verify td {
+  text-align: center;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+h3 { color: #ccc; }
