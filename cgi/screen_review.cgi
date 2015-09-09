@@ -94,9 +94,10 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
 my $HEIGHT = param('height') || 150;
-my $AUTHORIZED = (($Session->param('scicomp'))
-                  || ($Session->param('flylight_split_screen')));
-my $CAN_ORDER = ($AUTHORIZED) ? 0 : 1;
+my $VIEW_ALL = (($Session->param('scicomp'))
+                || ($Session->param('flylight_split_screen')));
+my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
+$CAN_ORDER = 1 if ($USERID eq 'dicksonb');
 
 our ($dbh,$dbhw);
 # Connect to databases
@@ -130,7 +131,7 @@ if (param('request')) {
 elsif (param('verify')) {
   &verifyCrosses();
 }
-elsif ($AUTHORIZED && !param('_userid') && !param('user') && !param('choose')) {
+elsif ($VIEW_ALL && !param('_userid') && !param('user') && !param('choose')) {
   &limitSearch();
 }
 else {
@@ -187,7 +188,7 @@ sub chooseCrosses
   my ($class,$controls,$lhtml,$imagery,$last_line) = ('')x5;
   my $DSUSER = $USERID;
   my $DSTYPE = '%';
-  if ($AUTHORIZED) {
+  if ($VIEW_ALL) {
     $DSUSER = param('_userid') || param('user') || '%';
     $DSTYPE = param('type') if (param('type'));
   }
@@ -225,9 +226,9 @@ sub chooseCrosses
         $bh = '';
       }
       my @row = Tr(td(['Cross barcode:',$bh]));
-      push @row,Tr(td(['Data set:',$dataset])) if ($AUTHORIZED);
+      push @row,Tr(td(['Data set:',$dataset])) if ($VIEW_ALL);
       $requester = &getUsername((split('_',$dataset))[0])
-        if ($AUTHORIZED && !param('user') && !$requester);
+        if ($VIEW_ALL && !param('user') && !$requester);
       push @row,Tr(td(['Requester:',$requester])) if ($requester);
       $lhtml .= table({class => 'basic'},@row);
       $lhtml .= join(br,table({class => 'halves'},
@@ -318,9 +319,9 @@ sub chooseCrosses
   $html .= &renderLine($last_line,$lhtml,$imagery,$controls,$class) if ($lhtml);
   my $uname = $USERNAME;
   $uname .= ' (running as ' . &getUsername(param('_userid')) . ')'
-    if ($AUTHORIZED && param('_userid'));
+    if ($VIEW_ALL && param('_userid'));
   my @other;
-  if ($AUTHORIZED) {
+  if ($VIEW_ALL) {
     if (param('user')) {
       push @other,Tr(td(['Imaged for: ',&getUsername(param('user'))]));
       push @other,Tr(td(['Image type: ',(param('type') eq 'ti') ? 'Terra incognita' : 'Split screen'])) if param('type');
