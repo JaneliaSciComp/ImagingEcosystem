@@ -76,8 +76,8 @@ IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
           . "WHERE ipd.value LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
 LINE => "SELECT create_date FROM line WHERE name=?",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
-USERS => "SELECT DISTINCT(value) FROM image_property_vw WHERE "
-         . "type='data_set' AND value LIKE '%screen_review'",
+USERS => "SELECT value,COUNT(1) FROM image_property_vw WHERE "
+         . "type='data_set' AND value LIKE '%screen_review' GROUP BY 1",
 # ----------------------------------------------------------------------------
 WS_LSMMIPSp => "SELECT eds.value,edm.value FROM entity e JOIN entityData edl ON (e.id=edl.parent_entity_id AND entity_att='Entity') JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='All MIP Image') JOIN entity el ON (edl.child_entity_id=el.id) WHERE el.name=?",
 WS_LSMMIPS => "SELECT eds.value,edm.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='Default Fast 3D Image') WHERE e.name=?",
@@ -160,7 +160,7 @@ sub limitSearch
   my $ar = $sth{USERS}->fetchall_arrayref();
   my %label = map {$a = (split('_',$_->[0]))[0];
                    my $user = $service->getUser($a);
-                   $a => &getUsername($a)} @$ar;
+                   $a => &getUsername($a) . " ($_->[1] images)"} @$ar;
   $label{''} = '(Any)';
   my $type = {'' => '(Any)',
               split => 'Split screen',
