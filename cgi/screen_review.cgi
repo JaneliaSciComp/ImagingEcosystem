@@ -74,6 +74,7 @@ IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
           . "LEFT OUTER JOIN image_property_vw ipg2 ON (i.id=ipg2.image_id "
           . "AND ipg2.type='lsm_detection_channel_2_detector_gain') "
           . "WHERE ipd.value LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
+LINE => "SELECT create_date FROM line WHERE name=?",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERS => "SELECT DISTINCT(value) FROM image_property_vw WHERE "
          . "type='data_set' AND value LIKE '%screen_review'",
@@ -248,10 +249,19 @@ sub chooseCrosses
             $request{$_} = $struct->{$order}{dateCreated};
           }
         }
+        (my $stable_line = $line) =~ s/IS/SS/;
+        $sth{LINE}->execute($stable_line);
+        my($sage_date) = $sth{LINE}->fetchrow_array();
         $controls = div({class => 'checkboxes'},
                         table({style => 'margin-right: 10px'},
                               map {my $c = join('_',$line,lc($_),'cross');
-                                   if (exists $request{lc($_)}) {
+                                   if ($sage_date && /Stabilization/) {
+                                     $class = 'ordered';
+                                     $ordered++;
+                                     Tr(td({style => 'padding-left: 10px'},[
+                                           $_,"Line created $sage_date"]))
+                                   }
+                                   elsif (exists $request{lc($_)}) {
                                      $class = 'ordered';
                                      $ordered++;
                                      ($a = $request{lc($_)}) =~ s/T.*//;
