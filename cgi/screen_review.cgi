@@ -259,7 +259,9 @@ sub chooseCrosses
                                      $class = 'ordered';
                                      $ordered++;
                                      Tr(td({style => 'padding-left: 10px'},[
-                                           $_,"Line created $sage_date"]))
+                                           'Stable stock',
+                                           a({href => "lineman.cgi?line=$stable_line",
+                                              target => '_blank'},'Available')]))
                                    }
                                    elsif (exists $request{lc($_)}) {
                                      $class = 'ordered';
