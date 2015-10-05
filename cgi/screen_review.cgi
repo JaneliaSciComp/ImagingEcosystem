@@ -79,6 +79,9 @@ LINE => "SELECT create_date FROM line WHERE name=?",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERS => "SELECT value,COUNT(1) FROM image_property_vw WHERE "
          . "type='data_set' AND value LIKE '%screen_review' GROUP BY 1",
+USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_property_vw ip "
+             . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE value LIKE "
+             . "'%screen_review' GROUP BY 1",
 # ----------------------------------------------------------------------------
 WS_LSMMIPSp => "SELECT eds.value,edm.value FROM entity e JOIN entityData edl ON (e.id=edl.parent_entity_id AND entity_att='Entity') JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='All MIP Image') JOIN entity el ON (edl.child_entity_id=el.id) WHERE el.name=?",
 WS_LSMMIPS => "SELECT eds.value,edm.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='Default Fast 3D Image') WHERE e.name=?",
@@ -157,15 +160,17 @@ exit(0);
 
 sub limitSearch
 {
-  $sth{USERS}->execute();
-  my $ar = $sth{USERS}->fetchall_arrayref();
+  $sth{USERLINES}->execute();
+  my $ar = $sth{USERLINES}->fetchall_arrayref();
   my %label = map {$a = (split('_',$_->[0]))[0];
                    my $user = $service->getUser($a);
-                   $a => &getUsername($a) . " ($_->[1] images)"} @$ar;
+                   $a => &getUsername($a) . " ($_->[1] lines)"} @$ar;
   $label{''} = '(Any)';
+  my %screen_count;
+  $screen_count{(split('_',$_->[0]))[1]} += $_->[1] foreach (@$ar);
   my $type = {'' => '(Any)',
-              split => 'Split screen',
-              ti => 'Terra incognita'};
+              split => "Split screen ($screen_count{split} lines)",
+              ti => "Terra incognita ($screen_count{ti} lines)"};
   print div({class => 'boxed'},
             table({class => 'basic'},
                   Tr(td('User:'),
