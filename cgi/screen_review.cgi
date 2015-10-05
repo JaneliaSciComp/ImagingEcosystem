@@ -30,6 +30,7 @@ my $FLYSTORE_HOST = 'flystore.int.janelia.org';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
+my $STACK = 'view_sage_imagery.cgi?_op=stack;_family=split_screen_review;_image';
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -54,7 +55,7 @@ IMAGEM => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value "
           . "AND line LIKE 'JRC_IS%' ORDER BY 1 LIMIT 16",
 IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
           . "lpr.value,ipcs.value,ipp1.value,ipp2.value,"
-          . "ipg1.value,ipg2.value "
+          . "ipg1.value,ipg2.value,i.url "
           . "FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') LEFT OUTER JOIN "
           . "image_property_vw ips ON (i.id=ips.image_id AND "
@@ -210,7 +211,7 @@ sub chooseCrosses
     # Line, image name, data set, slide code, area, cross barcode, requester,
     # channel spec
     my($line,$name,$dataset,$slide,$area,$barcode,$requester,
-       $chanspec,$power1,$power2,$gain1,$gain2) = @$l;
+       $chanspec,$power1,$power2,$gain1,$gain2,$url) = @$l;
     $lines{$line}++;
     if ($line ne $last_line) {
       $html .= &renderLine($last_line,$lhtml,$imagery,$controls,$class) if ($lhtml);
@@ -291,9 +292,9 @@ sub chooseCrosses
                                                     : "$line has no cross barcode"),'danger'));
       }
     }
-    $name =~ s/.+\///;
-    $name =~ s/\.bz2//;
-    $sth{LSMMIPS}->execute($name);
+    (my $wname = $name) =~ s/.+\///;
+    $wname =~ s/\.bz2//;
+    $sth{LSMMIPS}->execute($wname);
     my($signal,$reference) = $sth{LSMMIPS}->fetchrow_array();
     (my $i = $signal) =~ s/.+filestore\///;
     if ($i) {
@@ -310,6 +311,14 @@ sub chooseCrosses
                      img({src => '/images/stack.png',
                           title => 'Show movie'}));
     }
+    if ($url) {
+      $url = a({href => $url},
+               img({src => '/images/brain.jpg',
+                    title => 'Download LSM'}));
+    }
+    else {
+      $url = NBSP;
+    }
     my $pgv = 'Unknown power/gain';
     my $format = "P&times;G %.2f&times;%d (%.2f)";
     if (!index($chanspec,'s')) {
@@ -321,8 +330,9 @@ sub chooseCrosses
         if ($power2 && $gain2);
     }
     $imagery .= div({class => 'single_mip'},$signal,br,
-                    table(Tr(td({width => '10%'},NBSP),
-                             td({width => '80%'},$area),
+                    table(Tr(td({width => '10%'},$url),
+                             td({width => '80%'},a({href => "$STACK=$name",
+                                                    target => '_blank'},$area)),
                              td({class => 'imgoptions'},$reference)),
                           Tr(td({colspan => 3},$pgv)),
                          )
