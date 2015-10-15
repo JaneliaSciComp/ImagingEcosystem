@@ -107,4 +107,14 @@ table.verify {
   padding: 0 2px 0 2px;
 }
 
+.category {
+  float: left;
+  margin: -10px 5px 0 -150px; 
+  transform: rotate(270deg);
+  transform-origin: right bottom 0;
+  font-weight: bold;
+}
+
+
 h3 { color: #ccc; }
+select.gender { background-color: #333; }

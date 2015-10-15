@@ -11,6 +11,7 @@ use JFRC::LDAP;
 use JSON;
 use POSIX qw(strftime);
 use REST::Client;
+use Switch;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
@@ -48,11 +49,6 @@ AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
            . "AND dbd.type='flycore_project') WHERE lr.subject=?",
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? AND i.family LIKE '%screen_review'",
 HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw lr ON (lr.object=lp.name AND lr.relationship='child_of') where type='flycore_project' AND lr.subject=?",
-IMAGEM => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value "
-          . "FROM image_data_mv i LEFT OUTER JOIN line_property_vw lpr ON "
-          . "(i.line=lpr.name AND lpr.type='flycore_requester') "
-          . "WHERE data_set LIKE ? "
-          . "AND line LIKE 'JRC_IS%' ORDER BY 1 LIMIT 16",
 IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
           . "lpr.value,ipcs.value,ipp1.value,ipp2.value,"
           . "ipg1.value,ipg2.value,i.url "
@@ -75,7 +71,9 @@ IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
           . "LEFT OUTER JOIN image_property_vw ipg2 ON (i.id=ipg2.image_id "
           . "AND ipg2.type='lsm_detection_channel_2_detector_gain') "
           . "WHERE ipd.value LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
-LINE => "SELECT create_date FROM line WHERE name=?",
+SSLINE => "SELECT create_date FROM line WHERE name=?",
+SSLINECROSS => "SELECT DISTINCT(cross_type) FROM cross_event_vw WHERE line=? AND "
+               . "cross_type LIKE 'Split%'",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERS => "SELECT value,COUNT(1) FROM image_property_vw WHERE "
          . "type='data_set' AND value LIKE '%screen_review' GROUP BY 1",
@@ -83,8 +81,7 @@ USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_prope
              . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE value LIKE "
              . "'%screen_review' GROUP BY 1",
 # ----------------------------------------------------------------------------
-WS_LSMMIPSp => "SELECT eds.value,edm.value FROM entity e JOIN entityData edl ON (e.id=edl.parent_entity_id AND entity_att='Entity') JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='All MIP Image') JOIN entity el ON (edl.child_entity_id=el.id) WHERE el.name=?",
-WS_LSMMIPS => "SELECT eds.value,edm.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') JOIN entityData edm ON (e.id=edm.parent_entity_id AND edm.entity_att='Default Fast 3D Image') WHERE e.name=?",
+WS_LSMMIPS => "SELECT eds.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') WHERE e.name=?",
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my %username;
@@ -98,11 +95,25 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
+
+# Parms
 my $HEIGHT = param('height') || 150;
 my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb');
+$CAN_ORDER = 1 if ($USERID eq 'svirskasr');
+my $START = param('start') || '';
+my $STOP = param('stop') || '';
+if ($START && $STOP) {
+  $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
+}
+elsif ($START) {
+  $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) >= '$START' AND /;
+}
+elsif ($STOP) {
+  $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
+}
 
 our ($dbh,$dbhw);
 # Connect to databases
@@ -136,11 +147,14 @@ if (param('request')) {
 elsif (param('verify')) {
   &verifyCrosses();
 }
+elsif (param('choose')) {
+  &chooseCrosses();
+}
 elsif ($VIEW_ALL && !param('_userid') && !param('user') && !param('choose')) {
-  &limitSearch();
+  &limitFullSearch();
 }
 else {
-  &chooseCrosses();
+  &showUserDialog();
 }
 # ----- Footer -----
 print div({style => 'clear: both;'},NBSP),end_form,
@@ -158,7 +172,25 @@ exit(0);
 # * Subroutines                                                              *
 # ****************************************************************************
 
-sub limitSearch
+sub showUserDialog()
+{
+  print div({class => 'boxed'},
+            table({class => 'basic'},
+                  Tr(td('Start TMOG date:'),
+                     td(input({&identify('start')}))),
+                  Tr(td('Stop TMOG date:'),
+                     td(input({&identify('stop')}))),
+                 ),
+            div({align => 'center'},
+                submit({&identify('choose'),
+                        class => 'btn btn-success',
+                        value => 'Search'}))
+           ),br,
+           hidden(&identify('_userid'),default=>param('_userid'));
+}
+
+
+sub limitFullSearch
 {
   $sth{USERLINES}->execute();
   my $ar = $sth{USERLINES}->fetchall_arrayref();
@@ -180,7 +212,12 @@ sub limitSearch
                   Tr(td('Image type:'),
                      td(popup_menu(&identify('type'),
                                    -values => ['','split','ti'],
-                                   -labels => $type)))),
+                                   -labels => $type))),
+                  Tr(td('Start TMOG date:'),
+                     td(input({&identify('start')}))),
+                  Tr(td('Stop TMOG date:'),
+                     td(input({&identify('stop')}))),
+                 ),
             div({align => 'center'},
                 submit({&identify('choose'),
                         class => 'btn btn-success',
@@ -256,39 +293,84 @@ sub chooseCrosses
           }
         }
         (my $stable_line = $line) =~ s/IS/SS/;
-        $sth{LINE}->execute($stable_line);
-        my($sage_date) = $sth{LINE}->fetchrow_array();
+        $sth{SSLINE}->execute($stable_line);
+        my($sage_date) = $sth{SSLINE}->fetchrow_array();
+        my %cross_type;
+        if ($sage_date) {
+          $sth{SSLINECROSS}->execute($stable_line);
+          my $ar2 = $sth{SSLINECROSS}->fetchall_arrayref();
+          foreach (@$ar2) {
+            switch ($_->[0]) {
+              case 'SplitFlipOuts' { $cross_type{MCFO}++ }
+              case 'SplitPolarity' { $cross_type{Polarity}++ }
+            }
+          }
+        }
+        # Discard row
+        my $discard = Tr(td({style => 'padding-left: 10px'},[
+                            input({&identify(join('_',$line,'discard')),
+                                   type => 'checkbox',
+                                   class => 'lineselect',
+                                   value => $barcode,
+                                   onclick => 'tagCross("'.$line.'");'},'Discard'),'' ]));
+        $discard = ''; #PLUG
+        my $bump_ordered = 0;
+        # Stable stock row
+        my $stabilization;
+        if ($sage_date) {
+          $class = 'ordered';
+          $bump_ordered++;
+          $stabilization = Tr(td({style => 'padding-left: 10px'},[
+                                 'Stable stock '.
+                                 a({href => "lineman.cgi?line=$stable_line",
+                                    target => '_blank'},'(available)','')]));
+
+        }
+        elsif (exists($request{stabilization})) {
+          $class = 'ordered';
+          $bump_ordered++;
+          ($a = $request{stabilization}) =~ s/T.*//;
+          $stabilization = Tr(td({style => 'padding-left: 10px'},[
+                              "Stable stock (ordered $a)",'']));
+        }
+        else {
+          $discard = '';
+          $stabilization = Tr(td({style => 'padding-left: 10px'},[
+                                 input({&identify(join('_',$line,'stabilization_cross')),
+                                        type => 'checkbox',
+                                        class => 'lineselect',
+                                        value => $barcode,
+                                        onclick => 'tagCross("'.$line.'");'},'Stable stock'),
+                                 '']));
+        }
+        my @CROSS2 = @CROSS[0..$#CROSS-1];
         $controls = div({class => 'checkboxes'},
                         table({style => 'margin-right: 10px'},
-                              map {my $c = join('_',$line,lc($_),'cross');
-                                   if ($sage_date && /Stabilization/) {
+                              (map {my $c = join('_',$line,lc($_),'cross');
+                                   if (exists $request{lc($_)}) {
                                      $class = 'ordered';
-                                     $ordered++;
-                                     Tr(td({style => 'padding-left: 10px'},[
-                                           'Stable stock',
-                                           a({href => "lineman.cgi?line=$stable_line",
-                                              target => '_blank'},'Available')]))
-                                   }
-                                   elsif (exists $request{lc($_)}) {
-                                     $class = 'ordered';
-                                     $ordered++;
+                                     $bump_ordered++;
                                      ($a = $request{lc($_)}) =~ s/T.*//;
                                      Tr(td({style => 'padding-left: 10px'},[
                                            $_,"Ordered $a"]))
                                    }
                                    else {
-                                     Tr(td({style => 'padding-left: 10px'},[
-                                     input({&identify($c),
-                                            type => 'checkbox',
-                                            class => 'lineselect',
-                                            value => $barcode,
-                                            onclick => 'tagCross("'.$line.'");'},$_),
-                                     (/Stabilization/) ? ''
-                                     : input({&identify(join('_',$line,lc($_),'pri')),
+                                    Tr(td({style => 'padding-left: 10px'},[
+                                    input({&identify($c),
+                                           type => 'checkbox',
+                                           class => 'lineselect',
+                                           value => $barcode,
+                                           onclick => 'tagCross("'.$line.'");'},$_
+                                          . (($cross_type{$_})
+                                             ? span({style => 'color: #4cc417'},
+                                                    ' (cross exists)') : '')),
+                                       input({&identify(join('_',$line,lc($_),'pri')),
                                               type => 'checkbox',
                                               class => 'lineselect'},'High priority')]))
                                    }
-                                  } @CROSS));
+                                   } @CROSS2),
+                              $stabilization,$discard));
+        $ordered++ if ($bump_ordered);
       }
       else {
         $controls = div({class => 'checkboxes',style => 'color: #000'},
@@ -300,32 +382,35 @@ sub chooseCrosses
     (my $wname = $name) =~ s/.+\///;
     $wname =~ s/\.bz2//;
     $sth{LSMMIPS}->execute($wname);
-    my($signal,$reference) = $sth{LSMMIPS}->fetchrow_array();
-    (my $i = $signal) =~ s/.+filestore\///;
+    my($signalmip) = $sth{LSMMIPS}->fetchrow_array();
+    (my $signal = $signalmip) =~ s/png$/mp4/;
+    (my $i = $signalmip) =~ s/.+filestore\///;
     if ($i) {
       $i = "/imagery_links/ws_imagery/$i";
-      $signal = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$signal,
-                   target => '_blank'},
-                  img({src => $i, height => $HEIGHT}));
-    }
-    ($i = $reference) =~ s/.+filestore\///;
-    if ($i) {
-      $i = "/imagery_links/ws_imagery/$i";
-      $reference = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$reference,
+      $signalmip = a({href => "http://jacs-webdav.int.janelia.org/WebDAV/"
+                              . $signalmip,
                       target => '_blank'},
-                     img({src => '/images/stack.png',
-                          title => 'Show movie'}));
+                     img({src => $i, height => $HEIGHT}));
     }
+    (my $all = $signal) =~ s/signal.mp4$/all.mp4/;
+    $signal = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$signal,
+                 target => '_blank'},
+                img({src => '/images/stack_plain.png',
+                     title => 'Show signal movie'}));
+    $all = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$all,
+              target => '_blank'},
+             img({src => '/images/stack_multi.png',
+                  title => 'Show reference+signal movie'}));
     if ($url) {
       $url = a({href => $url},
-               img({src => '/images/brain.jpg',
+               img({src => '/images/lsm_image.png',
                     title => 'Download LSM'}));
     }
     else {
       $url = NBSP;
     }
     my $pgv = 'Unknown power/gain';
-    my $format = "P&times;G %.2f&times;%d (%.2f)";
+    my $format = "Power&times;Gain %.2f&times;%d (%.2f)";
     if (!index($chanspec,'s')) {
       $pgv = sprintf $format,$power1/100,$gain1,($power1/100)*$gain1
         if ($power1 && $gain1);
@@ -334,12 +419,15 @@ sub chooseCrosses
       $pgv = sprintf $format,$power2/100,$gain2,($power2/100)*$gain2
         if ($power2 && $gain2);
     }
-    $imagery .= div({class => 'single_mip'},$signal,br,
-                    table(Tr(td({width => '10%'},$url),
-                             td({width => '80%'},a({href => "$STACK=$name",
+    $imagery .= div({class => 'single_mip'},$signalmip,br,
+                    table(Tr(td({width => '14%'},$url),
+                             td({width => '14%'},NBSP),
+                             td({width => '44%'},a({href => "$STACK=$name",
                                                     target => '_blank'},$area)),
-                             td({class => 'imgoptions'},$reference)),
-                          Tr(td({colspan => 3},$pgv)),
+                             td({width => '14%',
+                                 class => 'imgoptions'},$signal),
+                             td({width => '14%'},$all)),
+                          Tr(td({colspan => 5},$pgv)),
                          )
                    );
   }
@@ -354,6 +442,8 @@ sub chooseCrosses
       push @other,Tr(td(['Image type: ',(param('type') eq 'ti') ? 'Terra incognita' : 'Split screen'])) if param('type');
     }
   }
+  unshift @other,Tr(td(['TMOG date range:',"$START - $STOP"]))
+    if ($START || $STOP);
   print div({class => 'boxed'},
             table({class => 'standard'},
                   Tr(td(['User: ',$uname])),
@@ -399,10 +489,14 @@ sub lineLink
 
 sub renderLine {
   my($line,$html,$imagery,$controls,$class) = @_;
+  $imagery = div({class => 'category',
+                  style => 'background-color: #4863a0;'},
+                 span({style => 'padding: 0 60px 0 60px'},'Initial split'))
+             . $imagery;
   div({class => "line $class",
        id => $line},
       div({float => 'left'},$html,
-          div({class => 'inputblock'},$imagery,$controls)),
+          div({class => 'inputblock',style => 'height: 100%;'},$imagery,$controls)),
       $CLEAR);
 }
 
@@ -419,6 +513,9 @@ sub verifyCrosses
       $line{join('_',(split('_'))[0,1])} = param($_);
       $total++;
     }
+    elsif (/discard$/) {
+      $line{join('_',(split('_'))[0,1])} = param($_);
+    }
     elsif (/pri$/) {
       $priority = 'Red check marks indicate high-priority crosses.' . br;
     }
@@ -430,13 +527,14 @@ sub verifyCrosses
                        value => 'Request crosses'});
   $rbutton = '' unless ($CAN_ORDER);
   print table({class => 'verify'},
-              thead(Tr(th(['Line','Cross barcode',@CROSS]))),
+              thead(Tr(th(['Line','Cross barcode',@CROSS,'Discard']))),
               tbody(map {my @col;
                          foreach my $c (@CROSS) {
                            push @col,(param(join('_',$_,lc($c),'cross')))
                                      ? ((param(join('_',$_,lc($c),'pri'))) ? $high : $normal)
                                      : NBSP;
                          }
+                         push @col,(param(join('_',$_,'discard'))) ? $normal : NBSP;
                          Tr(th($_),td([$line{$_},@col]));
                         } sort keys %line)),
         br,
@@ -564,11 +662,9 @@ sub pageHead
              @_);
   my %load = ();
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
-                    (qw(chosen.jquery.min jquery/jquery.tablesorter tablesorter),$PROGRAM);
-  my @styles = map { Link({-rel=>'stylesheet',
-                           -type=>'text/css',-href=>"/css/$_.css"}) }
-                   qw(tablesorter-jrc1 chosen.min);
-  $load{load} = ' tableInitialize();';
+                    (qw(jquery/jquery-ui-latest),$PROGRAM);
+  my @styles = Link({-rel=>'stylesheet',
+                     -type=>'text/css',-href=>'https://code.jquery.com/ui/1.11.4/themes/ui-darkness/jquery-ui.css'});
   &standardHeader(title       => $arg{title},
                   css_prefix  => $PROGRAM,
                   script      => \@scripts,
