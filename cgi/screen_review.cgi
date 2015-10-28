@@ -5,13 +5,14 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Session;
 use CGI::Carp qw(fatalsToBrowser);
+use Data::Dumper;
 use DBI;
 use IO::File;
 use JFRC::LDAP;
 use JSON;
 use POSIX qw(strftime);
 use REST::Client;
-use Switch;
+use Time::HiRes qw(gettimeofday tv_interval);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
@@ -27,7 +28,8 @@ use constant NBSP => '&nbsp;';
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = '20x screen review';
 my $BASE = "/var/www/html/output/";
-my $FLYSTORE_HOST = 'flystore.int.janelia.org';
+my $FLYSTORE_HOST = 'http://flystore.int.janelia.org';
+# $FLYSTORE_HOST = 'http://django-dev:4000';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
@@ -49,49 +51,36 @@ AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
            . "AND dbd.type='flycore_project') WHERE lr.subject=?",
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? AND i.family LIKE '%screen_review'",
 HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw lr ON (lr.object=lp.name AND lr.relationship='child_of') where type='flycore_project' AND lr.subject=?",
-IMAGES => "SELECT i.line,i.name,ipd.value,ips.value,ipa.value,ipc.value,"
-          . "lpr.value,ipcs.value,ipp1.value,ipp2.value,"
-          . "ipg1.value,ipg2.value,i.url "
-          . "FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
-          . "ON (i.id=ipd.image_id AND ipd.type='data_set') LEFT OUTER JOIN "
-          . "image_property_vw ips ON (i.id=ips.image_id AND "
-          . "ips.type='slide_code') LEFT OUTER JOIN image_property_vw ipa ON "
-          . "(i.id=ipa.image_id AND ipa.type='area') LEFT OUTER JOIN "
-          . "image_property_vw ipc ON (i.id=ipc.image_id AND "
-          . "ipc.type='cross_barcode') LEFT OUTER JOIN line_property_vw lpr ON "
-          . "(i.line=lpr.name AND lpr.type='flycore_requester') "
-          . "LEFT OUTER JOIN image_property_vw ipcs ON (i.id=ipcs.image_id "
-          . "AND ipcs.type='channel_spec') "
-          . "LEFT OUTER JOIN image_property_vw ipp1 ON (i.id=ipp1.image_id "
-          . "AND ipp1.type='lsm_illumination_channel_1_power_bc_1') "
-          . "LEFT OUTER JOIN image_property_vw ipp2 ON (i.id=ipp2.image_id "
-          . "AND ipp2.type='lsm_illumination_channel_2_power_bc_1') "
-          . "LEFT OUTER JOIN image_property_vw ipg1 ON (i.id=ipg1.image_id "
-          . "AND ipg1.type='lsm_detection_channel_1_detector_gain') "
-          . "LEFT OUTER JOIN image_property_vw ipg2 ON (i.id=ipg2.image_id "
-          . "AND ipg2.type='lsm_detection_channel_2_detector_gain') "
-          . "WHERE ipd.value LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
-SSLINE => "SELECT create_date FROM line WHERE name=?",
-SSLINECROSS => "SELECT DISTINCT(cross_type) FROM cross_event_vw WHERE line=? AND "
-               . "cross_type LIKE 'Split%'",
+IMAGEL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
+          . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
+IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
+SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set FROM image_data_mv i JOIN image im ON (im.id=i.id) WHERE line=? AND data_set LIKE ? ORDER BY 2",
+SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
+           . "'JRC\_SS%' AND cross_type LIKE 'Split%' GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
-USERS => "SELECT value,COUNT(1) FROM image_property_vw WHERE "
-         . "type='data_set' AND value LIKE '%screen_review' GROUP BY 1",
 USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_property_vw ip "
              . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE value LIKE "
              . "'%screen_review' GROUP BY 1",
 # ----------------------------------------------------------------------------
-WS_LSMMIPS => "SELECT eds.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') WHERE e.name=?",
+FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot FROM StockFinder "
+              . "WHERE Stock_Name LIKE 'JRC_SS%'",
+# ----------------------------------------------------------------------------
+WS_LSMMIPS => "SELECT eds.value FROM entity e JOIN entityData eds ON "
+              . "(e.id=eds.parent_entity_id AND eds.entity_att='Signal MIP Image') "
+              . "WHERE e.name=?",
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
-my %username;
+my (%DISCARD,%ONORDER,%SSCROSS,%USERNAME);
+my @performance;
 
 # ****************************************************************************
 # * Main                                                                     *
 # ****************************************************************************
 
 # Session authentication
-my $Session = &establishSession(css_prefix => $PROGRAM);
+my $t0 = [gettimeofday];
+my $Session = &establishSession(css_prefix => $PROGRAM,
+                                expire     => '+24h');
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
@@ -100,9 +89,10 @@ our $USERNAME = $Session->param('user_name');
 my $HEIGHT = param('height') || 150;
 my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
+my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb');
-$CAN_ORDER = 1 if ($USERID eq 'svirskasr');
+$CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
 if ($START && $STOP) {
@@ -115,14 +105,20 @@ elsif ($STOP) {
   $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
 }
 
-our ($dbh,$dbhw);
+our ($dbh,$dbhf,$dbhw);
 # Connect to databases
 &dbConnect(\$dbh,'sage')
   || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
+&dbConnect(\$dbhf,'flyboy')
+  || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
 &dbConnect(\$dbhw,'workstation')
-  || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
+  || &terminateProgram("Could not connect to Workstation: ".$DBI::errstr);
 foreach (keys %sth) {
-  if (/^WS_/) {
+  if (/^FB_/) {
+    (my $n = $_) =~ s/FB_//;
+    $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr);
+  }
+  elsif (/^WS_/) {
     (my $n = $_) =~ s/WS_//;
     $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbhw->errstr);
   }
@@ -130,6 +126,7 @@ foreach (keys %sth) {
     $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
   }
 }
+push @performance,sprintf 'Initialization: %.4f sec',tv_interval($t0,[gettimeofday]);
 # Set up LDAP service
 our $service = JFRC::LDAP->new();
 
@@ -150,7 +147,10 @@ elsif (param('verify')) {
 elsif (param('choose')) {
   &chooseCrosses();
 }
-elsif ($VIEW_ALL && !param('_userid') && !param('user') && !param('choose')) {
+elsif (param('line')) {
+  &showLine(param('line'));
+}
+elsif ($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose')) {
   &limitFullSearch();
 }
 else {
@@ -177,9 +177,9 @@ sub showUserDialog()
   print div({class => 'boxed'},
             table({class => 'basic'},
                   Tr(td('Start TMOG date:'),
-                     td(input({&identify('start')}))),
+                     td(input({&identify('start')}) . ' (optional)')),
                   Tr(td('Stop TMOG date:'),
-                     td(input({&identify('stop')}))),
+                     td(input({&identify('stop')}) . ' (optional)')),
                  ),
             div({align => 'center'},
                 submit({&identify('choose'),
@@ -187,6 +187,26 @@ sub showUserDialog()
                         value => 'Search'}))
            ),br,
            hidden(&identify('_userid'),default=>param('_userid'));
+}
+
+
+sub showLine
+{
+  my $line = shift;
+  my @image;
+  $sth{IMAGEL}->execute($line);
+  my $ar = $sth{IMAGEL}->fetchall_arrayref();
+  foreach (@$ar) {
+    (my $wname = $_->[0]) =~ s/.+\///;
+    $wname =~ s/\.bz2//;
+    $sth{LSMMIPS}->execute($wname);
+    my($signalmip) = $sth{LSMMIPS}->fetchrow_array();
+    push @image,img({src => "http://jacs-webdav.int.janelia.org/WebDAV/"
+                            . $signalmip});
+  }
+  print STDERR join(',',@image)."\n";
+  print div({align => 'center',
+             style => 'padding: 20px 0 20px 0; background-color: #111;'},@image);
 }
 
 
@@ -214,9 +234,9 @@ sub limitFullSearch
                                    -values => ['','split','ti'],
                                    -labels => $type))),
                   Tr(td('Start TMOG date:'),
-                     td(input({&identify('start')}))),
+                     td(input({&identify('start')}) . ' (optional)')),
                   Tr(td('Stop TMOG date:'),
-                     td(input({&identify('stop')}))),
+                     td(input({&identify('stop')}) . ' (optional)')),
                  ),
             div({align => 'center'},
                 submit({&identify('choose'),
@@ -229,16 +249,22 @@ sub limitFullSearch
 sub chooseCrosses
 {
   my %lines = ();
-  my ($class,$controls,$lhtml,$imagery,$last_line) = ('')x5;
+  my ($class,$controls,$lhtml,$imagery,$last_line,$mcfo,$polarity) = ('')x7;
+  my $AUSER = $USERID;
+  $AUSER = $RUN_AS || param('user') || $USERID if ($VIEW_ALL);
+  print hidden({&identify('userid'),value => $AUSER});
   my $DSUSER = $USERID;
   my $DSTYPE = '%';
   if ($VIEW_ALL) {
-    $DSUSER = param('_userid') || param('user') || '%';
+    $DSUSER = $RUN_AS || param('user') || '%';
     $DSTYPE = param('type') if (param('type'));
   }
   my $ds = $DSUSER . '\_' . $DSTYPE . '\_screen\_review%';
-  $sth{IMAGES}->execute($ds);
+  $t0 = [gettimeofday];
+  $sth{IMAGES}->execute($AUSER,$ds);
   my $ar = $sth{IMAGES}->fetchall_arrayref();
+  push @performance,sprintf 'Primary query: %.4f sec',
+                            tv_interval($t0,[gettimeofday]);
   unless (scalar @$ar) {
     print &bootstrapPanel('No screen imagery found',
                           'No screen imagery was found'
@@ -247,64 +273,49 @@ sub chooseCrosses
     return;
   }
   my $html = '';
-  my $ordered = 0;
-  my $json = JSON->new->allow_nonref;
+  my($discarded,$ordered,$tossed) = (0)x3;
+  &getFlyStoreOrders($ar);
   foreach my $l (@$ar) {
     # Line, image name, data set, slide code, area, cross barcode, requester,
-    # channel spec
+    # channel spec, power 1, power 2, gain 1, gain 2, url, comment
     my($line,$name,$dataset,$slide,$area,$barcode,$requester,
-       $chanspec,$power1,$power2,$gain1,$gain2,$url) = @$l;
+       $chanspec,$power1,$power2,$gain1,$gain2,$url,$comment) = @$l;
     $lines{$line}++;
+    # Line control break
     if ($line ne $last_line) {
-      $html .= &renderLine($last_line,$lhtml,$imagery,$controls,$class) if ($lhtml);
-      $sth{HALVES}->execute($line);
-      my $hr = $sth{HALVES}->fetchall_hashref('value');
+      $html .= &renderLine($last_line,$lhtml,$imagery,$mcfo,$polarity,$controls,$class,$tossed) if ($lhtml);
+      # Line header
+      my $split_halves = &getSplitHalves($line);
       my $type = ($dataset =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
       $lhtml = h3(&lineLink($line) . (NBSP)x5 . $type);
-      my $bh;
-      if ($barcode) {
-        $bh = a({href => "/flyboy_search.php?cross=$barcode",
-                 target => '_blank'},$barcode);
-      }
-      else {
-        $bh = '';
-      }
+      my $bh = ($barcode) ? a({href => "/flyboy_search.php?cross=$barcode",
+                               target => '_blank'},$barcode) : '';
       my @row = Tr(td(['Cross barcode:',$bh]));
       push @row,Tr(td(['Data set:',$dataset])) if ($VIEW_ALL);
       $requester = &getUsername((split('_',$dataset))[0])
         if ($VIEW_ALL && !param('user') && !$requester);
       push @row,Tr(td(['Requester:',$requester])) if ($requester);
+      $comment ||= '';
+      push @row,Tr(td(['Comment:',
+                       ($CAN_ORDER) ? div({&identify($line.'_comment'),
+                                           class => 'edit'},$comment)
+                                    : $comment]));
       $lhtml .= table({class => 'basic'},@row);
-      $lhtml .= join(br,table({class => 'halves'},
-                             map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name})))}
-                                 sort keys %$hr)) if (scalar(keys %$hr));
+      $lhtml .= $split_halves if ($split_halves);
       $imagery = '';
       $last_line = $line;
+      $tossed = 0;
       $class = 'unordered';
-      if ($barcode && (scalar(keys %$hr) == 2)) {
+      if ($barcode && $split_halves) {
+        # Allow orders
         my %request;
-        my $client = REST::Client->new();
-        # Development $client->GET("http://10.102.20.190:8000/api/orders/is/$line/");
-        $client->GET("http://$FLYSTORE_HOST/api/orders/is/$line/");
-        my $struct = $json->decode($client->responseContent());
-        foreach my $order (keys %$struct) {
-          foreach (@{$struct->{$order}{crossTypes}}) {
-            $request{$_} = $struct->{$order}{dateCreated};
-          }
-        }
+        $request{$_} = $ONORDER{$line}{dateCreated} foreach @{$ONORDER{$line}{orders}};
         (my $stable_line = $line) =~ s/IS/SS/;
-        $sth{SSLINE}->execute($stable_line);
-        my($sage_date) = $sth{SSLINE}->fetchrow_array();
+        my $sage_date = exists($SSCROSS{$stable_line});
         my %cross_type;
         if ($sage_date) {
-          $sth{SSLINECROSS}->execute($stable_line);
-          my $ar2 = $sth{SSLINECROSS}->fetchall_arrayref();
-          foreach (@$ar2) {
-            switch ($_->[0]) {
-              case 'SplitFlipOuts' { $cross_type{MCFO}++ }
-              case 'SplitPolarity' { $cross_type{Polarity}++ }
-            }
-          }
+          $cross_type{MCFO}++ if (exists $SSCROSS{$stable_line}{SplitFlipOuts});
+          $cross_type{Polarity}++ if (exists $SSCROSS{$stable_line}{SplitPolarity});
         }
         # Discard row
         my $discard = Tr(td({style => 'padding-left: 10px'},[
@@ -313,17 +324,23 @@ sub chooseCrosses
                                    class => 'lineselect',
                                    value => $barcode,
                                    onclick => 'tagCross("'.$line.'");'},'Discard'),'' ]));
-        $discard = ''; #PLUG
         my $bump_ordered = 0;
         # Stable stock row
         my $stabilization;
         if ($sage_date) {
           $class = 'ordered';
           $bump_ordered++;
+          if ($DISCARD{$stable_line}) {
+            $discarded++;
+            $tossed++;
+          }
+          my $link = a({href => "lineman.cgi?line=$stable_line",
+                        target => '_blank'},
+                       (($tossed) ? $stable_line : '(available)'),'');
           $stabilization = Tr(td({style => 'padding-left: 10px'},[
-                                 'Stable stock '.
-                                 a({href => "lineman.cgi?line=$stable_line",
-                                    target => '_blank'},'(available)','')]));
+                                  (($tossed) ? "Stable stock $link is discarded"
+                                             : "Stable stock $link"),
+                                   '']));
 
         }
         elsif (exists($request{stabilization})) {
@@ -343,34 +360,42 @@ sub chooseCrosses
                                         onclick => 'tagCross("'.$line.'");'},'Stable stock'),
                                  '']));
         }
-        my @CROSS2 = @CROSS[0..$#CROSS-1];
-        $controls = div({class => 'checkboxes'},
-                        table({style => 'margin-right: 10px'},
-                              (map {my $c = join('_',$line,lc($_),'cross');
-                                   if (exists $request{lc($_)}) {
-                                     $class = 'ordered';
-                                     $bump_ordered++;
-                                     ($a = $request{lc($_)}) =~ s/T.*//;
-                                     Tr(td({style => 'padding-left: 10px'},[
-                                           $_,"Ordered $a"]))
-                                   }
-                                   else {
-                                    Tr(td({style => 'padding-left: 10px'},[
-                                    input({&identify($c),
-                                           type => 'checkbox',
-                                           class => 'lineselect',
-                                           value => $barcode,
-                                           onclick => 'tagCross("'.$line.'");'},$_
-                                          . (($cross_type{$_})
-                                             ? span({style => 'color: #4cc417'},
-                                                    ' (cross exists)') : '')),
-                                       input({&identify(join('_',$line,lc($_),'pri')),
-                                              type => 'checkbox',
-                                              class => 'lineselect'},'High priority')]))
-                                   }
-                                   } @CROSS2),
-                              $stabilization,$discard));
+        if ($tossed) {
+          $controls = $stabilization;
+        }
+        else {
+          my @CROSS2 = @CROSS[0..$#CROSS-1];
+          $controls = div({class => 'checkboxes'},
+                          table({style => 'margin-right: 10px'},
+                                (map {my $c = join('_',$line,lc($_),'cross');
+                                     if (exists $request{lc($_)}) {
+                                       $class = 'ordered';
+                                       $bump_ordered++;
+                                       ($a = $request{lc($_)}) =~ s/T.*//;
+                                       Tr(td({style => 'padding-left: 10px'},[
+                                             $_,"Ordered $a"]))
+                                     }
+                                     else {
+                                      Tr(td({style => 'padding-left: 10px'},[
+                                      input({&identify($c),
+                                             type => 'checkbox',
+                                             class => 'lineselect',
+                                             value => $barcode,
+                                             onclick => 'tagCross("'.$line.'");'},$_
+                                            . (($cross_type{$_})
+                                               ? span({style => 'color: #4cc417'},
+                                                      ' (cross exists)') : '')),
+                                         input({&identify(join('_',$line,lc($_),'pri')),
+                                                type => 'checkbox',
+                                                class => 'lineselect'},'High priority')]))
+                                     }
+                                     } @CROSS2),
+                                $stabilization,$discard));
+        }
         $ordered++ if ($bump_ordered);
+# Disabled as per Oz
+#        $mcfo = &getStableImagery($stable_line,$DSUSER.'\_mcfo%');
+#        $polarity = &getStableImagery($stable_line,$DSUSER.'\_polarity%');
       }
       else {
         $controls = div({class => 'checkboxes',style => 'color: #000'},
@@ -379,62 +404,13 @@ sub chooseCrosses
                                                     : "$line has no cross barcode"),'danger'));
       }
     }
-    (my $wname = $name) =~ s/.+\///;
-    $wname =~ s/\.bz2//;
-    $sth{LSMMIPS}->execute($wname);
-    my($signalmip) = $sth{LSMMIPS}->fetchrow_array();
-    (my $signal = $signalmip) =~ s/png$/mp4/;
-    (my $i = $signalmip) =~ s/.+filestore\///;
-    if ($i) {
-      $i = "/imagery_links/ws_imagery/$i";
-      $signalmip = a({href => "http://jacs-webdav.int.janelia.org/WebDAV/"
-                              . $signalmip,
-                      target => '_blank'},
-                     img({src => $i, height => $HEIGHT}));
-    }
-    (my $all = $signal) =~ s/signal.mp4$/all.mp4/;
-    $signal = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$signal,
-                 target => '_blank'},
-                img({src => '/images/stack_plain.png',
-                     title => 'Show signal movie'}));
-    $all = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$all,
-              target => '_blank'},
-             img({src => '/images/stack_multi.png',
-                  title => 'Show reference+signal movie'}));
-    if ($url) {
-      $url = a({href => $url},
-               img({src => '/images/lsm_image.png',
-                    title => 'Download LSM'}));
-    }
-    else {
-      $url = NBSP;
-    }
-    my $pgv = 'Unknown power/gain';
-    my $format = "Power&times;Gain %.2f&times;%d (%.2f)";
-    if (!index($chanspec,'s')) {
-      $pgv = sprintf $format,$power1/100,$gain1,($power1/100)*$gain1
-        if ($power1 && $gain1);
-    }
-    else {
-      $pgv = sprintf $format,$power2/100,$gain2,($power2/100)*$gain2
-        if ($power2 && $gain2);
-    }
-    $imagery .= div({class => 'single_mip'},$signalmip,br,
-                    table(Tr(td({width => '14%'},$url),
-                             td({width => '14%'},NBSP),
-                             td({width => '44%'},a({href => "$STACK=$name",
-                                                    target => '_blank'},$area)),
-                             td({width => '14%',
-                                 class => 'imgoptions'},$signal),
-                             td({width => '14%'},$all)),
-                          Tr(td({colspan => 5},$pgv)),
-                         )
-                   );
+    $imagery .= &addSingleImage($name,$area,$url,$power1,$power2,$gain1,$gain2,
+                                $chanspec);
   }
-  $html .= &renderLine($last_line,$lhtml,$imagery,$controls,$class) if ($lhtml);
+  $html .= &renderLine($last_line,$lhtml,$imagery,$mcfo,$polarity,$controls,$class,$tossed) if ($lhtml);
+  push @performance,sprintf 'Main loop: %.4f sec',tv_interval($t0,[gettimeofday]);
   my $uname = $USERNAME;
-  $uname .= ' (running as ' . &getUsername(param('_userid')) . ')'
-    if ($VIEW_ALL && param('_userid'));
+  $uname .= " (running as $RUN_AS)" if ($RUN_AS);
   my @other;
   if ($VIEW_ALL) {
     if (param('user')) {
@@ -444,38 +420,109 @@ sub chooseCrosses
   }
   unshift @other,Tr(td(['TMOG date range:',"$START - $STOP"]))
     if ($START || $STOP);
+  print div({class => 'boxed',
+             style => 'background-color: #cff'},
+            h2('Performance data'),join(br,@performance),br)
+    if ($USERID eq 'svirskasr');
   print div({class => 'boxed'},
-            table({class => 'standard'},
-                  Tr(td(['User: ',$uname])),
-                  @other,
-                  Tr(td(['Lines found: ',scalar keys %lines])),
-                  Tr(td(['Lines already ordered: ',$ordered])),
-                  (map { Tr(td(["$_ crosses requested:",
-                                div({class => lc($_).'_crosses'},0),
-                               ]))
-                       } @CROSS),
-                 ),
-            button(-value => 'Show all lines',
-                   -class => 'btn btn-primary btn-xs',
-                   -onclick => 'showAll();'),
-            button(-value => 'Hide unchecked lines',
-                   -class => 'btn btn-primary btn-xs',
-                   -onclick => 'hideUnchecked();'),
-            button(-value => 'Hide checked lines',
-                   -class => 'btn btn-primary btn-xs',
-                   -onclick => 'hideChecked();'),
-            button(-value => 'Hide ordered lines',
-                   -class => 'btn btn-primary btn-xs',
-                   -onclick => 'hideByClass("ordered");'),
-            button(-value => 'Hide unordered lines',
-                   -class => 'btn btn-primary btn-xs',
-                   -onclick => 'hideByClass("unordered");'),
+            div({style => 'float: left'},
+                table({class => 'standard'},
+                      Tr(td(['User: ',$uname])),@other,
+                      Tr(td(['Lines found: ',scalar keys %lines])),
+                      (map { Tr(td(["$_ crosses requested:",
+                                    div({class => lc($_).'_crosses'},0)])) } @CROSS),
+                      Tr(td(['Discards requested:',
+                             div({class => 'discards'},0)])),
+                     )),
+            &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded),
             div({align => 'center'},
                 submit({&identify('verify'),
                         class => 'btn btn-success',
-                        value => 'Next >'}))
-           ),br,
-        div({id => 'scrollarea'},$html);
+                        value => 'Next >'}))),
+        div({id => 'scrollarea'},$html),
+        hidden(&identify('_userid'),default=>param('_userid'));
+}
+
+
+sub getFlyStoreOrders
+{
+  my $ar = shift;
+  my($is_lines,$discards);
+  my $client = REST::Client->new();
+  my $json = JSON->new->allow_nonref;
+  foreach (@$ar) {
+    push @$is_lines,$_->[0];
+    ($a = $_->[0]) =~ s/IS/SS/;
+    push @$discards,$a;
+  }
+  my $post_hash = {is_lines => $is_lines,discards => $discards};
+  $client->POST("$FLYSTORE_HOST/api/orders/batch/",$json->encode($post_hash));
+  if ($client->responseCode() != 200) {
+    print &bootstrapPanel('FlyStore could not process IS/discard check',
+                          Dumper($post_hash),'danger');
+    &terminateProgram('Error response (' . $client->responseCode()
+                      . ') from FlyStore for IS/discard check');
+  }
+  my $struct = $json->decode($client->responseContent());
+  # Orders
+  foreach my $order (keys %{$struct->{is_lines}}) {
+    foreach my $ct (@{$struct->{is_lines}{$order}{crossTypes}}) {
+      $ONORDER{$ct->{is_name}}{dateCreated} = $struct->{is_lines}{$order}{dateCreated};
+      push @{$ONORDER{$ct->{is_name}}{orders}},$ct->{cross_type};
+    }
+  }
+  # Discards
+  my $t0 = [gettimeofday];
+  $sth{ONROBOT}->execute();
+  my $ar2 = $sth{ONROBOT}->fetchall_arrayref();
+  my @LIST = qw(Dead Exit Tossed);
+  foreach (@$ar2) {
+    $a = $_->[1] || '';
+    if ($a) {
+      $_->[2] ||= '';
+      $DISCARD{$_->[0]}++ if (grep(/$a/,@LIST) && ($_->[2] ne 'Yes'));
+    }
+  }
+  foreach my $order (keys %{$struct->{discards}}) {
+    foreach my $l (@{$struct->{discards}{$order}{stockName}}) {
+      $DISCARD{$l}++;
+    }
+  }
+  push @performance,sprintf 'Discard hash build: %.4f sec',tv_interval($t0,[gettimeofday]);
+  # Stable stocks on SAGE
+  $t0 = [gettimeofday];
+  $sth{SSCROSS}->execute();
+  $ar = $sth{SSCROSS}->fetchall_arrayref();
+  $SSCROSS{$_->[0]}{$_->[1]}++ foreach (@$ar);
+  push @performance,sprintf 'Stable split cross hash build: %.4f sec',tv_interval($t0,[gettimeofday]);
+}
+
+
+sub getStableImagery
+{
+  my($line,$ds) = @_;
+  my $img = '';
+  $ds =~ s/dicksonb/dicksonlab/;
+  $sth{SIMAGES}->execute($line,$ds);
+  my $ar = $sth{SIMAGES}->fetchall_arrayref();
+  foreach my $i (@$ar) {
+    # Image name, area, channel spec, power 1, power 2, gain 1, gain 2, url, data set
+    $img .= &addSingleImage(@$i);
+  }
+  return($img);
+}
+
+
+sub getSplitHalves
+{
+  my($line) = shift;
+  $sth{HALVES}->execute($line);
+  my $hr = $sth{HALVES}->fetchall_hashref('value');
+  my $html = '';
+  $html = join(br,table({class => 'halves'},
+                        map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name})))}
+                            sort keys %$hr)) if (scalar(keys %$hr));
+  return($html);
 }
 
 
@@ -487,34 +534,149 @@ sub lineLink
 }
 
 
+sub addSingleImage
+{
+  my($name,$area,$url,$power1,$power2,$gain1,$gain2,$chanspec) = @_;
+  (my $wname = $name) =~ s/.+\///;
+  $wname =~ s/\.bz2//;
+  $sth{LSMMIPS}->execute($wname);
+  my($signalmip) = $sth{LSMMIPS}->fetchrow_array();
+  return('') unless ($signalmip);
+  (my $signal = $signalmip) =~ s/png$/mp4/;
+  (my $i = $signalmip) =~ s/.+filestore\///;
+  if ($i) {
+    $i = "/imagery_links/ws_imagery/$i";
+    $signalmip = a({href => "http://jacs-webdav.int.janelia.org/WebDAV/"
+                            . $signalmip,
+                    target => '_blank'},
+                   img({src => $i, height => $HEIGHT}));
+  }
+  (my $all = $signal) =~ s/signal.mp4$/all.mp4/;
+  $signal = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$signal,
+               target => '_blank'},
+              img({src => '/images/stack_plain.png',
+                   title => 'Show signal movie'}));
+  $all = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$all,
+            target => '_blank'},
+           img({src => '/images/stack_multi.png',
+                title => 'Show reference+signal movie'}));
+  if ($url) {
+    $url = a({href => $url},
+             img({src => '/images/lsm_image.png',
+                  title => 'Download LSM'}));
+  }
+  else {
+    $url = NBSP;
+  }
+  my $pgv = 'Unknown power/gain';
+  my $format = "Power&times;Gain %.2f&times;%d (%.2f)";
+  if (!index($chanspec,'s')) {
+    $pgv = sprintf $format,$power1/100,$gain1,($power1/100)*$gain1
+      if ($power1 && $gain1);
+  }
+  else {
+    $pgv = sprintf $format,$power2/100,$gain2,($power2/100)*$gain2
+      if ($power2 && $gain2);
+  }
+  div({class => 'single_mip'},$signalmip,br,
+      table(Tr(td({width => '14%'},$url),
+               td({width => '14%'},NBSP),
+               td({width => '44%'},a({href => "$STACK=$name",
+                                      target => '_blank'},$area)),
+               td({width => '14%',
+                   class => 'imgoptions'},$signal),
+               td({width => '14%'},$all)),
+            Tr(td({colspan => 5},$pgv)),
+           )
+     );
+}
+
+
 sub renderLine {
-  my($line,$html,$imagery,$controls,$class) = @_;
+  my($line,$html,$imagery,$mcfo,$polarity,$controls,$class,$tossed) = @_;
   $imagery = div({class => 'category',
-                  style => 'background-color: #4863a0;'},
+                  style => 'background-color: #058d95;'},
                  span({style => 'padding: 0 60px 0 60px'},'Initial split'))
              . $imagery;
+  $mcfo = $CLEAR
+          . div({class => 'inputblock',style => 'height: 100%;'},
+                div({class => 'category',
+                     style => 'background-color: #52b447;'},
+                    span({style => 'padding: 0 60px 0 60px'},'MCFO'))
+                . $mcfo) if ($mcfo);
+  $polarity = $CLEAR
+              . div({class => 'inputblock',style => 'height: 100%;'},
+                    div({class => 'category',
+                         style => 'background-color: #00a350;'},
+                        span({style => 'padding: 0 60px 0 60px'},'Polarity'))
+                    . $polarity) if ($polarity);
+  my %options;
+  %options = (style => 'background-color: #633') if ($tossed);
+  $class .= ' discard' if ($tossed);
   div({class => "line $class",
-       id => $line},
+       id => $line,
+       %options},
       div({float => 'left'},$html,
           div({class => 'inputblock',style => 'height: 100%;'},$imagery,$controls)),
+      $polarity,$mcfo,
       $CLEAR);
+}
+
+
+sub renderControls
+{
+  my($ordered,$unordered,$discarded) = @_;
+  div({style => 'float: left; margin-left: 20px;'},
+      button(-value => 'Show all lines',
+             -class => 'btn btn-success btn-xs',
+             -onclick => 'showAll();'),
+      button(-value => 'Hide unchecked lines',
+             -class => 'btn btn-primary btn-xs',
+             -onclick => 'hideUnchecked();'),
+      button(-value => 'Hide checked lines',
+             -class => 'btn btn-primary btn-xs',
+             -onclick => 'hideChecked();') . br . br .
+      table({class => 'basic'},
+            Tr(td(["Ordered lines ($ordered):",
+                   button(-value => 'Show',
+                          -class => 'btn btn-success btn-xs',
+                          -onclick => 'showByClass("ordered");'),
+                   button(-value => 'Hide',
+                          -class => 'btn btn-warning btn-xs',
+                          -onclick => 'hideByClass("ordered");')])),
+            Tr(td(["Unordered lines ($unordered):",
+                   button(-value => 'Show',
+                          -class => 'btn btn-success btn-xs',
+                          -onclick => 'showByClass("unordered");'),
+                   button(-value => 'Hide',
+                          -class => 'btn btn-warning btn-xs',
+                          -onclick => 'hideByClass("unordered");')])),
+            Tr(td(["Discarded lines ($discarded):",
+                   button(-value => 'Show',
+                          -class => 'btn btn-success btn-xs',
+                          -onclick => 'showByClass("discard");'),
+                   button(-value => 'Hide',
+                          -class => 'btn btn-warning btn-xs',
+                          -onclick => 'hideByClass("discard");')]))),
+           ) . $CLEAR;
 }
 
 
 sub verifyCrosses
 {
   my %line;
-  my $total = 0;
+  my($total_cross,$total_discard) = (0)x2;
   my ($control,$priority) = ('')x2;
   foreach (param()) {
     $control .= hidden(&identify($_),default => param($_))
       unless ($_ eq 'verify');
     if (/cross$/) {
       $line{join('_',(split('_'))[0,1])} = param($_);
-      $total++;
+      $total_cross++;
     }
     elsif (/discard$/) {
       $line{join('_',(split('_'))[0,1])} = param($_);
+      $total_discard++;
     }
     elsif (/pri$/) {
       $priority = 'Red check marks indicate high-priority crosses.' . br;
@@ -524,7 +686,7 @@ sub verifyCrosses
   my $high = '<span class="glyphicon glyphicon-ok" style="color: red" aria-hidden="true"></span>';
   my $rbutton = submit({&identify('request'),
                        class => 'btn btn-success',
-                       value => 'Request crosses'});
+                       value => 'Request crosses/discards'});
   $rbutton = '' unless ($CAN_ORDER);
   print table({class => 'verify'},
               thead(Tr(th(['Line','Cross barcode',@CROSS,'Discard']))),
@@ -539,14 +701,17 @@ sub verifyCrosses
                         } sort keys %line)),
         br,
         (sprintf 'A total of %d cross%s will be ordered for %s.',
-                 $total,(1 == $total) ? '' : 'es',$USERNAME),br,
+                 $total_cross,(1 == $total_cross) ? '' : 'es',$USERNAME),br,
         $priority,
+        (sprintf 'A total of %d line%s will be discarded.',
+                 $total_discard,(1 == $total_discard) ? '' : 's'),br,
         div({align => 'center'},
                 submit({&identify('cancel'),class => 'btn btn-danger',
                         value => "Cancel",
                         onclick => 'window.location.href="ssplit_review.cgi"'}),
                 NBSP,$rbutton),
-        $control;
+        $control,
+        hidden(&identify('_userid'),default=>param('_userid'));
 }
 
 
@@ -556,23 +721,30 @@ sub requestCrosses
   my @row;
   my $head = ['Line','Cross ID','AD line','AD robot ID','DBD line','DBD robot ID',
               'Cross type','Priority','Requester'];
-  my %line;
-  my $total = 0;
+  my (%cross_line,%discard_line);
+  my($total_cross,$total_discard) = (0)x2;
   foreach (param()) {
     if (/cross$/) {
-      $line{my $l = join('_',(split('_'))[0,1])} = param($_);
-      $total++;
+      $cross_line{my $l = join('_',(split('_'))[0,1])} = param($_);
+      $total_cross++;
       unless ($type{$l}) {
         $sth{DATASET}->execute($l);
         my $ar = $sth{DATASET}->fetchall_arrayref();
         $type{$l} = ($ar->[0][0] =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
       }
     }
+    elsif (/discard$/) {
+      my $l = join('_',(split('_'))[0,1]);
+      $l =~ s/_IS/_SS/;
+      $discard_line{$l} = param($_);
+      $total_discard++;
+    }
   }
-  print "Crosses to be ordered: $total" . (br)x2;
   my $json = JSON->new->allow_nonref;
+  my $client = REST::Client->new();
+  print "Crosses to be ordered: $total_cross" . br;
   my (%error,%success);
-  foreach my $line (sort keys %line) {
+  foreach my $line (sort keys %cross_line) {
     $sth{AD_DBD}->execute($line);
     my($ad,$dbd) = $sth{AD_DBD}->fetchrow_array();
     if ($ad && $dbd) {
@@ -597,8 +769,7 @@ sub requestCrosses
                    specialInstructions => $type{$line},
                    createNewOrder => 0};
       my $json_text = $json->encode($order);
-      my $client = REST::Client->new();
-      $client->POST("http://$FLYSTORE_HOST/api/order/",$json_text);
+      $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
       if ($client->responseCode() == 201) {
         $success{$line}++;
       }
@@ -608,25 +779,40 @@ sub requestCrosses
     }
   }
   if (scalar keys %success) {
-    print &bootstrapPanel('Lines ordered',join(', ',sort keys %success),
-                          'success');
+    print &bootstrapPanel('Lines ordered',join(', ',sort keys %success),'success');
   }
   if (scalar keys %error) {
     print &bootstrapPanel('Could not request the following crosses:',
                           join(br,map {$_ . (NBSP)x5 . $error{$_}} sort keys %error),
                           'danger');
   }
-  print &createExportFile(\@row,'_'.$USERID.'_cross_request',$head);
+  print &createExportFile(\@row,'_'.$USERID.'_cross_request',$head) if (scalar @row);
+  my $count = scalar keys %discard_line;
+  if ($count) {
+    print hr,"Lines to be discarded: $total_discard" . (br)x2;
+    my $order = {username => $USERID,
+                 discards => [sort keys %discard_line]};
+    my $json_text = $json->encode($order);
+    $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
+    if ($client->responseCode() == 201) {
+      print &bootstrapPanel('Lines discarded',join(', ',sort keys %discard_line),'success');
+    }
+    else {
+      print &bootstrapPanel('Could not discard lines:',
+                            join(br,sort keys %discard_line),
+                            'danger');
+    }
+  }
 }
 
 
 sub getUsername
 {
   my $userid = shift;
-  return($username{$userid}) if (exists $username{$userid});
+  return($USERNAME{$userid}) if (exists $USERNAME{$userid});
   my $user = $service->getUser($userid);
-  $username{$userid} = join(' ',$user->givenName(),$user->sn());
-  return($username{$userid});
+  $USERNAME{$userid} = join(' ',$user->givenName(),$user->sn());
+  return($USERNAME{$userid});
 }
 
 
@@ -662,7 +848,7 @@ sub pageHead
              @_);
   my %load = ();
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
-                    (qw(jquery/jquery-ui-latest),$PROGRAM);
+                    (qw(jquery/jquery-ui-latest jquery.jeditable.min),$PROGRAM);
   my @styles = Link({-rel=>'stylesheet',
                      -type=>'text/css',-href=>'https://code.jquery.com/ui/1.11.4/themes/ui-darkness/jquery-ui.css'});
   &standardHeader(title       => $arg{title},

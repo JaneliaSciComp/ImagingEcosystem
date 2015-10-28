@@ -1,4 +1,4 @@
-$(function(){
+$(function() {
   $("#start").datepicker({dateFormat: 'yy-mm-dd'});
   $("#stop").datepicker({dateFormat: 'yy-mm-dd'});
   $("#verify").prop("disabled",true);
@@ -13,6 +13,19 @@ $(function(){
     if (!error_free){
       event.preventDefault();
     }
+  });
+  $('.edit').editable('/sage_ajax.php', {
+    submitdata : {query: 'annotate_line',
+                  line: 'line',
+                  cv: 'line',
+                  cvterm: 'screen_review_comment',
+                  userid: $('#userid').val()},
+    type       : 'textarea',
+    indicator  : 'Saving...',
+    tooltip    : 'Click to edit...',
+    cancel     : 'Cancel',
+    submit     : 'OK',
+    style      : 'color: black',
   });
 });
 
@@ -44,6 +57,7 @@ function tagCross(this_id) {
     $('div.' + l + '_crosses').html(count[l]);
     total += count[l];
   });
+  $('div.discards').html(count['discard']);
   total += count['discard'];
   if (total)
     $("#verify").prop("disabled",false);
@@ -80,6 +94,10 @@ function hideUnchecked() {
 
 function hideByClass(c) {
   $('.'+c).hide();
+}
+
+function showByClass(c) {
+  $('.'+c).show();
 }
 
 function showAll() {
