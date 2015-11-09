@@ -594,6 +594,7 @@ sub addSingleImage
 
 sub renderLine {
   my($line,$html,$imagery,$mcfo,$polarity,$controls,$class,$tossed) = @_;
+  $imagery ||= div({class => 'stamp'},'No imagery available');
   $imagery = div({class => 'category',
                   style => 'background-color: #058d95;'},
                  span({style => 'padding: 0 60px 0 60px'},'Initial split'))
@@ -764,6 +765,16 @@ sub requestCrosses
                      line => $line);
         push @splits,\%split;
       }
+      my %split = (ADRobotId => $robot_ad,
+                   DBDRobotId => $robot_dbd,
+                   crossBarcode => $cross_line{$line},
+                   line => $line);
+      foreach my $c (@CROSS) {
+        next unless (my $barcode = param(join('_',$line,lc($c),'cross')));
+        $split{lc($c)} = (param(join('_',$line,lc($c),'pri'))) ? 2 : 1;
+      }
+      @splits = ();
+      push @splits,\%split;
       my $order = {username => $USERID,
                    splits => [@splits],
                    specialInstructions => $type{$line},
