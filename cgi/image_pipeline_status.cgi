@@ -250,8 +250,9 @@ sub displayQueues
       elsif ($s eq 'tmog') {
         $_->[0] =~ s/ .*//;
         foreach my $i (1..2) {
+          $_->[$i] ||= '';
           $_->[$i] = a({href => "lineman.cgi?line=" . $_->[$i],
-                        target => '_blank'},$_->[$i]);
+                        target => '_blank'},$_->[$i]) if ($_->[$i]);
         }
         $_->[6] = a({href => "/flyboy_search.php?kcross=" . $_->[6],
                      target => '_blank'},$_->[6]);
@@ -448,7 +449,8 @@ sub createExportFile
   foreach (@$ar) {
     my @l = @$_;
     foreach my $i (0..2,6) {
-      if ($l[$i] =~ /href/) {
+      $l[$i] ||= '';
+      if ($l[$i] && ($l[$i] =~ /href/)) {
         $l[$i] =~ s/.+=//;
         $l[$i] =~ s/".+//;
       }
