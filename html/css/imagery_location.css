@@ -1,0 +1,91 @@
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  border-radius: 12px;
+}
+
+h1, h3 {
+  font-family: 'Quicksand', sans-serif;
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: bold;
+}
+
+.centered {
+    width: 1050px;
+    height: 500px;
+    top:0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin: auto;
+}
+
+.familybox {
+  font: bold 16px arial,sans-serif;
+  color: #fff;
+  border-radius: 12px;
+  float: left;
+  height: 50px;
+  padding: 5px;
+  text-align: center;
+  width: 200px;
+  line-height: 40px;
+  margin: 0 20px 20px 350px;
+  clear: both;
+}
+
+.countbox {
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  float: left;
+  height: 50px;
+  padding: 5px;
+  text-align: center;
+  width: 50px;
+  line-height: 40px;
+  margin: 0 20px 0 0;
+}
+
+.countboxy {
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  float: left;
+  height: 50px;
+  padding: 5px;
+  text-align: center;
+  width: 60px;
+  line-height: 40px;
+  margin: 0 20px 0 0;
+}
+
+.info {
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  float: left;
+  padding: 5px;
+  text-align: center;
+}
+
+/* List */
+table#standard {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#standard th {
+  background: #e7e7e7;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+#standard td {
+  text-align: center;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
