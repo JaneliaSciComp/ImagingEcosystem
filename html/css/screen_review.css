@@ -107,6 +107,13 @@ table.verify {
   padding: 0 2px 0 2px;
 }
 
+table.categoryx {
+  border-collapse: collapse;
+}
+.categoryx th {
+  transform: rotate(-90deg);
+}
+
 .category {
   float: left;
   margin: -10px 5px 0 -150px; 
@@ -115,6 +122,51 @@ table.verify {
   font-weight: bold;
 }
 
+.initialsplit {background-color: #058d95;}
+.initialsplit_adjusted {
+background: repeating-linear-gradient(
+  45deg,
+  #058d95,
+  #058d95 10px,
+  #777795 10px,
+  #777795 20px
+);
+}
+.stablesplit {background-color: #00a350;}
+.stablesplit_adjusted {
+background: repeating-linear-gradient(
+  45deg,
+  #553d95,
+  #553d95 10px,
+  #777795 10px,
+  #777795 20px
+);
+}
+.polarity {background-color: #00a350;}
+.polarity_adjusted {
+background: repeating-linear-gradient(
+  45deg,
+  #00a350,
+  #00a350 10px,
+  #777750 10px,
+  #777750 20px
+);
+}
+
+.stamp {
+  float: left;
+  position: relative;
+  bottom: -20px;
+  width: 150px;
+  height: 190px;
+  margin: 0 0 0 60px;
+  font-size: 20pt;
+  font-weight: bold;
+  color: #c63;
+  -webkit-transform: rotate(315deg);
+  -moz-transform: rotate(315deg);
+  -o-transform: rotate(315deg);
+  writing-mode: lr-tb;
+}
 
 h3 { color: #ccc; }
-select.gender { background-color: #333; }
