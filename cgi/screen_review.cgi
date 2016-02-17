@@ -34,6 +34,7 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
 my $STACK = 'view_sage_imagery.cgi?_op=stack;_family=split_screen_review;_image';
+my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
 my $PRIMARY_MIP = 'Signal 1 MIP Image';
 
 # ****************************************************************************
@@ -59,8 +60,8 @@ HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw 
           . "type='flycore_project' AND lr.subject=?",
 IMAGEL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
-IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
-SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective FROM image_data_mv i JOIN image im ON (im.id=i.id) WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
+IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
+SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
            . "'JRC\_SS%' AND cross_type LIKE 'Split%' GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
@@ -223,8 +224,7 @@ sub showLine
     $sth{LSMMIPS}->execute($wname);
     my $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
     my($signalmip) = $hr->{$PRIMARY_MIP}{value};
-    push @image,img({src => "http://jacs-webdav.int.janelia.org/WebDAV/"
-                            . $signalmip});
+    push @image,img({src => $WEBDAV . $signalmip});
   }
   print div({align => 'center',
              style => 'padding: 20px 0 20px 0; background-color: #111;'},@image);
@@ -333,9 +333,9 @@ sub chooseCrosses
   }
   foreach my $l (@$ar) {
     # Line, image name, data set, slide code, area, cross barcode, requester,
-    # channel spec, power 1, power 2, gain 1, gain 2, url, comment
+    # channel spec, power 1, power 2, gain 1, gain 2, url, comment, TMOG date
     my($line,$name,$dataset,$slide,$area,$barcode,$requester,
-       $chanspec,$power1,$power2,$gain1,$gain2,$url,$comment) = @$l;
+       $chanspec,$power1,$power2,$gain1,$gain2,$url,$comment,$tmog_date) = @$l;
     my($power,$gain) = ($power{$line}{$area},$gain{$line}{$area});
     $lines{$line}++;
     # Line control break
@@ -437,8 +437,8 @@ sub chooseCrosses
                        );
       }
     }
-    $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'');
-    $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',1)
+    $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date);
+    $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,1)
       if (exists $BRIGHTNESS{$line}{$area});
   }
   $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,$sss,$sss_adjusted,$polarity,
@@ -588,10 +588,10 @@ sub getStableImagery
   return('','') unless (scalar @$ar);
   my $used = 0;
   foreach my $i (@$ar) {
-    my $objective = $i->[-1];
+    my $objective = $i->[-2];
     next unless ($objective =~ /20[Xx]/);
     last if ((!$ALL_20X) && ($used >= 2));
-    my($power,$gain) = &getPowerGain($i->[-2],@{$i}[3..6]);
+    my($power,$gain) = &getPowerGain($i->[-3],@{$i}[3..6]);
     $POWER{$line}{$i->[1]} = $power;
     $GAIN{$line}{$i->[1]} = $gain;
     $used++;
@@ -599,11 +599,13 @@ sub getStableImagery
   &populateBrightness($line,$ar,1);
   $used = 0;
   foreach my $i (@$ar) {
+    my $tmog_date = pop @$i;
     my $objective = pop @$i;
     next unless ($objective =~ /20[Xx]/);
     last if ((!$ALL_20X) && ($used >= 2));
     # Image name, area, url, power 1, power 2, gain 1, gain 2, channel spec, data set
     splice(@$i,3,6,$POWER{$line}{$i->[1]},$GAIN{$line}{$i->[1]},$i->[-1]);
+    push @$i,$tmog_date;
     $img .= &addSingleImage('',@$i);
     $adjusted .= &addSingleImage($line,@$i,1)
       if (exists $BRIGHTNESS{$line}{$i->[1]});
@@ -652,7 +654,7 @@ sub createStabilization
 
 sub addSingleImage
 {
-  my($line,$name,$area,$url,$power,$gain,$dataset,$adjusted) = @_;
+  my($line,$name,$area,$url,$power,$gain,$dataset,$tmog_date,$adjusted) = @_;
   $dataset ||= '';
   (my $wname = $name) =~ s/.+\///;
   $wname =~ s/\.bz2//;
@@ -671,7 +673,7 @@ sub addSingleImage
     $bc = $hr->{'Brightness Compensation'}{value};
   }
   return('') unless ($signalmip);
-$bc = 0; #PLUG
+  $bc = 0 if ($tmog_date lt '2016-02-17');
   if ($bc) {
     foreach (split(',',$bc)) {
       if ($_ > 1) {
@@ -687,7 +689,7 @@ $bc = 0; #PLUG
   if ($i) {
     my @parms = ();
     my $parms = '';
-    $i = "/imagery_links/ws_imagery/$i";
+    $i = $WEBDAV . $i;
     my $style = '';
     if (param('grayscale')
         || ($adjusted && exists($BRIGHTNESS{$line}{$area}))) {
@@ -708,7 +710,7 @@ $bc = 0; #PLUG
       }
     }
     $BRIGHTNESS{$line}{$area} = $bc if ($bc);
-    my $url2 = "http://jacs-webdav.int.janelia.org/WebDAV/" . $signalmip;
+    my $url2 = $WEBDAV . $signalmip;
     my $caption=$line;
     $caption .= " ($split_name)" if ($split_name);
     $signalmip = a({href => "view_image.cgi?url=$url2"
@@ -718,11 +720,11 @@ $bc = 0; #PLUG
                         src => $url2, height => $HEIGHT}));
   }
   (my $all = $signal) =~ s/signal.+mp4$/all.mp4/;
-  $signal = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$signal,
+  $signal = a({href => $WEBDAV . $signal,
                target => '_blank'},
               img({src => '/images/stack_plain.png',
                    title => 'Show signal movie'}));
-  $all = a({href => "http://jacs-webdav.int.janelia.org/WebDAV".$all,
+  $all = a({href => $WEBDAV . $all,
             target => '_blank'},
            img({src => '/images/stack_multi.png',
                 title => 'Show reference+signal movie'}));

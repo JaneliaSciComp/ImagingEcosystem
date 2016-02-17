@@ -214,12 +214,10 @@ sub showQuery {
         push @header,'Default image' if ($AUTHORIZED);
         foreach my $r (@$ar) {
           if ($AUTHORIZED) {
-            (my $i = $r->[-1]) =~ s/.+filestore\///;
-            if ($i) {
-              $i = "/imagery_links/ws_imagery/$i";
+            if ($r->[-1]) {
               $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
                            target => '_blank'},
-                          img({src => $i,
+                          img({src => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
                                width => $WIDTH}));
             }
             else {
@@ -230,7 +228,8 @@ sub showQuery {
             pop @$r;
           }
           if ($DISPLAY) {
-            push @row,div({class => 'sample'},$r->[-1],br,$r->[0]);
+            push @row,div({class => 'sample'},$r->[-1],br,
+                          a({href => "?sample_id=".$r->[0]},$r->[0]));
           }
           else {
             push @row,[a({href => "?sample_id=".$r->[0]},$r->[0]),
@@ -331,13 +330,11 @@ sub getEntity
       $_->[4] = a({href => "/flow_ws.php?dataset=PipelineConfig_$_->[4]",
                    target => '_blank'},$_->[4]) if ($_->[4]);
     }
-    elsif ($AUTHORIZED && ($_->[4] =~ /\.png$/)) {
-      (my $i = $_->[4]) =~ s/.+filestore\///;
-      $i = "/imagery_links/ws_imagery/$i";
+    elsif ($AUTHORIZED && ($_->[4] =~ /\.(?:mp4|png)$/)) {
       $_->[4] .= NBSP
                  . a({href => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
                       target => '_blank'},
-                     img({src => $i,
+                     img({src => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
                           width => $WIDTH}));
     }
     # EID -> [attribute, value, child EID]
