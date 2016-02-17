@@ -1,0 +1,96 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+#display_section {
+  position: fixed;
+  top: 80px;
+  height: 210px;
+}
+
+#scrollarea {
+  overflow-y: scroll;
+  height: 900px;
+}
+
+.date_area {
+  float: left;
+}
+
+.iblock {
+  float: left;
+  width: 9px;
+  height: 9px;
+  margin: 1px 1px 1px 1px;
+}
+
+div.iblock:hover {
+  width: 18px;
+  height: 18px;
+  margin: -5px -2px -5px -5px;
+  border: 4px solid white;
+}
+
+table.detail {
+  font-size: 12pt;
+  margin-left: 10px;
+  border-collapse: collapse;
+}
+.detail th { text-align: left;
+             padding-right: 8px;
+}
+.detail td { padding-right: 8px; }
+
+.stamp {
+  float: left;
+  position: relative;
+  bottom: -20px;
+  width: 150px;
+  height: 190px;
+  margin: 0 0 0 50px;
+  font-size: 20pt;
+  font-weight: bold;
+  color: #c63;
+  -webkit-transform: rotate(315deg);
+  -moz-transform: rotate(315deg);
+  -o-transform: rotate(315deg);
+  writing-mode: lr-tb;
+}
+
+/* Overrides of bootstrap */
+.navbar-default {
+  background-color: #222;
+}
+.panel-body {
+  background-color: #333;
+}
+
+/* Overrides of janelia_common */
+
+/* General */
+body, input, select {
+  background-color: #222;
+  color: #bbc;
+}
+
+/* Input */
+input:focus { background: #222; }
+input:hover { background: #333; }
+
+/* Links */
+a:link, a:visited { color: #4863a0; }
+
+a:hover, a:active {
+  color: #666;
+  background: #336;
+}
+
+/* Bootstrap */
+.breadcrumb {
+  background-color: #222;
+}
