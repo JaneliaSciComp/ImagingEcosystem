@@ -268,11 +268,13 @@ sub singleImage
     case 'Microscope' { $index = $microscope }
   }
   $block_color{$index} = shift @COLOR unless (exists $block_color{$index});
+  my $loc = "view_sage_imagery.cgi?_op=stack&_image=$name";
   my $block = div({&identify($id),
                    class => 'iblock',
                    style => "background-color: #$block_color{$index}",
                    onmouseover => "showDetail($id,'$create_date','$name','$annotator','$microscope','$dataset','$slide_code','$line','$area','#$block_color{$index}');",
                    onmouseout => "noDetail()",
+                   onclick => "navigate('$loc')"
                   },'');
   my $background = &setBackground($block_color{$index});
   my $value = span({style => "color: #$block_color{$index}; $background"},$index);
