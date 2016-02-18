@@ -103,6 +103,7 @@ my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb');
 $CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
+$CAN_ORDER = 0 if ($USERID eq 'dolanm' || $RUN_AS eq 'dolanm');
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
 my $ALL_20X = param('all20x') || 0;
