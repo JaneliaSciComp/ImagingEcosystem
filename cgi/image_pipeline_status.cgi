@@ -31,7 +31,7 @@ my %STEP;
 my @STEPS;
 my $BASE = "/var/www/html/output/";
 # Total days of history to fetch from the Workstation
-my $WS_LIMIT_DAYS = 30;
+my $WS_LIMIT_DAYS = 7;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 
 # ****************************************************************************
@@ -51,6 +51,7 @@ FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,"
            . "TIMESTAMPDIFF(DAY,NOW(),event_date) BETWEEN -90 AND -14 "
            . "ORDER BY event_date",
 # -----------------------
+WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 Indexing => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,i.create_date '
             . 'FROM image_vw i JOIN image_property_vw ip1 ON '
             . "(i.id=ip1.image_id AND ip1.type='slide_code') "
@@ -321,11 +322,11 @@ Legend:<br>
 <span class="badge badge-error">&nbsp;&nbsp;&nbsp;</span> Samples that did not complete processing<br>
 __EOT__
   unshift @details,div({&identify('instructions')},$instructions);
-  print div({style => 'clear: both;'},NBSP);
+  print div({style => 'clear: both;'},NBSP),&statusTotals();
   print div({class => 'boxed',style => 'float:left;width:100%'},
             div({align => 'center'},
                 h2(a({href => '#',
-                      onclick => "showDetails('instructions')"},$APPLICATION))),
+                      onclick => "showDetails('instructions')"},$APPLICATION." (last $WS_LIMIT_DAYS days)"))),
                 br,
             div({style => 'float: left;'},
                 div({style => 'float: left;'},
@@ -338,6 +339,27 @@ __EOT__
            ),
            div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;
+}
+
+
+sub statusTotals
+{
+my %STATUS = (Complete => '090',
+              Error => 'f33',
+              'Marked for Rerun' => 'f93',
+              Processing => 'f93');
+$STATUS{$_} = '39c' foreach(qw(Blocked Desync Retired));
+  $sth{Status}->execute();
+  my $ar = $sth{Status}->fetchall_arrayref();
+  my $total = 0;
+  $total += $_->[1] foreach (@$ar);
+  div({class => 'boxed'},
+      div({align => 'center'},h2('Overall sample status')),
+      table({class => 'status'},
+            thead(Tr(th(['Status','Sample count']))),
+            tbody(map {Tr(td([span({style => 'color: #'.($STATUS{$_->[0]}||'ccc')},$_->[0]),
+                              (sprintf '%d%s(%.2f%%)',$_->[1],join('',(NBSP)x3),$_->[1]/$total*100)]))} @$ar),
+            tfoot(Tr(th('TOTAL'),td($total)))));
 }
 
 

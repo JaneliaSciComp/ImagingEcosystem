@@ -7,6 +7,26 @@ div.boxed {
   -moz-border-radius: 12px;
 }
 
+table.status {
+  background: #333;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.status th {
+  background: #445;
+  border: 1px solid #058d95;
+  padding: 0 1px 0 1px;
+}
+
+.status td {
+  text-align: center;
+  background: #445 !important;
+  color: #bbc !important;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
 table.standard {
   background: #333;
   border-collapse: collapse;
