@@ -31,7 +31,7 @@ my %STEP;
 my @STEPS;
 my $BASE = "/var/www/html/output/";
 # Total days of history to fetch from the Workstation
-my $WS_LIMIT_DAYS = 7;
+my $WS_LIMIT_DAYS = 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 
 # ****************************************************************************
@@ -345,21 +345,29 @@ __EOT__
 sub statusTotals
 {
 my %STATUS = (Complete => '090',
-              Error => 'f33',
-              'Marked for Rerun' => 'f93',
-              Processing => 'f93');
-$STATUS{$_} = '39c' foreach(qw(Blocked Desync Retired));
+              Error => 'f33');
+my %GOOD = map {$_ => 1} qw(Blocked Complete Retired);
+$STATUS{$_} = '39c' foreach(qw(Blocked Retired));
+$STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
   $sth{Status}->execute();
   my $ar = $sth{Status}->fetchall_arrayref();
   my $total = 0;
+  my(@bad,@good);
   $total += $_->[1] foreach (@$ar);
+  foreach (@$ar) {
+    my $text = sprintf '%s: %s (%.2f%%)',
+               span({style => 'color: #'.($STATUS{$_->[0]}||'ccc')},$_->[0]),
+               &commify($_->[1]),$_->[1]/$total*100;
+    if (exists $GOOD{$_->[0]}) {
+      push @good,$text;
+    }
+    else {
+      push @bad,$text;
+    }
+  }
   div({class => 'boxed'},
       div({align => 'center'},h2('Overall sample status')),
-      table({class => 'status'},
-            thead(Tr(th(['Status','Sample count']))),
-            tbody(map {Tr(td([span({style => 'color: #'.($STATUS{$_->[0]}||'ccc')},$_->[0]),
-                              (sprintf '%d%s(%.2f%%)',$_->[1],join('',(NBSP)x3),$_->[1]/$total*100)]))} @$ar),
-            tfoot(Tr(th('TOTAL'),td($total)))));
+      join((NBSP)x3,@good),br,join((NBSP)x3,@bad));
 }
 
 
@@ -562,6 +570,14 @@ sub generateFilter
                                  -onClick => "toggleClass('$_');")
                       } sort keys %filt);
   div({class => 'bg-info'},'Filter: ',(NBSP)x5,$html);
+}
+
+
+sub commify
+{
+  my $text = reverse $_[0];
+  $text =~ s/(\d\d\d)(?=\d)(?!\d*\.)/$1,/g;
+  return scalar reverse $text;
 }
 
 
