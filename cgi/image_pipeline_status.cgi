@@ -5,9 +5,11 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
+use Data::Dumper;
 use DBI;
 use IO::File;
 use POSIX qw(ceil strftime);
+use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
@@ -33,6 +35,8 @@ my $BASE = "/var/www/html/output/";
 # Total days of history to fetch from the Workstation
 my $WS_LIMIT_DAYS = 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
+# Stale warnings
+my %STALE = (Pipeline => {process => {limit => 48, class => 'danger'}});
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -365,9 +369,21 @@ $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
       push @bad,$text;
     }
   }
+  my $warn = '';
+  foreach my $s (keys %STALE) {
+    foreach my $t (keys %{$STALE{$s}}) {
+      if (exists $STALE{$s}{$t}{count}) {
+        $warn .= br . span({class => 'label label-'.($STALE{$s}{$t}{class}||'danger')},
+                           'Warning') . NBSP
+                 . sprintf 'The %s %s has %d stale entr%s (>= %d hours)',
+                   ($s,$t,$STALE{$s}{$t}{count},($STALE{$s}{$t}{count} == 1) ? 'y' : 'ies',$STALE{$s}{$t}{limit});
+      }
+    }
+  }
+  $warn = br . $warn if ($warn);
   div({class => 'boxed'},
       div({align => 'center'},h2('Overall sample status')),
-      join((NBSP)x3,@good),br,join((NBSP)x3,@bad));
+      join((NBSP)x3,@good),br,join((NBSP)x3,@bad),$warn);
 }
 
 
@@ -395,14 +411,26 @@ sub stepContents
     }
     elsif ($step eq 'Pipeline') {
       $head = ($type eq 'queue')
-        ? ['Sample ID','Data set','Tasking date']
+        ? ['Sample ID','Data set','Description','Scheduling date']
         : ['Sample ID','Data set','Description','Pipeline start'];
     }
     elsif ($step eq 'Complete') {
       $head = ['Sample ID','Data set','Description','Completion date'];
     }
+    # Find stale process/queue entries
+    my $now = time;
+    if ((exists $STALE{$step}) && (exists $STALE{$step}{$type})) {
+      foreach (@{$href->{$step}}) {
+        my @f = split(/[-: ]/,$_->[-1]);
+        $f[1]--;
+        my $then = timelocal(reverse @f);
+        my $delta_hours = ($now - $then) / 3600;
+        $STALE{$step}{$type}{count}++ if ($delta_hours >= $STALE{$step}{$type}{limit});
+      }
+    }
     # Create export file
     my $link = &createExportFile($href->{$step},"_$step",$head);
+    # Create process/queue table
     $type_title = "$type_title ($STEP{$step}{description})"
       unless ($step =~ /(?:Complete)/);
     $table = h3("$step $type_title") . $link . br . $js .
