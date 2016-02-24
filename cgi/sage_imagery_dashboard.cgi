@@ -25,6 +25,7 @@ use Date::Manip qw(DateCalc ParseDate UnixDate);
 use DBI;
 use POSIX qw(ceil);
 use JFRC::Utils::Web qw(:all);
+use JFRC::Highcharts qw(:all);
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -76,6 +77,7 @@ my @COLOR = qw(000066 006666 660000 666600 006600 660066);
 # Parameters
 my $DATABASE;
 my %sth = (
+ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/tier2','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
 CAPTURED => "SELECT family,DATE_FORMAT(MAX(capture_date),'%Y-%m-%d'),COUNT(2),"
             . 'COUNT(DISTINCT line),SUM(file_size) FROM '
             . 'image_data_mv GROUP BY 1',
@@ -180,6 +182,9 @@ elsif (param('mode')) {
   }
   elsif (param('mode') eq 'goal') {
     &showGoalDashboard();
+  }
+  elsif (param('mode') eq 'annotator') {
+    &showAnnotDashboard();
   }
 }
 else {
@@ -410,6 +415,60 @@ function switchDetails() {
 </script>
 __EOT__
   }
+}
+
+
+# ****************************************************************************
+# * Subroutine:  showAnnotDashboard                                          *
+# * Description: This routine will show the annotator dashboard.             *
+# *                                                                          *
+# * Parameters:  NONE                                                        *
+# * Returns:     NONE                                                        *
+# ****************************************************************************
+sub showAnnotDashboard
+{
+  push @BREADCRUMBS,($APPLICATION,'?','Annotator dashboard');
+  print &pageHead(),start_form,&hiddenParameters();
+  $sth{ANNOT}->execute();
+  my $ar = $sth{ANNOT}->fetchall_arrayref();
+  my (%annot,%person,%total);
+  foreach (@$ar) {
+    $_->[0] ||= '(unknown)';
+    $total{count} += $_->[-2];
+    $total{size} += $_->[-1];
+    $annot{(split(' ',$_->[0]))[-1]}{$_->[2]} += $_->[-1];
+    $person{(split(' ',$_->[0]))[-1]} += $_->[-1];
+    $_->[-1] = sprintf '%.2f',$_->[-1];
+  }
+  foreach my $a (sort keys %annot) {
+    if ($person{$a} < 2) {
+      delete $annot{$a};
+      next;
+    }
+    foreach my $l (sort keys %{$annot{$a}}) {
+      $annot{$a}{$l} = sprintf '%.2f',$annot{$a}{$l};
+    }
+  }
+  $total{size} = sprintf '%.2f',$total{size};
+  my @color = qw(33ff33 ff3333 3333ff 33cc33 cc3333 3333cc
+                 339933 993333 333399 336633 663333 333366
+                 33cccc cc33cc cccc33
+                 339999 993399 999933 336666 663366 666633);
+  my $chart = &generateSubdividedPieChart(hashref => \%annot,
+                                          title => 'LSMs by annotator (TB)',
+                                          subtitle => 'Subdivided by location',
+                                          content => 'graph1',
+                                          color => \@color,
+                                          unit => 'TB',
+                                          point_format => '<b>{point.y}TB</b>: '
+                                                    .'{point.percentage:.1f}%');
+  print $chart;
+  print table({class => 'sortable',&identify('standard')},
+              thead(Tr(td(['Annotator','Family','Location','Count',
+                           'Size (TB)']))),
+              tbody(map {Tr(td($_))} @$ar),
+              tfoot(Tr(th(['TOTAL','','',$total{count},$total{size}])))
+             );
 }
 
 
