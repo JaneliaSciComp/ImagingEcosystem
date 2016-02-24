@@ -1,5 +1,22 @@
 #!/usr/bin/perl
 
+# Modes:
+#   capture: capture display
+#   rate: imaging rate (4-up confocal capture charts)
+#   goal: performance vs. goal display
+#   (none): categorized display
+# Other parms:
+#   all: show all families (capture display)
+#   chart: chart to display (rate display, defaults to all)
+#   daily: bin by day instead of month
+#   family: show family display (overrides mode)
+#   height: chart height (400)
+#   line: display number of lines instead of number of images (rate display)
+#   start: start month (rate display)
+#   stop: stop month (rate display)
+#   timer: rotate detailed family display (capture display)
+#   width: chart width (1000)
+#   ytd: show year-to-date counts (capture and rate displays)
 use strict;
 use warnings;
 use CGI qw/:standard :cgi-lib/;
