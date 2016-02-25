@@ -431,13 +431,15 @@ sub showAnnotDashboard
   print &pageHead(),start_form,&hiddenParameters();
   $sth{ANNOT}->execute();
   my $ar = $sth{ANNOT}->fetchall_arrayref();
-  my (%annot,%person,%total);
+  my (%annot,%count,%person,%tier,%total);
   foreach (@$ar) {
     $_->[0] ||= '(unknown)';
     $total{count} += $_->[-2];
     $total{size} += $_->[-1];
     $annot{(split(' ',$_->[0]))[-1]}{$_->[2]} += $_->[-1];
     $person{(split(' ',$_->[0]))[-1]} += $_->[-1];
+    $count{$_->[2]} += $_->[-2];
+    $tier{$_->[2]} += $_->[-1];
     $_->[-1] = sprintf '%.2f',$_->[-1];
   }
   foreach my $a (sort keys %annot) {
@@ -450,10 +452,11 @@ sub showAnnotDashboard
     }
   }
   $total{size} = sprintf '%.2f',$total{size};
+  $tier{$_} = sprintf '%.2f',$tier{$_} foreach (keys %tier);
   my @color = qw(33ff33 ff3333 3333ff 33cc33 cc3333 3333cc
                  339933 993333 333399 336633 663333 333366
-                 33cccc cc33cc cccc33
-                 339999 993399 999933 336666 663366 666633);
+                 33cccc cc33cc cccc33 339999 993399 999933
+                 336666 663366 666633);
   my $chart = &generateSubdividedPieChart(hashref => \%annot,
                                           title => 'LSMs by annotator (TB)',
                                           subtitle => 'Subdivided by location',
@@ -463,12 +466,30 @@ sub showAnnotDashboard
                                           point_format => '<b>{point.y}TB</b>: '
                                                     .'{point.percentage:.1f}%');
   print $chart;
-  print table({class => 'sortable',&identify('standard')},
-              thead(Tr(td(['Annotator','Family','Location','Count',
-                           'Size (TB)']))),
-              tbody(map {Tr(td($_))} @$ar),
-              tfoot(Tr(th(['TOTAL','','',$total{count},$total{size}])))
-             );
+  my $chart2 = &generateSimplePieChart(hashref => \%count,
+                                       title => 'LSMs by location (count)',
+                                       content => 'graph2',
+                                       width => '400px', height => '400px',
+                                       color => [qw(cc3333 33cc33)],
+                                       point_format => '<b>{point.y}</b>: '
+                                                    .'{point.percentage:.1f}%');
+  my $chart3 = &generateSimplePieChart(hashref => \%tier,
+                                       title => 'LSMs by location (TB)',
+                                       content => 'graph3',
+                                       width => '400px', height => '400px',
+                                       color => [qw(cc3333 33cc33)],
+                                       unit => 'TB',
+                                       point_format => '<b>{point.y}TB</b>: '
+                                                    .'{point.percentage:.1f}%');
+  my $lower = div({style => 'float: left;'},
+                  table({class => 'sortable',&identify('standard')},
+                        thead(Tr(td(['Annotator','Family','Location','Count',
+                                     'Size (TB)']))),
+                        tbody(map {Tr(td($_))} @$ar),
+                        tfoot(Tr(th(['TOTAL','','',$total{count},
+                                     $total{size}])))))
+              . div({style => 'float: left;'},$chart2,br,$chart3);
+  print $lower;
 }
 
 
