@@ -65,8 +65,8 @@ my $DATABASE;
 my %sth = (
 IMAGE => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
          . "image_data_mv WHERE family NOT LIKE 'simpson%' "
-         . "AND family NOT LIKE 'rubin_wu%' AND family NOT LIKE 'truman%' "
-         . "AND family NOT IN ('baker_lab','flylight_rd','leet_chacrm',"
+         . "AND family NOT LIKE 'rubin%' AND family NOT LIKE 'truman%' "
+         . "AND family NOT IN ('baker_lab','flylight_rd','heberlein_central_brain','leet_chacrm',"
          . "'leet_discovery','rubin_lab_2','rubin_rd_split',"
          . "'zlatic_peripheral') AND name LIKE '%lsm'",
 IMAGEA => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM image_data_mv WHERE "
@@ -189,7 +189,8 @@ sub showStandardDashboard
              &renderColumns($sum{dm11u},$sum{dm11ufs},$COLOR{dm11},1),
              td(['','']));
   $panel{image} =
-        h3('Imagery location by family')
+        h3('LSM location by family'
+           . ((param('all')) ? '' : ' for Workstation-managed imagery'))
         . table({class => 'sortable',&identify('standard')},
                 thead(Tr(th([@header]))),
                 tbody(map {Tr(@$_)} @row),
