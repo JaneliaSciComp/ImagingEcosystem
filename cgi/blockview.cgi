@@ -15,7 +15,6 @@ use Switch;
 use Time::Local qw(timelocal);
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Slime qw(:all);
-use lib '/home/svirskasr/workspace/JFRC-Utils-Web/lib';
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************
