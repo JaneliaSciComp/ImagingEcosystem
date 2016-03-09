@@ -332,6 +332,8 @@ sub chooseCrosses
       $BRIGHTNESS{$l->[0]}{VNC} = 100 * ($power{$l->[0]}{Brain} / $power{$l->[0]}{VNC});
     }
   }
+  my @export;
+  my (%crossed,%cross_count);
   foreach my $l (@$ar) {
     # Line, image name, data set, slide code, area, cross barcode, requester,
     # channel spec, power 1, power 2, gain 1, gain 2, url, comment, TMOG date
@@ -346,17 +348,23 @@ sub chooseCrosses
       $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$comment);
       $last_line = $line;
       ($class,$imagery,$adjusted,$tossed) = ('unordered','','',0);
+      %crossed = ();
+      my %cross_type = ();
       if ($barcode) {
         # Allow orders
         my %request;
-        $request{$_} = $ONORDER{$line}{dateCreated} foreach @{$ONORDER{$line}{orders}};
+        $request{$_} = $ONORDER{$line}{dateCreated}
+          foreach @{$ONORDER{$line}{orders}};
         (my $stable_line = $line) =~ s/IS/SS/;
         my $sage_date = exists($SSCROSS{$stable_line});
-        my %cross_type;
         if ($sage_date) {
-          $cross_type{MCFO}++ if (exists $SSCROSS{$stable_line}{SplitFlipOuts});
-          $cross_type{Polarity}++ if (exists $SSCROSS{$stable_line}{SplitPolarity});
+          $cross_type{MCFO} = $stable_line
+            if (exists $SSCROSS{$stable_line}{SplitFlipOuts});
+          $cross_type{Polarity} = $stable_line
+            if (exists $SSCROSS{$stable_line}{SplitPolarity});
+          $crossed{$_} = $cross_type{$_} foreach(qw(MCFO Polarity));
         }
+        $request{lc($_)} && ($crossed{$_} = $stable_line) foreach (@CROSS);
         # Discard row
         my $discard = Tr(td({style => 'padding-left: 10px'},[
                             input({&identify(join('_',$line,'discard')),
@@ -379,6 +387,7 @@ sub chooseCrosses
                                              : "Stable stock $link"),
                                    '']));
 
+          $crossed{Stabilization} = ($tossed) ? '' : $stable_line;
         }
         elsif (exists($request{stabilization})) {
           $class = 'ordered';
@@ -441,12 +450,24 @@ sub chooseCrosses
     $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date);
     $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,1)
       if (exists $BRIGHTNESS{$line}{$area});
+    if ($area eq 'Brain') {
+      $cross_count{Line}++;
+      push @export,[(split('_',$dataset))[0],$line,$crossed{Polarity},
+                    $crossed{MCFO},$crossed{Stabilization}];
+      $crossed{$_} && ($cross_count{$_}++) foreach (@CROSS);
+    }
   }
   $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,$sss,$sss_adjusted,$polarity,
                        $polarity_adjusted,$controls,$class,$tossed) if ($lhtml);
 
   push @performance,sprintf 'Main loop: %.4f sec',tv_interval($t0,
                                                               [gettimeofday]);
+  my $export_button = '';
+  if (scalar @export) {
+    push @export,['TOTAL',@cross_count{'Line',@CROSS}];
+    $export_button = &createExportFile(\@export,'_'.$USERID.'_screen_review',
+                                       ['Annotator','Line',@CROSS]);
+  }
   my $uname = $USERNAME;
   $uname .= " (running as $RUN_AS)" if ($RUN_AS);
   my @other = &createAdditionalData();
@@ -464,7 +485,8 @@ sub chooseCrosses
                       Tr(td(['Discards requested:',
                              div({class => 'discards'},0)])),
                      )),
-            &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded),
+            &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded,
+                            $export_button),
             &submitButton('verify','Next >')),
         div({id => 'scrollarea'},$html),
         hidden(&identify('_userid'),default=>param('_userid'));
@@ -835,7 +857,7 @@ sub renderLine {
 
 sub renderControls
 {
-  my($ordered,$unordered,$discarded) = @_;
+  my($ordered,$unordered,$discarded,$export) = @_;
   div({style => 'float: left; margin-left: 20px;'},
       button(-value => 'Show all lines',
              -class => 'btn btn-success btn-xs',
@@ -868,7 +890,7 @@ sub renderControls
                    button(-value => 'Hide',
                           -class => 'btn btn-warning btn-xs',
                           -onclick => 'hideByClass("discard");')]))),
-           ) . $CLEAR;
+           ) . $CLEAR . $export;
 }
 
 
