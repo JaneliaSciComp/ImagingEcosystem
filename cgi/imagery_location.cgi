@@ -15,7 +15,6 @@ use JFRC::Utils::Web qw(:all);
 use constant NBSP => '&nbsp;';
 use constant USER => 'sageRead';
 my $DB = 'dbi:mysql:dbname=sage;host=';
-my $WSDB = 'dbi:mysql:dbname=flyportal;host=prd-db';
 # Highcharts
 my $pie_chart_3d = <<__EOT__;
 chart: {type: 'pie',
