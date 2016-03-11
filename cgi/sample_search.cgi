@@ -10,7 +10,6 @@ use IO::File;
 use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************

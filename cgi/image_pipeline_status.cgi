@@ -12,7 +12,6 @@ use POSIX qw(ceil strftime);
 use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************

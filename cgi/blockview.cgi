@@ -14,7 +14,6 @@ use POSIX qw(strftime);
 use Switch;
 use Time::Local qw(timelocal);
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************

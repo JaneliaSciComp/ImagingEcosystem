@@ -15,7 +15,6 @@ use REST::Client;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local qw(timelocal);
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************

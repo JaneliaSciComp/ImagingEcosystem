@@ -13,7 +13,6 @@ use POSIX qw(ceil strftime);
 use Statistics::Basic qw(:all);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************
@@ -103,7 +102,7 @@ my $TERM = ($BASEDATE eq $STOPDATE)
   : "DATE(i.create_date) BETWEEN '$BASEDATE' AND '$STOPDATE'";
 (my $TERMW = $TERM) =~ s/i.create_date/edt.value/g;
 my %sth = (
-tmog => "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM",
+tmog => "SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,i.create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM",
 # -----------------------------------------------------------------------------
 WS_status => "SELECT name,CONCAT(edl.value,'-',edsc.value),eds.value FROM entity e LEFT OUTER JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status') JOIN entityData edt ON (e.id=edt.parent_entity_id AND edt.entity_att='TMOG Date') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edsc ON (e.id=edsc.parent_entity_id AND edsc.entity_att='Slide Code') WHERE entity_type='Sample' AND $TERMW AND name NOT LIKE '%~%'",
 );

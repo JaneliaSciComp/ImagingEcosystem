@@ -11,7 +11,6 @@ use IO::File;
 use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
-use JFRC::Utils::Slime qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************
@@ -112,9 +111,9 @@ sub displayErrors
     print "Errors: ",scalar @$ar,(NBSP)x5,
           &createExportFile($ar,"_ws_errors",\@HEAD),
           &generateFilter($ar,2,$count{Class}),br,
-          table({id => 'stats',class => 'standard'},
-                thead(Tr(th(['Class','Description','Count']))),
-                tbody(map {Tr({class => $_->[0]},td($_))} @stat)),
+         table({id => 'stats',class => 'standard'},
+               thead(Tr(th(['Class','Description','Count']))),
+               tbody(map {Tr({class => $_->[0]},td($_))} @stat)),
           table({id => 'details',class => 'tablesorter standard'},
                 thead(Tr(th(\@HEAD))),
                 tbody(map {Tr({class => $_->[2]},td($_))} @row),
