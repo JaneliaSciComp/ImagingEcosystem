@@ -25,7 +25,7 @@ use constant DATA_PATH => '/opt/informatics/data/';
 # * Constants                                                                *
 # ****************************************************************************
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
-our $APPLICATION = 'Workstation status';
+our $APPLICATION = 'Workstation LSM status';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
