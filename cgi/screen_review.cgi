@@ -28,7 +28,7 @@ use constant NBSP => '&nbsp;';
 our $APPLICATION = '20x screen review';
 my $BASE = "/var/www/html/output/";
 my $FLYSTORE_HOST = 'http://flystore.int.janelia.org';
-$FLYSTORE_HOST = 'http://django-dev:4000';
+# $FLYSTORE_HOST = 'http://django-dev:4000';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
@@ -77,6 +77,7 @@ WS_LSMMIPS => "SELECT eds.entity_att,eds.value FROM entity e "
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%SSCROSS,%USERNAME);
+my (%DATA_SET,%MISSING_MIP);
 my @performance;
 my $ACCESS = 0;
 my $split_name = '';
@@ -340,6 +341,7 @@ sub chooseCrosses
        $chanspec,$power1,$power2,$gain1,$gain2,$url,$comment,$tmog_date) = @$l;
     my($power,$gain) = ($power{$line}{$area},$gain{$line}{$area});
     $lines{$line}++;
+    $DATA_SET{$line} = $dataset;
     # Line control break
     if ($line ne $last_line) {
       $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,$sss,$sss_adjusted,$polarity,
@@ -793,6 +795,7 @@ sub addSingleImage
 
 sub renderLine {
   my($line,$html,$imagery,$adjusted,$mcfo,$stable,$sadjusted,$polarity,$padjusted,$controls,$class,$tossed) = @_;
+  $MISSING_MIP{$line}++ unless ($imagery);
   $imagery ||= div({class => 'stamp'},'No imagery available');
   $imagery = div({class => 'category initialsplit'},
                  span({style => 'padding: 0 60px 0 60px'},'Initial split'))
@@ -857,7 +860,7 @@ sub renderLine {
 sub renderControls
 {
   my($ordered,$unordered,$discarded,$export) = @_;
-  div({style => 'float: left; margin-left: 20px;'},
+  my $html = div({style => 'float: left; margin-left: 20px;'},
       button(-value => 'Show all lines',
              -class => 'btn btn-success btn-xs',
              -onclick => 'showAll();'),
@@ -889,7 +892,16 @@ sub renderControls
                    button(-value => 'Hide',
                           -class => 'btn btn-warning btn-xs',
                           -onclick => 'hideByClass("discard");')]))),
-           ) . $CLEAR . $export;
+           );
+  if (scalar keys %MISSING_MIP) {
+    $html .= div({class => 'boxed',
+                  style => 'float: left; margin-left: 20px;'},
+                 span({style => 'color: #f60;font-size: 14pt;'},
+                      span({class => 'glyphicon glyphicon-warning-sign'},''),
+                      'The following lines are missing imagery'),br,
+                 join(br,sort keys %MISSING_MIP));
+  }
+  $html .= $CLEAR . $export;
 }
 
 
