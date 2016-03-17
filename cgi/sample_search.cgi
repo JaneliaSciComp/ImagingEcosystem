@@ -89,6 +89,9 @@ our ($dbh,$dbhf,$dbhs);
   || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
 &dbConnect(\$dbhs,'sage')
   || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
+foreach (@TAB_ORDER) {
+  $sth{uc($_).'SUM'} =~ s/ LIKE /=/ if ((param($_.'_match')) && (param($_.'_match') =~ /exact/));
+}
 foreach (keys %sth) {
   if (/^SAGE_/) {
     (my $n = $_) =~ s/SAGE_//;
@@ -176,8 +179,11 @@ sub showQuery {
                      -values => ['',map {$_->[0]} @$ar]);
     }
     else {
-      $tab{$_}{content} = "Enter a " . ucfirst($_)
-                          . ' ID (or a portion of one): '
+      $tab{$_}{content} = "Search for a "
+                          . popup_menu(&identify($_.'_match'),
+                                       -values => ['portion of','exact match for'])
+                          . " a " . ucfirst($_)
+                          . ' ID: '
                           . input({&identify($_.'_idi'),
                                    value => param($_.'_id')||param($_.'_idi')||''})
     }
@@ -201,9 +207,15 @@ sub showQuery {
       $DISPLAY = '' unless ($AUTHORIZED);
       $WIDTH = param($_ . '_width') || $WIDTH;
       my $cur = uc($_) . 'SUM';
-      my($term) = param($_ . '_idi')
-                  ? '%' . param($_ . '_idi') . '%'
-                  : param($_ . '_id');
+      my $term;
+      if (param($_ . '_idi')) {
+        $term = (param($_ . '_match') =~ /portion/)
+          ? '%' . param($_ . '_idi') . '%'
+          : param($_ . '_idi');
+      }
+      else {
+        $term = param($_ . '_id');
+      }
       $sth{$cur}->execute($term);
       $ar = $sth{$cur}->fetchall_arrayref();
       if (scalar @$ar) {
