@@ -766,41 +766,23 @@ sub showFamilyDashboard
   foreach my $term (qw(driver project data_set tile)) {
     $sth{'F'.uc($term)}->execute($family);
     $ar = $sth{'F'.uc($term)}->fetchall_arrayref();
-    print STDERR "$term ".scalar(@$ar)."\n";
-    $panel{$term} = &pieChart($ar,ucfirst($term),$term);
+    my %hash = map { $_->[0] => $_->[1]*1 } @$ar;
+    if (exists $hash{''}) {
+      $hash{'(none)'} = $hash{''};
+      delete $hash{''};
+    }
+    $panel{$term} = &generateSimplePieChart(hashref => \%hash,
+                                            title => ucfirst($term),
+                                            content => $term,
+                                            legend => 'right',
+                                            sort => 'value',
+                                            width => 600, height => 400);
   }
   
   foreach (qw(driver project data_set tile)) {
     print div({style => 'float: left;'},
               $panel{$_});
   }
-}
-
-
-sub pieChart
-{
-  my($ar,$title,$container) = @_;
-  my $data;
-  my @element = map { "['" . ($_->[0]||'(none)') . "'," . $_->[1] . ']'} @$ar;
-  $data = "data: [\n" . join(",\n",@element) . "\n]";
-  $a = <<__EOT__;
-<div id="$container" style="width: 600px; height: 400px; margin: 0 auto"></div>
-<script type="text/javascript">
-\$(function () {
-        \$('#$container').highcharts({
-            $pie_chart
-            title: { text: '$title' },
-            $pie_tooltip_plot
-            series: [{
-                type: 'pie',
-                name: '$title',
-                $data
-            }]
-        });
-    });
-</script>
-__EOT__
-  return($a);
 }
 
 
