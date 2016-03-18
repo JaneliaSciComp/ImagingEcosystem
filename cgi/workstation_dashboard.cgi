@@ -117,6 +117,7 @@ sub displayDashboard
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
                                        content => 'disposition',
+                                       color => ['50b432','cc6633'],
                                        text_color => 'white',
                                        label_format => "this.point.name",
                                        width => '400px', height => '300px',
