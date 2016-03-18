@@ -1,0 +1,51 @@
+table.standard {
+  background: #333;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.standard th {
+  background: #058d95;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  text-align: left;
+  background: #445 !important;
+  color: #bbc !important;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+/* Overrides of highcharts */
+rect.highcharts-background { fill: #222; }
+
+/* Overrides of bootstrap */
+.navbar-default { background-color: #222; }
+.panel-body { background-color: #333; }
+.breadcrumb { background-color: #222; }
+
+/* Overrides of janelia_common */
+
+/* General */
+body, input, select {
+  background-color: #222;
+  color: #bbc;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #bbc;
+}
+
+/* Input */
+input:focus { background: #222; }
+input:hover { background: #333; }
+
+/* Links */
+a:link, a:visited { color: #6883c0; }
+
+a:hover, a:active {
+  color: #666;
+  background: #336;
+}
