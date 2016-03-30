@@ -79,6 +79,9 @@ sub initializeProgram
 {
   # Connect to databases
   &dbConnect(\$dbh,'workstation');
+  if (my $img = param('image')) {
+    $sth{ERRORS} =~ s/Default 2D Image/$img/e;
+  }
   foreach (keys %sth) {
     $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
   }
@@ -95,10 +98,14 @@ sub displayQuery
   my $count;
   $count += $_->[1] foreach (@$ar);
   $label{'All datasets'} = "All datasets ($count errors)";
-  my $VERBIAGE = <<__EOT__;
-This program will show the default 2D image for samples with an Error status for
-a given dataset. You may select all datasets (this is the default), but it will
-take some time to load all of the imagery.
+  my $VERBIAGE = 'This program will show the '
+                 . popup_menu(&identify('image'),
+                              -values => ['Default 2D Image','All MIP Image',
+                                          'Reference MIP Image','Signal MIP Image']);
+  $VERBIAGE .= <<__EOT__;
+ for samples with an Error status for a given dataset. You may select
+all datasets (this is the default), but it will take some time to
+load all of the imagery.
 __EOT__
   print div({class => 'boxed'},br,$VERBIAGE,br,br,
             'Select dataset to display errors for: ',
@@ -125,13 +132,11 @@ sub displayErrors
     push @row,[@$_];
     $row[-1][0] = a({href => "sample_search.cgi?sample_id=$row[-1][0]",
                      target => '_blank'},$row[-1][0]);
-    (my $i = $row[-1][-1]) =~ s/.+filestore\///;
-    if ($i) {
-      $i = "/imagery_links/ws_imagery/$i";
-      $row[-1][-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV"
-                                . $row[-1][-1],
+    if ($row[-1][-1]) {
+      my $url = "http://jacs-webdav.int.janelia.org/WebDAV" . $row[-1][-1];
+      $row[-1][-1] = a({href => $url,
                         target => '_blank'},
-                            img({src => $i,
+                            img({src => $url,
                                  width => '100'}));
     }
   }
