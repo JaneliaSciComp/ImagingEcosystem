@@ -9,6 +9,7 @@ use DBI;
 use Getopt::Long;
 use IO::File;
 use POSIX qw(strftime);
+use Switch;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
@@ -97,7 +98,18 @@ sub displayErrors
       $row[-1][0] = a({href => "sample_search.cgi?sample_id=$row[-1][0]",
                        target => '_blank'},$row[-1][0]);
       $count{Class}{$row[-1][2]}++;
-      $stat{$row[-1][2]}{$row[-1][3]}++;
+      my $desc = $row[-1][3];
+      if ($row[-1][2] eq 'LabError') {
+        switch ($desc) {
+          case /Could not find existing JSON metadata/ {
+            $desc = 'Could not find existing JSON metadata' }
+          case /has differing numbers of images per tile/ {
+            $desc = 'Sample has differing numbers of images per tile' }
+          case /No channel mapping consensus among tiles/ {
+            $desc = 'No channel mapping consensus among tiles' }
+        }
+      }
+      $stat{$row[-1][2]}{$desc}++;
     }
   }
   my @HEAD = ('Sample ID','Data set','Class','Description');
@@ -111,7 +123,7 @@ sub displayErrors
     print "Errors: ",scalar @$ar,(NBSP)x5,
           &createExportFile($ar,"_ws_errors",\@HEAD),
           &generateFilter($ar,2,$count{Class}),br,
-         table({id => 'stats',class => 'standard'},
+         table({id => 'stats',class => 'tablesorter standard'},
                thead(Tr(th(['Class','Description','Count']))),
                tbody(map {Tr({class => $_->[0]},td($_))} @stat)),
           table({id => 'details',class => 'tablesorter standard'},
