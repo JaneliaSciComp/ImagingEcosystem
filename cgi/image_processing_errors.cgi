@@ -11,6 +11,7 @@ use IO::File;
 use POSIX qw(strftime);
 use Switch;
 use XML::Simple;
+use JFRC::Highcharts qw(:all);
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
 
@@ -109,6 +110,8 @@ sub displayErrors
             $desc = 'No channel mapping consensus among tiles' }
         }
       }
+      $desc ||= '(unspecified)';
+      $desc =~ s/'/"/g;
       $stat{$row[-1][2]}{$desc}++;
     }
   }
@@ -118,14 +121,23 @@ sub displayErrors
     foreach my $c (sort keys %stat) {
       foreach (sort keys %{$stat{$c}}) {
         push @stat,[$c,$_,$stat{$c}{$_}];
+        $stat{$c}{$_} = sprintf '%d',$stat{$c}{$_};
       }
     }
+    my $pie = &generateSubdividedPieChart(hashref => \%stat,
+                                          title => 'Image processing errors',
+                                          content => 'statpie',
+                                          sort => 'value',
+                                          width => '900px', height => '500px');
     print "Errors: ",scalar @$ar,(NBSP)x5,
           &createExportFile($ar,"_ws_errors",\@HEAD),
           &generateFilter($ar,2,$count{Class}),br,
-         table({id => 'stats',class => 'tablesorter standard'},
-               thead(Tr(th(['Class','Description','Count']))),
-               tbody(map {Tr({class => $_->[0]},td($_))} @stat)),
+          div({style => 'float: left;'},
+              div({style => 'float: left;'},
+                  table({id => 'stats',class => 'tablesorter standard'},
+                        thead(Tr(th(['Class','Description','Count']))),
+                        tbody(map {Tr({class => $_->[0]},td($_))} @stat))),
+              div({style => 'float: left;'},$pie)),
           table({id => 'details',class => 'tablesorter standard'},
                 thead(Tr(th(\@HEAD))),
                 tbody(map {Tr({class => $_->[2]},td($_))} @row),
