@@ -5,8 +5,11 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Session;
 use Data::Dumper;
+use Date::Calc qw(Delta_Days);
 use DBI;
 use POSIX qw(ceil);
+use lib '/home/svirskasr/workspace/PerlModules/JFRC-Highcharts/lib';
+use JFRC::Highcharts qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************
@@ -15,36 +18,6 @@ use JFRC::Utils::Web qw(:all);
 use constant NBSP => '&nbsp;';
 use constant USER => 'sageRead';
 my $DB = 'dbi:mysql:dbname=sage;host=';
-# Highcharts
-my $pie_chart_3d = <<__EOT__;
-chart: {type: 'pie',
-        plotBackgroundColor: null,
-        plotBorderWidth: null,
-        plotShadow: false,
-        options3d: {
-          enabled: true,
-          alpha: 45,
-          beta: 0
-        }
-       },   
-credits: {enabled: false},
-__EOT__
-(my $pie_chart = $pie_chart_3d) =~ s/enabled: true/enabled: false/;
-my $pie_tooltip_plot = <<__EOT__;
-tooltip: { pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>' },
-plotOptions: { pie: { allowPointSelect: true,
-                      cursor: 'pointer',
-                      depth: 35,
-                      dataLabels: {enabled: true,
-                                   color: '#000000',
-                                   connectorColor: '#000000',
-                                   formatter: function() {
-                                     return '<b>'+ this.point.name +'</b>: '+ Highcharts.numberFormat(this.percentage,2) +' %';
-                                   }
-                                  }
-                    }
-             },
-__EOT__
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 # General
@@ -55,6 +28,7 @@ my %COLOR = (Scality => '#55ee55',
              tier2 => '#eeee55',
              'tier2 uncompressed' => '#ff9933',
 );
+my @COLOR = ('#55ee55','#ee5555','#eeee55','#ff9933');
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -62,6 +36,9 @@ my %COLOR = (Scality => '#55ee55',
 # Parameters
 my $DATABASE;
 my %sth = (
+FAMILY => "SELECT path,file_size,DATE(create_date) FROM "
+          . "image_data_mv WHERE family=? AND path IS NOT NULL AND "
+          . "path LIKE '%lsm'",
 IMAGE => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
          . "image_data_mv WHERE family NOT LIKE 'simpson%' "
          . "AND family NOT LIKE 'rubin%' AND family NOT LIKE 'truman%' "
@@ -89,7 +66,12 @@ $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
   foreach (keys %sth);
 
 # Main processing
-&showStandardDashboard();
+if (param('family')) {
+  &showFamilyDetails();
+}
+else {
+  &showStandardDashboard();
+}
 # ----- Footer -----
 print div({style => 'clear: both;'},NBSP),end_form,
       &sessionFooter($Session),end_html;
@@ -105,6 +87,46 @@ exit(0);
 # ****************************************************************************
 # * Subroutines                                                              *
 # ****************************************************************************
+
+sub showFamilyDetails
+{
+  # ----- Page header -----
+  print &pageHead(),start_form,&hiddenParameters();
+  $sth{FAMILY}->execute(my $family = param('family'));
+  my $ar = $sth{FAMILY}->fetchall_arrayref();
+  print "$family uncompressed LSMs: ",scalar(@$ar),br;
+  my %bin;
+  my @today = qw(2016 03 29);
+  foreach (@$ar) {
+    my $days = Delta_Days(split(/[-T]/,$_->[-1]),@today);
+    if ($days <= 30) {
+      $bin{'<= 30 days'}++;
+    }
+    elsif ($days <= 60) {
+      $bin{'30-60 days'}++;
+    }
+    elsif ($days <= 90) {
+      $bin{'60-90 days'}++;
+    }
+    elsif ($days <= 180) {
+      $bin{'3-6 months'}++;
+    }
+    else {
+      $bin{'> 6 months'}++
+    }
+  }
+  my @bin;
+  foreach ('<= 30 days','30-60 days','60-90 days','3-6 months','> 6 months') {
+    push @bin,[$_,$bin{$_}] if (exists $bin{$_});
+  }
+  my $histogram = &generateHistogram(arrayref => \@bin,
+                                     title => 'LSM age',
+                                     content => 'age',
+                                     color => '#66f',
+                                     width => '600px', height => '500px');
+  print $histogram;
+}
+
 
 # ****************************************************************************
 # * Subroutine:  showStandardDashboard                                       *
@@ -161,18 +183,19 @@ sub showStandardDashboard
   my %sum;
   my @row;
   my $dual = 0;
-  $dual += $family{$_}{dual} foreach (keys %family);
+  $dual += ($family{$_}{dual}||0) foreach (keys %family);
   my @acc = qw(jfs jfsfs tier2c tier2cfs tier2u tier2ufs dm11u dm11ufs);
   foreach (sort keys %family) {
     foreach my $t (@acc) {
-      $sum{$t} += $family{$_}{$t};
+      $sum{$t} += ($family{$_}{$t}||0);
     }
     my @col = (td($_),&renderColumns($family{$_}{jfs},$family{$_}{jfsfs},$COLOR{Scality}),
                &renderColumns($family{$_}{tier2c},$family{$_}{tier2cfs},$COLOR{tier2}),
                &renderColumns($family{$_}{tier2u},$family{$_}{tier2ufs},$COLOR{'tier2 uncompressed'}),
                &renderColumns($family{$_}{dm11u},$family{$_}{dm11ufs},$COLOR{dm11}));
     push @col,td($family{$_}{dual}) if ($dual);
-    push @col,td($family{$_}{oldest});
+    push @col,td(a({href => "?family=$_",
+                    target => '_blank'},$family{$_}{oldest}));
     push @row,[@col];
   }
   my @header = ('Family','Scality','JFS size (TB)',
@@ -195,12 +218,18 @@ sub showStandardDashboard
                 tbody(map {Tr(@$_)} @row),
                 tfoot(Tr(@col))
                );
-  @$ar = ();
-  push @$ar,[$_,$count{$_}] foreach (sort keys %count);
-  $panel{countpie} = &pieChart($ar,'# Images per storage tier','countpie');
-  @$ar = ();
-  push @$ar,[$_,$size{$_}/(1024**4)] foreach (sort keys %size);
-  $panel{sizepie} = &pieChart($ar,'Storage footprint per storage tier','sizepie');
+  $panel{countpie} = &generateSimplePieChart(hashref => \%count,
+                                             title => '# Images per storage tier',
+                                             color => \@COLOR,
+                                             content => 'countpie',
+                                             width => '600px', height => '400px');
+  $size{$_} = sprintf '%.2f',$size{$_}/(1024**4) foreach (sort keys %size);
+  $panel{sizepie} = &generateSimplePieChart(hashref => \%size,
+                                            title => 'Storage footprint per storage tier',
+                                            unit => 'TB',
+                                            color => \@COLOR,
+                                            content => 'sizepie',
+                                            width => '600px', height => '400px');
   # Render
   print div({style => 'float: left; padding-right: 15px;'},
             $panel{image},br,
@@ -360,39 +389,6 @@ __EOT__
 }
 
 
-sub pieChart
-{
-  my($ar,$title,$container) = @_;
-  my $data;
-  my @element = map { "['" . ($_->[0]||'(none)') . "'," . $_->[1] . ']'} @$ar;
-  $data = "data: [\n" . join(",\n",@element) . "\n]";
-  my @color;
-  push @color,"'".$COLOR{$_->[0]}."'" foreach (@$ar);
-  my $color = join(',',@color);
-  $a = <<__EOT__;
-<div id="$container" style="width: 600px; height: 400px; margin: 0 auto"></div>
-<script type="text/javascript">
-\$(function () {
-        Highcharts.setOptions({
-          colors: [$color]
-        });
-        \$('#$container').highcharts({
-            $pie_chart
-            title: { text: '$title' },
-            $pie_tooltip_plot
-            series: [{
-                type: 'pie',
-                name: '$title',
-                $data
-            }]
-        });
-    });
-</script>
-__EOT__
-  return($a);
-}
-
-
 sub commify
 {
   my $text = reverse $_[0];
@@ -432,7 +428,6 @@ sub pageHead
   if ($arg{mode} eq 'initial') {
     push @scripts,map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
                       qw(jquery/jquery-latest highcharts-4.0.1/highcharts
-                         highcharts-4.0.1/highcharts-3d
                          highcharts-4.0.1/modules/exporting sorttable),$PROGRAM;
   }
   $arg{title} .= ' (Development)' if ($DATABASE eq 'dev');

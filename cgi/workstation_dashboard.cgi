@@ -7,7 +7,10 @@ use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
 use DBI;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
+use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -35,6 +38,7 @@ use constant NBSP => '&nbsp;';
 # ****************************************************************************
 # Web
 our ($USERID,$USERNAME);
+my $MONGO;
 my $Session;
 # Database
 our $dbh;
@@ -45,6 +49,10 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
+my %rest = (
+Status => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?totals=true",
+Aging => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?status=Processing",
+);
 my %sth = (
 Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
@@ -56,6 +64,7 @@ Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
 # ****************************************************************************
 # * Main                                                                     *
 # ****************************************************************************
+$MONGO = (param('mongo')) || 0;
 &initializeProgram();
 &displayDashboard();
 # We're done!
@@ -104,8 +113,27 @@ sub displayDashboard
   $stream->close();
   my (%count,%donut,%piec,%piei);
   my $total = 0;
-  $sth{Status}->execute();
-  my $ar = $sth{Status}->fetchall_arrayref();
+  my ($ar,$performance);
+  if ($MONGO) {
+    my $t0 = [gettimeofday];
+    my $response = get $rest{Status};
+    $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+    $t0 = [gettimeofday];
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest{Status}<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+    $t0 = [gettimeofday];
+    foreach (@$rvar) {
+      push @$ar,[$_->{'_id'},$_->{count}];
+    }
+    $performance .= sprintf "Remapping: %.2fsec for %d statuses<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
+  }
+  else {
+    $sth{Status}->execute();
+    $ar = $sth{Status}->fetchall_arrayref();
+  }
   foreach (@$ar) {
     $count{$_->[0]} = $_->[1];
     $total += $_->[1];
@@ -113,11 +141,11 @@ sub displayDashboard
                                                 : $piei{$_->[0]} = $_->[1];
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
-  my @color = qw(ff6666 6666ff ff66ff 66ffff);
+  my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff');
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
                                        content => 'disposition',
-                                       color => ['50b432','cc6633'],
+                                       color => ['#50b432','#cc6633'],
                                        text_color => 'white',
                                        label_format => "this.point.name",
                                        width => '400px', height => '300px',
@@ -125,7 +153,7 @@ sub displayDashboard
   my $pie1 = &generateSimplePieChart(hashref => \%piec,
                                      title => 'Completed samples',
                                      content => 'pie1',
-                                     color => [qw(4444ff 44ff44 ff9900)],
+                                     color => ['#4444ff','#44ff44','#ff9900'],
                                      text_color => '#bbc',
                                      legend => 'right',
                                      width => '400px', height => '300px',
@@ -145,13 +173,34 @@ sub displayDashboard
                                        color => \@color,
                                        text_color => '#bbc',
                                        );
-  $sth{Aging}->execute();
-  $ar = $sth{Aging}->fetchall_arrayref();
+  # Age of processing samples
+  if ($MONGO) {
+    @$ar = ();
+    my $t0 = [gettimeofday];
+    my $response = get $rest{Aging};
+    $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+    $t0 = [gettimeofday];
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest{Aging}<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+    # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
+    $t0 = [gettimeofday];
+    foreach (@$rvar) {
+      push @$ar,[$_->{name},$_->{ownerKey},$_->{updatedDate}];
+    }
+    $performance .= sprintf "Remapping: %.2fsec for %d samples<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
+  }
+  else {
+    $sth{Aging}->execute();
+    $ar = $sth{Aging}->fetchall_arrayref();
+  }
   my @delta;
   %piec = ();
   my $now = time;
   foreach (@$ar) {
-    my @f = split(/[-: ]/,$_->[-1]);
+    my @f = split(/[-: T]/,$_->[-1]);
     $f[1]--;
     my $then = timelocal(reverse @f);
     my $delta_hours = ($now - $then) / 3600;
@@ -171,10 +220,10 @@ sub displayDashboard
     push @delta,[@$_,sprintf '%.1f',$delta_hours/24];
   }
   my @pcolor;
-  push @pcolor,'cc9900' if (exists $piec{'1 week - 1 month'});
-  push @pcolor,'cccc33' if (exists $piec{'2 days - 1 week'});
-  push @pcolor,'44cc44' if (exists $piec{'< 2 days'});
-  push @pcolor,'cc4444' if (exists $piec{'> 1 month'});
+  push @pcolor,'#cc9900' if (exists $piec{'1 week - 1 month'});
+  push @pcolor,'#cccc33' if (exists $piec{'2 days - 1 week'});
+  push @pcolor,'#44cc44' if (exists $piec{'< 2 days'});
+  push @pcolor,'#cc4444' if (exists $piec{'> 1 month'});
   my $pie3 = &generateSimplePieChart(hashref => \%piec,
                                      title => 'Age of Processing samples',
                                      content => 'pie3',
@@ -185,6 +234,7 @@ sub displayDashboard
   my $export = &createExportFile(\@delta,'workstation_processing',
                                  ['Sample','User','Start date','Delta days']);
   # Render
+  print $performance.br if ($MONGO);
   print div({style => 'float: left'},
             div({style => 'float: left'},
                 table({id => 'stats',class => 'tablesorter standard'},

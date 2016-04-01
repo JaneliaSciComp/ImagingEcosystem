@@ -453,10 +453,10 @@ sub showAnnotDashboard
   }
   $total{size} = sprintf '%.2f',$total{size};
   $tier{$_} = sprintf '%.2f',$tier{$_} foreach (keys %tier);
-  my @color = qw(33ff33 ff3333 3333ff 33cc33 cc3333 3333cc
-                 339933 993333 333399 336633 663333 333366
-                 33cccc cc33cc cccc33 339999 993399 999933
-                 336666 663366 666633);
+  my @color = ('#33ff33','#ff3333','#3333ff','#33cc33','#cc3333','#3333cc',
+               '#339933','#993333','#333399','#336633','#663333','#333366',
+               '#33cccc','#cc33cc','#cccc33','#339999','#993399','#999933',
+               '#336666','#663366','#666633');
   my $chart = &generateSubdividedPieChart(hashref => \%annot,
                                           title => 'LSMs by annotator (TB)',
                                           subtitle => 'Subdivided by location',
@@ -470,14 +470,14 @@ sub showAnnotDashboard
                                        title => 'LSMs by location (count)',
                                        content => 'graph2',
                                        width => '400px', height => '400px',
-                                       color => [qw(cc3333 33cc33)],
+                                       color => ['#cc3333','#33cc33'],
                                        point_format => '<b>{point.y}</b>: '
                                                     .'{point.percentage:.1f}%');
   my $chart3 = &generateSimplePieChart(hashref => \%tier,
                                        title => 'LSMs by location (TB)',
                                        content => 'graph3',
                                        width => '400px', height => '400px',
-                                       color => [qw(cc3333 33cc33)],
+                                       color => ['#cc3333','#33cc33'],
                                        unit => 'TB',
                                        point_format => '<b>{point.y}TB</b>: '
                                                     .'{point.percentage:.1f}%');
@@ -520,7 +520,6 @@ sub showGoalDashboard
                     $title)
                 . div({class => 'countbox',
                        style => 'border: 2px solid #'.$COLOR[$i]},
-#                      scalar(@$ar));
                       (sprintf '%.2f%%',scalar(@$ar)/$line_goal*100));
     $i++;
   }
