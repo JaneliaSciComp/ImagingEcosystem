@@ -32,6 +32,7 @@ our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
+my $DELTA_DAYS = 14;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -41,7 +42,7 @@ our ($USERID,$USERNAME);
 my $MONGO;
 my $Session;
 # Database
-our $dbh;
+our ($dbh,$dbhs);
 
 # ****************************************************************************
 # Session authentication
@@ -54,10 +55,13 @@ Status => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?totals=tru
 Aging => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?status=Processing",
 );
 my %sth = (
-Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
-Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
-         . "JOIN entityData ed ON (e.id=ed.parent_entity_id) WHERE "
-         . "entity_att='Status' AND value='Processing' ORDER BY 3",
+Intake => "SELECT DATE(capture_date),DATE(create_date),DATEDIFF(create_date,capture_date) FROM image WHERE "
+          . "DATEDIFF(NOW(),DATE(create_date)) <= ?"
+          . "AND capture_date IS NOT NULL AND name like '%lsm'",
+WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
+WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
+            . "JOIN entityData ed ON (e.id=ed.parent_entity_id) WHERE "
+            . "entity_att='Status' AND value='Processing' ORDER BY 3",
 );
 
 
@@ -68,9 +72,10 @@ $MONGO = (param('mongo')) || 0;
 &initializeProgram();
 &displayDashboard();
 # We're done!
-if ($dbh) {
+if ($dbh || $dbhs) {
   ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
   $dbh->disconnect;
+  $dbhs->disconnect;
 }
 exit(0);
 
@@ -83,8 +88,15 @@ sub initializeProgram
 {
   # Connect to databases
   &dbConnect(\$dbh,'workstation');
+  &dbConnect(\$dbhs,'sage');
   foreach (keys %sth) {
-    $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+    if (/^WS/) {
+      (my $n = $_) =~ s/WS_//;
+      $sth{$n} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
+    }
+    else {
+      $sth{$_} = $dbhs->prepare($sth{$_}) || &terminateProgram($dbhs->errstr);
+    }
   }
 }
 
@@ -92,6 +104,49 @@ sub initializeProgram
 sub displayDashboard
 {
   &printHeader();
+  # Intake
+  $sth{Intake}->execute($DELTA_DAYS);
+  my($count,$sum) = (0,0);
+  my $ar = $sth{Intake}->fetchall_arrayref();
+  $count = scalar @$ar;
+  my (%bin1,%bin2);
+  my $max = 0;
+  foreach (@$ar) {
+    $max = $_->[2] if ($_->[2] > $max);
+    $bin1{$_->[0]}++;
+    $bin2{$_->[1]}++;
+    $sum += $_->[2];
+  }
+  @$ar = ();
+  my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
+  my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
+  my $histogram1 = &generateHistogram(arrayref => \@bin1,
+                                      title => 'LSM file capture per day',
+                                      content => 'capture',
+                                      yaxis_title => '# files',
+                                      color => '#66f',
+                                      text_color => '#fff',
+                                      width => '450px', height => '250px');
+  my $histogram2 = &generateHistogram(arrayref => \@bin2,
+                                      title => 'LSM file intake per day',
+                                      content => 'intake',
+                                      yaxis_title => '# files',
+                                      color => '#66f',
+                                      text_color => '#fff',
+                                      width => '450px', height => '250px');
+  print div({class => 'panel panel-primary'},
+            div({class => 'panel-heading'},
+                span({class => 'panel-heading;'},'Intake')),
+            div({class => 'panel-body'},
+                div({style => 'float: left; margin-right: 10px;'},
+                    div({style => 'float: left'},
+                        "Images ingested in last $DELTA_DAYS days: $count",br,
+                        "Average age: ",(sprintf '%.2f days',$sum/$count),br,
+                        "Maximum age: $max days"
+                       ),
+#                    div({style => 'float: left'},$histogram1),
+                    div({style => 'float: left'},$histogram2))
+               )),br;
   # Read status counts from workstation_status.log
   my $file =  DATA_PATH . 'workstation_status.log';
   my $stream = new IO::File $file,"<"
@@ -113,7 +168,7 @@ sub displayDashboard
   $stream->close();
   my (%count,%donut,%piec,%piei);
   my $total = 0;
-  my ($ar,$performance);
+  my ($performance);
   if ($MONGO) {
     my $t0 = [gettimeofday];
     my $response = get $rest{Status};
