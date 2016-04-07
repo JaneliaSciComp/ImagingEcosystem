@@ -5,6 +5,7 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
+use Date::Calc qw(Add_Delta_Days);
 use DBI;
 use IO::File;
 use JSON;
@@ -55,8 +56,8 @@ Status => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?totals=tru
 Aging => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?status=Processing",
 );
 my %sth = (
-Intake => "SELECT DATE(capture_date),DATE(create_date),DATEDIFF(create_date,capture_date) FROM image WHERE "
-          . "DATEDIFF(NOW(),DATE(create_date)) <= ?"
+Intake => "SELECT DATE(capture_date),DATE(update_date),DATEDIFF(update_date,capture_date) FROM image WHERE "
+          . "DATEDIFF(NOW(),DATE(update_date)) <= ?"
           . "AND capture_date IS NOT NULL AND name like '%lsm'",
 WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
@@ -117,6 +118,7 @@ sub displayDashboard
     $bin2{$_->[1]}++;
     $sum += $_->[2];
   }
+  &fillDates(\%bin2);
   @$ar = ();
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
@@ -138,8 +140,8 @@ sub displayDashboard
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
             div({class => 'panel-body'},
-                div({style => 'float: left; margin-right: 10px;'},
-                    div({style => 'float: left'},
+                div({style => 'float: left'},
+                    div({style => 'float: left; margin-right: 10px;'},
                         "Images ingested in last $DELTA_DAYS days: $count",br,
                         "Average age: ",(sprintf '%.2f days',$sum/$count),br,
                         "Maximum age: $max days"
@@ -303,6 +305,22 @@ sub displayDashboard
            ),
         div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;
+}
+
+
+sub fillDates
+{
+  my $hr = shift;
+  my @dates = sort keys %$hr;
+  for (my $di=0; $di < $#dates; $di++) {
+    my $next = $dates[$di+1];
+    my $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$dates[$di]),1);
+    while ($next ne $expected) {
+      print STDERR "Add $expected\n";
+      $hr->{$expected} = 0;
+      $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$expected),1);
+    }
+  }
 }
 
 
