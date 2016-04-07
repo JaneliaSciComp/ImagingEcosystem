@@ -33,7 +33,7 @@ our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
-my $DELTA_DAYS = 14;
+my $DELTA_DAYS = 30;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -56,8 +56,8 @@ Status => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?totals=tru
 Aging => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?status=Processing",
 );
 my %sth = (
-Intake => "SELECT DATE(capture_date),DATE(update_date),DATEDIFF(update_date,capture_date) FROM image WHERE "
-          . "DATEDIFF(NOW(),DATE(update_date)) <= ?"
+Intake => "SELECT DATE(capture_date),DATE(create_date),DATEDIFF(create_date,capture_date) FROM image WHERE "
+          . "DATEDIFF(NOW(),DATE(create_date)) <= ?"
           . "AND capture_date IS NOT NULL AND name like '%lsm'",
 WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
@@ -128,14 +128,14 @@ sub displayDashboard
                                       yaxis_title => '# files',
                                       color => '#66f',
                                       text_color => '#fff',
-                                      width => '450px', height => '250px');
+                                      width => '650px', height => '300px');
   my $histogram2 = &generateHistogram(arrayref => \@bin2,
                                       title => 'LSM file intake per day',
                                       content => 'intake',
                                       yaxis_title => '# files',
-                                      color => '#66f',
+                                      color => '#6f6',
                                       text_color => '#fff',
-                                      width => '450px', height => '250px');
+                                      width => '650px', height => '300px');
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
@@ -146,9 +146,10 @@ sub displayDashboard
                         "Average age: ",(sprintf '%.2f days',$sum/$count),br,
                         "Maximum age: $max days"
                        ),
-#                    div({style => 'float: left'},$histogram1),
+                    div({style => 'float: left'},$histogram1),
                     div({style => 'float: left'},$histogram2))
-               )),br;
+               )),
+        div({style => 'clear: both;'},NBSP);
   # Read status counts from workstation_status.log
   my $file =  DATA_PATH . 'workstation_status.log';
   my $stream = new IO::File $file,"<"
@@ -292,17 +293,19 @@ sub displayDashboard
                                  ['Sample','User','Start date','Delta days']);
   # Render
   print $performance.br if ($MONGO);
-  print div({style => 'float: left'},
-            div({style => 'float: left'},
-                table({id => 'stats',class => 'tablesorter standard'},
-                      thead(Tr(th(['Disposition','Status','Count','%']))),
-                      tbody(map {Tr(td([$disposition{$_},$_,&commify($count{$_}),
-                                        sprintf '%.2f%%',$count{$_}/$total*100]))}
-                          sort keys %count)),
-                $donut1,br,$pie1,br,$pie2
-               ),
-            div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export)
-           ),
+  my $pipeline = div({style => 'float: left'},
+                     div({style => 'float: left'},
+                         table({id => 'stats',class => 'tablesorter standard'},
+                               thead(Tr(th(['Disposition','Status','Count','%']))),
+                               tbody(map {Tr(td([$disposition{$_},$_,&commify($count{$_}),
+                                                 sprintf '%.2f%%',$count{$_}/$total*100]))}
+                                    sort keys %count)),
+                         $donut1,br,$pie1,br,$pie2),
+                     div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export));
+  print div({class => 'panel panel-primary'},
+            div({class => 'panel-heading'},
+                span({class => 'panel-heading;'},'Workstation pipeline')),
+            div({class => 'panel-body'},$pipeline)),
         div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;
 }
