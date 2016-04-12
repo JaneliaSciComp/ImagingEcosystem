@@ -559,11 +559,11 @@ xAxis: {title: {text: 'Days'},
         categories: [
 __EOT__
       $hist{1} += delete($hist{0}) if (exists $hist{0});
-      my @yaxis = map {'(' . ($_-1) .  " - $_]"} sort keys %hist;
+      my @yaxis = map {'(' . ($_-1) .  " - $_]"} sort { $a <=> $b} keys %hist;
       $yaxis[0] = '<= 1' if ($yaxis[0] eq '(0 - 1]');
       $js .= "'" . join("','",@yaxis) . "'"
              . ']},series: [{data: ['
-             . join(',',@hist{sort keys %hist})
+             . join(',',@hist{sort { $a <=> $b} keys %hist})
              . '],color: "#3cc"}]});';
       $js .= <<__EOT__;
 var chart2 = new Highcharts.Chart({
