@@ -122,20 +122,17 @@ sub displayDashboard
   @$ar = ();
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
+  my %parms = (text_color => '#fff', width => '610px', height => '300px');
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
                                       title => 'LSM file capture per day',
                                       content => 'capture',
                                       yaxis_title => '# files',
-                                      color => '#66f',
-                                      text_color => '#fff',
-                                      width => '650px', height => '300px');
+                                      color => '#66f',%parms);
   my $histogram2 = &generateHistogram(arrayref => \@bin2,
                                       title => 'LSM file intake per day',
                                       content => 'intake',
                                       yaxis_title => '# files',
-                                      color => '#6f6',
-                                      text_color => '#fff',
-                                      width => '650px', height => '300px');
+                                      color => '#6f6',%parms);
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
