@@ -92,7 +92,9 @@ WS_Pipeline => "SELECT * FROM (SELECT e.name,ed.value,t.description,"
                . "parameter_name='sample entity id') JOIN entity e ON "
                . "(e.id=tp.parameter_value) JOIN entityData ed ON "
                . "(e.id=ed.parent_entity_id AND "
-               . "entity_att='Data Set Identifier') WHERE "
+               . "entity_att='Data Set Identifier') JOIN task ON "
+               . "(task.task_id=tp.task_id AND "
+               . "task.task_name!='SyncSampleToScality') WHERE "
                . "TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= "
                . "$WS_LIMIT_HOURS ORDER BY 4 DESC,event_no DESC) x GROUP BY 1",
 # -----------------------------------------------------------------------------
