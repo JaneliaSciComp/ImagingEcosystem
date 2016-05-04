@@ -135,6 +135,7 @@ our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
 my $SCICOMP = ($Session->param('scicomp'));
 
+my $ALL = param('all') || 0;
 &initializeProgram();
 &displayQueues();
 
@@ -192,9 +193,9 @@ sub displayQueues
   foreach (@$ar0) {
     $error{$_->[0]} = [$_->[1],$_->[2]];
   }
+  shift(@STEPS) unless ($ALL);
   foreach my $s (@STEPS[1..$#STEPS]) {
-    next if (($s eq 'MV') && !$SCICOMP);
-    next if ($s eq 'MV');
+    next if (($s eq 'MV') && !$ALL);
     next if ($s eq 'Scheduling');
     $sth{$s}->execute();
     my $ar = $sth{$s}->fetchall_arrayref;
@@ -283,8 +284,7 @@ sub displayQueues
   # Display
   my (@details,@special,@status);
   foreach my $step (@STEPS,'Complete') {
-    next if (($step eq 'MV') && !$SCICOMP);
-next if ($step eq 'MV');
+    next if (($step eq 'MV') && !$ALL);
     my ($block,$data,$data2);
     unless ($step eq $STEPS[0]) {
       ($block,$data) = &stepContents(\%queue,$step,'queue');
@@ -309,7 +309,9 @@ number indicates that there are that many waiting.
 <br><br>
 An item will be one of the following:
 <ul>
-<li>Up to tmog: cross barcode</li>
+__EOT__
+  $instructions .= '<li>Up to tmog: cross barcode</li>' if ($ALL);
+  $instructions .= <<__EOT__;
 <li>Indexing: image (LSM)</li>
 <li>Discovery and subsequent steps: sample</li>
 </ul>
