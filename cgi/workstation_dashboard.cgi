@@ -6,6 +6,7 @@ use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
 use Date::Calc qw(Add_Delta_Days);
+use Date::Manip qw(UnixDate);
 use DBI;
 use IO::File;
 use JSON;
@@ -32,6 +33,7 @@ my $BASE = "/var/www/html/output/";
 our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
+my %CONFIG;
 use constant NBSP => '&nbsp;';
 my $DELTA_DAYS = 30;
 
@@ -87,6 +89,14 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+
   # Connect to databases
   &dbConnect(\$dbh,'workstation');
   &dbConnect(\$dbhs,'sage');
@@ -107,7 +117,7 @@ sub displayDashboard
   &printHeader();
   # Intake
   $sth{Intake}->execute($DELTA_DAYS);
-  my($count,$sum) = (0,0);
+  my($count,$sum) = (0)x2;
   my $ar = $sth{Intake}->fetchall_arrayref();
   $count = scalar @$ar;
   my (%bin1,%bin2);
@@ -118,11 +128,14 @@ sub displayDashboard
     $bin2{$_->[1]}++;
     $sum += $_->[2];
   }
+  my $today = UnixDate("today","%Y-%m-%d");
+  my $max_capture = $bin1{$today} || 0;
+  my $max_create = $bin2{$today} || 0;
   &fillDates(\%bin2);
   @$ar = ();
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
-  my %parms = (text_color => '#fff', width => '610px', height => '300px');
+  my %parms = (text_color => '#fff', width => '540px', height => '320px');
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
                                       title => 'LSM file capture per day',
                                       content => 'capture',
@@ -133,6 +146,9 @@ sub displayDashboard
                                       content => 'intake',
                                       yaxis_title => '# files',
                                       color => '#6f6',%parms);
+  my $today_status = '';
+  $today_status .= "Images captured today: $max_capture<br>";
+  $today_status .= "Images ingested today: $max_create";
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
@@ -141,7 +157,7 @@ sub displayDashboard
                     div({style => 'float: left; margin-right: 10px;'},
                         "Images ingested in last $DELTA_DAYS days: $count",br,
                         "Average age: ",(sprintf '%.2f days',$sum/$count),br,
-                        "Maximum age: $max days"
+                        "Maximum age: $max days",br,br,$today_status
                        ),
                     div({style => 'float: left'},$histogram1),
                     div({style => 'float: left'},$histogram2))
@@ -171,12 +187,16 @@ sub displayDashboard
   my ($performance);
   if ($MONGO) {
     my $t0 = [gettimeofday];
-    my $response = get $rest{Status};
+    my $rest = $CONFIG{url}.$CONFIG{query}{Status};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
     $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     $t0 = [gettimeofday];
     my $rvar;
     eval {$rvar = decode_json($response)};
-    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest{Status}<br>"
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
     $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     $t0 = [gettimeofday];
@@ -232,12 +252,16 @@ sub displayDashboard
   if ($MONGO) {
     @$ar = ();
     my $t0 = [gettimeofday];
-    my $response = get $rest{Aging};
+    my $rest = $CONFIG{url}.$CONFIG{query}{Aging};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
     $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     $t0 = [gettimeofday];
     my $rvar;
     eval {$rvar = decode_json($response)};
-    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest{Aging}<br>"
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
     $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
@@ -316,7 +340,6 @@ sub fillDates
     my $next = $dates[$di+1];
     my $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$dates[$di]),1);
     while ($next ne $expected) {
-      print STDERR "Add $expected\n";
       $hr->{$expected} = 0;
       $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$expected),1);
     }
