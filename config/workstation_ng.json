@@ -1,5 +1,6 @@
 {"url": "http://schauderd-ws1.janelia.priv:8180/rest-v1/",
- "query": {"Status": "info/sample?totals=true",
-           "Aging": "info/sample?status=Processing"
+ "query": {"Blockview": "info/sample/blockview",
+           "Aging": "info/sample?status=Processing",
+           "Status": "info/sample?totals=true"
           }
 }

@@ -7,12 +7,14 @@ use CGI::Session;
 use CGI::Carp qw(fatalsToBrowser);
 use Data::Dumper;
 use DBI;
-use JFRC::LDAP;
 use IO::File;
 use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
 use Switch;
+use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local qw(timelocal);
+use JFRC::LDAP;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
 
@@ -22,6 +24,7 @@ use JFRC::Utils::Web qw(:all);
 use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
 
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
@@ -52,6 +55,7 @@ IMAGES => "SELECT i.create_date,annotated_by,microscope,data_set,slide_code,line
 WS_SAMPLES => "SELECT DISTINCT edt.value,eds.value,edd.value,e.name,e.id FROM entity e JOIN entityData edt ON (e.id=edt.parent_entity_id AND edt.entity_att='TMOG Date') LEFT OUTER JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') ORDER BY DATE(edt.value),2",
 );
 
+my $MONGO;
 my %block_color = (unknown => '999999');
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
@@ -66,6 +70,7 @@ my $Session = &establishSession(css_prefix => $PROGRAM,
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
+$MONGO = (param('mongo')) || 0;
 
 # Parms
 my $HEIGHT = param('height') || 150;
@@ -103,6 +108,14 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+
   # Modify statements
   if ($START && $STOP) {
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
@@ -116,8 +129,6 @@ sub initializeProgram
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
     $sth{WS_SAMPLES} =~ s/ORDER /WHERE DATE(edt.value) <= '$STOP' ORDER /;
   }
-print STDERR $sth{IMAGES}."\n";
-print STDERR $sth{WS_SAMPLES}."\n";
   $sth{IMAGES} =~ s/2$/$SELECTOR{$SELECTOR}/;
   # Connect to databases
   &dbConnect(\$dbh,'sage')
@@ -152,7 +163,8 @@ sub showUserDialog()
                                     -values => [sort keys %SELECTOR],
                                     -default => 'Annotator')]))
                  ),
-            &submitButton('choose','Search'));
+            &submitButton('choose','Search')),
+            hidden(&identify('mongo'),default=>param('mongo'));
 }
 
 
@@ -171,9 +183,46 @@ sub showResults
 {
   my $ar;
   my $entity = param('entity');
+  my ($performance,$rest);
   if ($entity eq 'Samples') {
-    $sth{SAMPLES}->execute();
-    $ar = $sth{SAMPLES}->fetchall_arrayref();
+    if ($MONGO) {
+      my $t0 = [gettimeofday];
+      $rest = $CONFIG{url}.$CONFIG{query}{Blockview};
+      if ($START && $STOP) {
+        $rest .= "?startDate=$START&stopDate=$STOP";
+      }
+      elsif ($START) {
+        $rest .= "?startDate=$START";
+      }
+      elsif ($STOP) {
+        $rest .= "?stopDate=$STOP";
+      }
+      my $response = get $rest;
+      &terminateProgram("<h3>REST GET returned null response</h3>"
+                        . "<br>Request: $rest<br>")
+        unless (length($response));
+      $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+      $t0 = [gettimeofday];
+      my $rvar;
+      eval {$rvar = decode_json($response)};
+      &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                        . "Response: $response<br>Error: $@") if ($@);
+      $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+      $t0 = [gettimeofday];
+      # {"_id":1697377402209960034,"name":"GMR_9G09_AE_01_42-fA01b_C100120_20100120131537828","dataSet":"flylight_gen1_gal4","status":"Complete"}
+      my $index = ($SELECTOR eq 'Data set') ? 'dataSet' : 'status';
+      foreach (sort {$a->{tmogDate} cmp $b->{tmogDate}
+                     || $a->{$index} cmp $b->{$index}} @$rvar) {
+        push @$ar,[$_->{tmogDate},$_->{status},$_->{dataSet},$_->{name},$_->{'_id'}];
+      }
+      $performance .= sprintf "Remapping: %.2fsec for %d rows<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
+    }
+    else {
+      my $t0 = [gettimeofday];
+      $sth{SAMPLES}->execute();
+      $ar = $sth{SAMPLES}->fetchall_arrayref();
+      $performance .= sprintf "SQL query: %.2fsec for %d rows<br>",tv_interval($t0,[gettimeofday]),scalar(@$ar);
+    }
     $block_color{Complete} = shift @COLOR;
     $block_color{Error} = shift @COLOR;
   }
@@ -181,9 +230,11 @@ sub showResults
     $sth{IMAGES}->execute();
     $ar = $sth{IMAGES}->fetchall_arrayref();
   }
-  unless (scalar @$ar) {
+  unless ($ar && scalar(@$ar)) {
+    my $msg = 'No imagery was found';
+    $msg .= "<br>REST call: $rest" if ($MONGO);
     print &bootstrapPanel('No imagery found',
-                          'No imagery was found','danger');
+                          $msg,'danger');
     return;
   }
   my %key = ();
@@ -217,7 +268,7 @@ sub showResults
   }
   $html .= &showDate($date,$count,\%key,$date_section);
   $html .= (br)x5;
-  print div({&identify('scrollarea')},$html),
+  print div({&identify('scrollarea')},$performance,$html),
 }
 
 
@@ -238,7 +289,7 @@ sub singleSample
 {
   my($tmog_date,$status,$dataset,$name,$id) = @_;
   $status ||= 'unknown';
-  my $index = $status;
+  my $index = ($SELECTOR eq 'Data set') ? $dataset : $status;
   $block_color{$index} = shift @COLOR unless (exists $block_color{$index});
   my $loc = "sample_search.cgi?sample_id=$name";
   my $block = div({&identify($id),
