@@ -39,8 +39,9 @@ my @COLOR = qw(
 );
 my %SELECTOR = (Annotator => 2,
                 Microscope => 3,
-                'Data set' => 4,
-               );
+                'Data set' => 4);
+my %MSELECTOR = (Status     => 'status',
+                 'Data set' => 'dataSet');
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -76,7 +77,7 @@ $MONGO = (param('mongo')) || 0;
 my $HEIGHT = param('height') || 150;
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
-my $SELECTOR = param('selector');
+my $SELECTOR = (param('entity') eq 'Samples') ? param('mselector') : param('selector');
 # Initialize
 &initializeProgram();
 
@@ -130,6 +131,7 @@ sub initializeProgram
     $sth{WS_SAMPLES} =~ s/ORDER /WHERE DATE(edt.value) <= '$STOP' ORDER /;
   }
   $sth{IMAGES} =~ s/2$/$SELECTOR{$SELECTOR}/;
+  $sth{WS_SAMPLES} =~ s/2$/1/ if ($MSELECTOR{$SELECTOR} eq 'Data set');;
   # Connect to databases
   &dbConnect(\$dbh,'sage')
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
@@ -161,10 +163,15 @@ sub showUserDialog()
                   Tr({&identify('selector_row')},td(['Sort by:',
                          popup_menu(&identify('selector'),
                                     -values => [sort keys %SELECTOR],
-                                    -default => 'Annotator')]))
+                                    -default => 'Annotator')])),
+                  Tr({&identify('mselector_row')},td(['Sort by:',
+                         popup_menu(&identify('mselector'),
+                                    -values => [sort keys %MSELECTOR],
+                                    -default => 'Status')])),
                  ),
             &submitButton('choose','Search')),
-            hidden(&identify('mongo'),default=>param('mongo'));
+            hidden(&identify('mongo'),default=>param('mongo')),
+            hidden(&identify('performance'),default=>param('performance'));
 }
 
 
@@ -209,8 +216,7 @@ sub showResults
                         . "Response: $response<br>Error: $@") if ($@);
       $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
       $t0 = [gettimeofday];
-      # {"_id":1697377402209960034,"name":"GMR_9G09_AE_01_42-fA01b_C100120_20100120131537828","dataSet":"flylight_gen1_gal4","status":"Complete"}
-      my $index = ($SELECTOR eq 'Data set') ? 'dataSet' : 'status';
+      my $index = $MSELECTOR{$SELECTOR};
       foreach (sort {$a->{tmogDate} cmp $b->{tmogDate}
                      || $a->{$index} cmp $b->{$index}} @$rvar) {
         push @$ar,[$_->{tmogDate},$_->{status},$_->{dataSet},$_->{name},$_->{'_id'}];
@@ -227,8 +233,10 @@ sub showResults
     $block_color{Error} = shift @COLOR;
   }
   else {
+    my $t0 = [gettimeofday];
     $sth{IMAGES}->execute();
     $ar = $sth{IMAGES}->fetchall_arrayref();
+    $performance .= sprintf "SQL query: %.2fsec for %d rows<br>",tv_interval($t0,[gettimeofday]),scalar(@$ar);
   }
   unless ($ar && scalar(@$ar)) {
     my $msg = 'No imagery was found';
@@ -268,7 +276,13 @@ sub showResults
   }
   $html .= &showDate($date,$count,\%key,$date_section);
   $html .= (br)x5;
-  print div({&identify('scrollarea')},$performance,$html),
+  if (param('performance')) {
+    $performance = div({class => 'boxed'},h2('Performance'),$performance) . br;
+  }
+  else {
+    $performance = '';
+  }
+  print $performance . div({&identify('scrollarea')},$html),
 }
 
 

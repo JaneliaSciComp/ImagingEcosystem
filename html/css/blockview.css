@@ -72,6 +72,10 @@ table.detail {
 
 /* Overrides of janelia_common */
 
+h2 {
+  color: steelblue;
+}
+
 /* General */
 body, input, select {
   background-color: #222;

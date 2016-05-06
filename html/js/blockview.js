@@ -1,6 +1,7 @@
 $(function() {
   $("#start").datepicker({dateFormat: 'yy-mm-dd'});
   $("#stop").datepicker({dateFormat: 'yy-mm-dd'});
+  $('#mselector_row').hide();
 });
 
 function tooltipInitialize() {
@@ -8,9 +9,13 @@ function tooltipInitialize() {
 }
 
 function toggleReport () {
-  $('#selector_row').hide();
   if ($('#entity').val() == 'LSMs') {
+    $('#mselector_row').hide();
     $('#selector_row').show();
+  }
+  else {
+    $('#selector_row').hide();
+    $('#mselector_row').show();
   }
 }
 
