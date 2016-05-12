@@ -53,12 +53,8 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
-my %rest = (
-Status => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?totals=true",
-Aging => "http://schauderd-ws1.janelia.priv:8180/rest-v1/sample/info?status=Processing",
-);
 my %sth = (
-Intake => "SELECT DATE(capture_date),DATE(create_date),DATEDIFF(create_date,capture_date) FROM image WHERE "
+Intake => "SELECT DATE(capture_date),create_date,DATEDIFF(create_date,capture_date) FROM image WHERE "
           . "DATEDIFF(NOW(),DATE(create_date)) <= ?"
           . "AND capture_date IS NOT NULL AND name like '%lsm'",
 WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
@@ -121,21 +117,24 @@ sub displayDashboard
   my $ar = $sth{Intake}->fetchall_arrayref();
   $count = scalar @$ar;
   my (%bin1,%bin2);
+  my %cbin = map {(sprintf '%02d',$_) => 0} (0..23);
   my $max = 0;
+  my $today = UnixDate("today","%Y-%m-%d");
   foreach (@$ar) {
     $max = $_->[2] if ($_->[2] > $max);
     $bin1{$_->[0]}++;
+    $cbin{(split(/[ :]/,$_->[1]))[1]}++ unless (index($_->[1],$today));
+    $_->[1] =~ s/ .+//;
     $bin2{$_->[1]}++;
     $sum += $_->[2];
   }
-  my $today = UnixDate("today","%Y-%m-%d");
   my $max_capture = $bin1{$today} || 0;
   my $max_create = $bin2{$today} || 0;
   &fillDates(\%bin2);
   @$ar = ();
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
-  my %parms = (text_color => '#fff', width => '540px', height => '320px');
+  my %parms = (text_color => '#fff', width => '530px', height => '320px');
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
                                       title => 'LSM file capture per day',
                                       content => 'capture',
@@ -146,6 +145,14 @@ sub displayDashboard
                                       content => 'intake',
                                       yaxis_title => '# files',
                                       color => '#6f6',%parms);
+  my $clock;
+  $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
+                          content => 'intakeclock',
+                          title => "LSM intake/hour today",
+                          color => ['#009900'],
+                          text_color => 'white',
+                          width => '270px',
+                          height => '270px') if ($max_create);
   my $today_status = '';
   $today_status .= "Images captured today: $max_capture<br>";
   $today_status .= "Images ingested today: $max_create";
@@ -157,7 +164,7 @@ sub displayDashboard
                     div({style => 'float: left; margin-right: 10px;'},
                         "Images ingested in last $DELTA_DAYS days: $count",br,
                         "Average age: ",(sprintf '%.2f days',$sum/$count),br,
-                        "Maximum age: $max days",br,br,$today_status
+                        "Maximum age: $max days",br,br,$today_status,br,$clock
                        ),
                     div({style => 'float: left'},$histogram1),
                     div({style => 'float: left'},$histogram2))
@@ -187,7 +194,7 @@ sub displayDashboard
   my ($performance);
   if ($MONGO) {
     my $t0 = [gettimeofday];
-    my $rest = $CONFIG{url}.$CONFIG{query}{Status};
+    my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")
@@ -201,7 +208,7 @@ sub displayDashboard
     $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     $t0 = [gettimeofday];
     foreach (@$rvar) {
-      push @$ar,[$_->{'_id'},$_->{count}];
+      push @$ar,[@{$_}{qw(_id count)}];
     }
     $performance .= sprintf "Remapping: %.2fsec for %d statuses<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
   }
@@ -252,7 +259,7 @@ sub displayDashboard
   if ($MONGO) {
     @$ar = ();
     my $t0 = [gettimeofday];
-    my $rest = $CONFIG{url}.$CONFIG{query}{Aging};
+    my $rest = $CONFIG{url}.$CONFIG{query}{SampleAging};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")
@@ -376,8 +383,9 @@ sub commify
 sub printHeader {
   my($onload) = @_;
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
-                    ('highcharts-4.0.1/highcharts','jquery/jquery.tablesorter',
-                     'tablesorter');
+                    ('highcharts-4.0.1/highcharts',
+                     'highcharts-4.0.1/highcharts-more',
+                     'jquery/jquery.tablesorter','tablesorter');
   my @styles = map { Link({-rel=>'stylesheet',
                            -type=>'text/css',-href=>"/css/$_.css"}) }
                    qw(tablesorter-jrc1);
