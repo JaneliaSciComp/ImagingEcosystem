@@ -23,6 +23,8 @@ use CGI qw/:standard :cgi-lib/;
 use CGI::Session;
 use Date::Manip qw(DateCalc ParseDate UnixDate);
 use DBI;
+use JSON;
+use LWP::Simple;
 use POSIX qw(ceil);
 use JFRC::Utils::Web qw(:all);
 use JFRC::Highcharts qw(:all);
@@ -30,10 +32,12 @@ use JFRC::Highcharts qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
+use constant DATA_PATH => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
 use constant USER => 'sageRead';
 my $DB = 'dbi:mysql:dbname=sage;host=';
 my $WSDB = 'dbi:mysql:dbname=flyportal;host=prd-db';
+my %CONFIG;
 # Highcharts
 my $pie_chart_3d = <<__EOT__;
 chart: {type: 'pie',
@@ -75,7 +79,7 @@ my @COLOR = qw(000066 006666 660000 666600 006600 660066);
 # * Globals                                                                  *
 # ****************************************************************************
 # Parameters
-my $DATABASE;
+my ($DATABASE,$MONGO);
 my %sth = (
 ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/tier2','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
 CAPTURED => "SELECT family,DATE_FORMAT(MAX(capture_date),'%Y-%m-%d'),COUNT(2),"
@@ -154,6 +158,15 @@ unless (param('mode') eq 'capture' || param('mode') eq 'rate') {
   $Session = &establishSession(css_prefix => $PROGRAM);
   &sessionLogout($Session) if (param('logout'));
 }
+$MONGO = (param('mongo')) || 0;
+
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
 
 # Connect to database
 $DATABASE = lc(param('_database') || 'prod');
@@ -165,9 +178,11 @@ if (param('daily')) {
 }
 $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
   foreach (keys %sth);
-my $dbhw = DBI->connect($WSDB,('flyportalRead')x2,{RaiseError=>1,PrintError=>0});
-$sthw{$_} = $dbhw->prepare($sthw{$_}) || &terminateProgram($dbhw->errstr)
-  foreach (keys %sthw);
+unless ($MONGO) {
+  my $dbhw = DBI->connect($WSDB,('flyportalRead')x2,{RaiseError=>1,PrintError=>0});
+  $sthw{$_} = $dbhw->prepare($sthw{$_}) || &terminateProgram($dbhw->errstr)
+    foreach (keys %sthw);
+}
 
 # Main processing
 if (param('family')) {
@@ -221,8 +236,24 @@ sub showStandardDashboard
   my $ar;
 
   # Imagery on workstation
-  $sthw{DATASET}->execute();
-  $ar = $sthw{DATASET}->fetchall_arrayref();
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{SageImagery};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (@$rvar) {
+      push @$ar,[@{$_}{qw(identifier name ownerKey)}];
+    }
+  }
+  else {
+    $sthw{DATASET}->execute();
+    $ar = $sthw{DATASET}->fetchall_arrayref();
+  }
   my %ws_map;
   foreach (@$ar) {
     $ws_map{$_->[0]}{name} = $_->[1];
