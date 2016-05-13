@@ -1,4 +1,5 @@
-{"url": "http://schauderd-ws1.janelia.priv:8180/rest-v1/",
+{"data_source": "mysql",
+ "url": "http://schauderd-ws1.janelia.priv:8180/rest-v1/",
  "query": {"Blockview": "info/sample/blockview",
            "SampleAging": "info/sample?status=Processing",
            "SampleStatus": "info/sample?totals=true",

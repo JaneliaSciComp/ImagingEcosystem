@@ -42,7 +42,7 @@ my $DELTA_DAYS = 30;
 # ****************************************************************************
 # Web
 our ($USERID,$USERNAME);
-my $MONGO;
+my $MONGO = 0;
 my $Session;
 # Database
 our ($dbh,$dbhs);
@@ -67,7 +67,6 @@ WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
 # ****************************************************************************
 # * Main                                                                     *
 # ****************************************************************************
-$MONGO = (param('mongo')) || 0;
 &initializeProgram();
 &displayDashboard();
 # We're done!
@@ -92,6 +91,7 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Connect to databases
   &dbConnect(\$dbh,'workstation');

@@ -56,7 +56,7 @@ IMAGES => "SELECT i.create_date,annotated_by,microscope,data_set,slide_code,line
 WS_SAMPLES => "SELECT DISTINCT edt.value,eds.value,edd.value,e.name,e.id FROM entity e JOIN entityData edt ON (e.id=edt.parent_entity_id AND edt.entity_att='TMOG Date') LEFT OUTER JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') ORDER BY DATE(edt.value),2",
 );
 
-my $MONGO;
+my $MONGO = 0;
 my %block_color = (unknown => '999999');
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
@@ -71,7 +71,6 @@ my $Session = &establishSession(css_prefix => $PROGRAM,
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
-$MONGO = (param('mongo')) || 0;
 
 # Parms
 my $HEIGHT = param('height') || 150;
@@ -116,6 +115,7 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Modify statements
   if ($START && $STOP) {

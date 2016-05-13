@@ -79,7 +79,7 @@ my @COLOR = qw(000066 006666 660000 666600 006600 660066);
 # * Globals                                                                  *
 # ****************************************************************************
 # Parameters
-my ($DATABASE,$MONGO);
+my ($DATABASE,$MONGO) = ('',0);
 my %sth = (
 ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/tier2','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
 CAPTURED => "SELECT family,DATE_FORMAT(MAX(capture_date),'%Y-%m-%d'),COUNT(2),"
@@ -158,7 +158,6 @@ unless (param('mode') eq 'capture' || param('mode') eq 'rate') {
   $Session = &establishSession(css_prefix => $PROGRAM);
   &sessionLogout($Session) if (param('logout'));
 }
-$MONGO = (param('mongo')) || 0;
 
   # Get WS REST config
   my $file = DATA_PATH . 'workstation_ng.json';
@@ -167,6 +166,7 @@ $MONGO = (param('mongo')) || 0;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
 # Connect to database
 $DATABASE = lc(param('_database') || 'prod');
