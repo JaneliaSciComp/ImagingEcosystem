@@ -9,6 +9,8 @@ use Date::Manip qw(DateCalc UnixDate);
 use DBI;
 use Getopt::Long;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(ceil strftime);
 use Statistics::Basic qw(:all);
 use XML::Simple;
@@ -30,6 +32,7 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
 # Highcharts
 my $gradient = <<__EOT__;
 Highcharts.getOptions().colors = Highcharts.map(Highcharts.getOptions().colors, function (color) {
@@ -74,6 +77,7 @@ my $handle;
 # Web
 our ($USERID,$USERNAME);
 my $Session;
+my $MONGO = 0;
 # Database
 our ($dbh,$dbhw);
 
@@ -87,7 +91,7 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
-$change_basedate = param('basedate') if (param('basedate'));
+$change_basedate = param('start') if (param('start'));
 $change_stopdate = param('stop') if (param('stop'));
 # Adjust parms if necessary
 my($mm,$yy) = (localtime())[4,5];
@@ -116,7 +120,7 @@ WS_status => "SELECT name,CONCAT(edl.value,'-',edsc.value),eds.value FROM entity
 # We're done!
 if ($dbh) {
   $dbh->disconnect;
-  $dbhw->disconnect;
+  $dbhw->disconnect unless ($MONGO);
 }
 exit(0);
 
@@ -127,13 +131,24 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+
   # Connect to databases
   &dbConnect(\$dbh,'sage');
-  &dbConnect(\$dbhw,'workstation');
+  &dbConnect(\$dbhw,'workstation') unless ($MONGO);
   foreach (keys %sth) {
     if (/^WS/) {
-      (my $n = $_) =~ s/WS_//;
-      $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      unless ($MONGO) {
+        (my $n = $_) =~ s/WS_//;
+        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      }
     }
     else {
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
@@ -147,10 +162,36 @@ sub displayCompletionStatus
   # Build HTML
   &printHeader();
   # Populate status hash (slide code => status)
-  $sth{status}->execute();
-  my $ar2 = $sth{status}->fetchall_arrayref();
-  my %samplel = map {$_->[1] => $_->[0]} @$ar2;
-  my %status = map {$_->[1] => $_->[-1]} @$ar2;
+  my ($ar2,$rest);
+  if ($MONGO) {
+    $rest = $CONFIG{url}.$CONFIG{query}{WorkstationStatus};
+    if ($BASEDATE && $STOPDATE) {
+      $rest .= "?startDate=$BASEDATE&endDate=$STOPDATE";
+    }
+    elsif ($BASEDATE) {
+      $rest .= "?startDate=$BASEDATE";
+    }
+    elsif ($STOPDATE) {
+      $rest .= "?endDate=$STOPDATE";
+    }
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+      &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                        . "Response: $response<br>Error: $@") if ($@);
+    foreach (@$rvar) {
+      push @$ar2,[$_->{name},join('-',@{$_}{qw(line slideCode)}),$_->{status}];
+    }
+  }
+  else {
+    $sth{status}->execute();
+    $ar2 = $sth{status}->fetchall_arrayref();
+  }
+  my %samplel = map {$_->[1] => $_->[0]} @$ar2; # Sample -> line
+  my %status = map {$_->[1] => $_->[-1]} @$ar2; # Sample -> status
   # Get SAGE information
   $sth{tmog}->execute();
   my $ar = $sth{tmog}->fetchall_arrayref();

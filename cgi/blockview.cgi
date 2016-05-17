@@ -196,13 +196,13 @@ sub showResults
       my $t0 = [gettimeofday];
       $rest = $CONFIG{url}.$CONFIG{query}{Blockview};
       if ($START && $STOP) {
-        $rest .= "?startDate=$START&stopDate=$STOP";
+        $rest .= "?startDate=$START&endDate=$STOP";
       }
       elsif ($START) {
         $rest .= "?startDate=$START";
       }
       elsif ($STOP) {
-        $rest .= "?stopDate=$STOP";
+        $rest .= "?endDate=$STOP";
       }
       my $response = get $rest;
       &terminateProgram("<h3>REST GET returned null response</h3>"
