@@ -2,7 +2,9 @@
  "url": "http://schauderd-ws1.janelia.priv:8180/rest-v1/",
  "query": {"Blockview": "info/sample/blockview",
            "SampleAging": "info/sample?status=Processing",
+           "SampleSearch": "info/sample/imagecompletion",
            "SampleStatus": "info/sample?totals=true",
-           "SageImagery": "info/dataset/sageimagery"
+           "SageImagery": "info/dataset/sageimagery",
+           "WorkstationStatus": "info/sample/workstationstatus"
           }
 }
