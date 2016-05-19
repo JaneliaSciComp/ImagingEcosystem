@@ -1,0 +1,82 @@
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  border-radius: 12px;
+}
+
+.iolist {
+  margin-left: 20px;
+  display: none;
+}
+
+.exception {
+  background-color: #f66;
+  border-left: 1px solid black;
+}
+
+.include {
+  background-color: #cfc;
+  margin-bottom: 3px;
+}
+
+.operation {
+  background-color: #cff;
+  margin-bottom: 3px;
+}
+
+.sequence {
+  background-color: #fc9;
+  border-left: 1px solid black;
+  margin-bottom: 3px;
+}
+
+.sequenceif {
+  background-color: #fcc;
+  border-left: 1px solid black;
+  margin-bottom: 3px;
+}
+
+.sequenceforeach {
+  background-color: #ccf;
+  border-left: 1px solid black;
+  margin-bottom: 3px;
+}
+
+.waitforasync {
+  background-color: #cc6;
+  border-left: 1px solid black;
+  margin-bottom: 3px;
+}
+
+/* Overrides of labcommon */
+
+/* General */
+body, input, select {
+  background-color: #222;
+  color: #bbc;
+}
+
+/* Input */
+input:focus { background: #222; }
+input:hover { background: #333; }
+
+/* Links */
+a:link, a:visited { color: #4863a0; }
+
+a:hover, a:active
+{
+  color: #666;
+  background: #336;
+}
+
+.note { color: #f90; }
+/* Lab header */
+#logo {
+  background-image: url(/images/light_janelia_logo.png);
+}
+/* Error conditions */
+.errorbar {
+  background-color: #777;
+}
