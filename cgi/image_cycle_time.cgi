@@ -9,6 +9,8 @@ use Date::Manip qw(UnixDate);
 use DBI;
 use Getopt::Long;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(ceil strftime);
 use Statistics::Basic qw(:all);
 use Switch;
@@ -32,6 +34,8 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
+my $MONGO = 0;
 # Highcharts
 my $COLORS = '';
 
@@ -120,7 +124,7 @@ else {
 # We're done!
 if ($dbh) {
   $dbh->disconnect;
-  $dbhw->disconnect;
+  $dbhw->disconnect unless ($MONGO);
 }
 exit(0);
 
@@ -131,13 +135,24 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+
   # Connect to databases
   &dbConnect(\$dbh,'sage');
-  &dbConnect(\$dbhw,'workstation');
+  &dbConnect(\$dbhw,'workstation') unless ($MONGO);
   foreach (keys %sth) {
     if (/^WS/) {
-      (my $n = $_) =~ s/WS_//;
-      $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      unless ($MONGO) {
+        (my $n = $_) =~ s/WS_//;
+        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      }
     }
     else {
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
