@@ -244,6 +244,7 @@ sub displayCompletionStatus
           h3({style => 'text-align: center'},$SUBTITLE) . br .
           div({style => 'float: left'},
               div({style => 'margin-top: 10px; position: relative'},
+                  (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
                   table({class => 'summary'},
                     Tr(td(['Unique lines imaged',scalar keys %{$line{TOTAL}}])),
                     Tr(td(['Samples imaged',scalar keys %{$sample{TOTAL}}])),

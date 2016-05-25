@@ -332,7 +332,9 @@ sub displayDashboard
                      div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export));
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},'Workstation pipeline')),
+                span({class => 'panel-heading;'},
+                     (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
+                     'Workstation pipeline')),
             div({class => 'panel-body'},$pipeline)),
         div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;

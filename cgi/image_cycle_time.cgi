@@ -80,16 +80,16 @@ GetOptions('start=s' => \$change_startdate,
 }
 # Adjust parms if necessary
 my($mm,$yy) = (localtime())[4,5];
-my $STARTDATE = sprintf '%4d-%02d-%02d',$yy+1900,$mm+1,1;
-$STARTDATE = $change_startdate if ($change_startdate);
+my $START = sprintf '%4d-%02d-%02d',$yy+1900,$mm+1,1;
+$START = $change_startdate if ($change_startdate);
 my $today = UnixDate("today","%Y-%m-%d");
-my $STOPDATE = UnixDate($today,"%Y-%m-%d");
-$STOPDATE = $change_stopdate if ($change_stopdate);
-$STOPDATE = $STARTDATE if ($STOPDATE lt $STARTDATE);
-my $SUBTITLE = "All samples imaged $STARTDATE - $STOPDATE";
-my $TERM = ($STARTDATE eq $STOPDATE)
-  ? "DATE(i.create_date)='$STARTDATE'"
-  : "DATE(i.create_date) BETWEEN '$STARTDATE' AND '$STOPDATE'";
+my $STOP = UnixDate($today,"%Y-%m-%d");
+$STOP = $change_stopdate if ($change_stopdate);
+$STOP = $START if ($STOP lt $START);
+my $SUBTITLE = "All samples imaged $START - $STOP";
+my $TERM = ($START eq $STOP)
+  ? "DATE(i.create_date)='$START'"
+  : "DATE(i.create_date) BETWEEN '$START' AND '$STOP'";
 my $q;
 if ($UNIT eq 'Lines') {
   $q = "SELECT * FROM (SELECT line,ip1.value AS slidecode,ip2.value AS dataset,name,i.create_date FROM image_vw i JOIN image_property_vw ip1 ON (i.id=ip1.image_id AND ip1.type='slide_code') JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND ip2.type='data_set') WHERE $TERM ORDER BY line,i.create_date DESC) x GROUP BY line";
@@ -211,10 +211,10 @@ __EOT__
                            -default => 'Day'));
   print table(Tr(th('Start date'),
                  td(input({&identify('start'),
-                           value => $STARTDATE}))),
+                           value => $START}))),
               Tr(th('Stop date'),
                  td(input({&identify('stop'),
-                           value => $STOPDATE}))),
+                           value => $STOP}))),
               Tr(th('Units to graph'),td($unit)),
               Tr(th('Measurement'),td($meas)),
               Tr(th('Binning'),td($bin)),
@@ -358,7 +358,7 @@ sub displayCompletionStatus
     push @colors,'50b432' if (exists $summary{1});
     $COLORS = join(',',map {"'#$_'"} @colors);
     my $prefix = ($MODE eq 'percent') ? '% ' : '';
-    my $spline = splinePercentageChart(\%hash,"$prefix$UNIT $MEASUREMENT","$STARTDATE - $STOPDATE",'spline1');
+    my $spline = splinePercentageChart(\%hash,"$prefix$UNIT $MEASUREMENT","$START - $STOP",'spline1');
     my $bar = &barPercentageChart(\%summary,'Overall','bar1');
     # Render
     $html .= div({style => 'align: left'},
@@ -388,8 +388,34 @@ sub measureCompletion
     $name =~ s/\.bz2//;
     $lookup{$name} = $_;
   }
-  $sth{full}->execute();
-  $ar = $sth{full}->fetchall_arrayref();
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{CycleTime};
+    if ($START && $STOP) {
+      $rest .= "?startDate=$START&endDate=$STOP";
+    }
+    elsif ($START) {
+      $rest .= "?startDate=$START";
+    }
+    elsif ($STOP) {
+      $rest .= "?endDate=$STOP";
+    }
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (sort {$a->{tmogDate} cmp $b->{tmogDate}} @$rvar) {
+      $_->{cycleTime} /= 3600;
+      push @$ar,[@{$_}{qw(line slideCode dataSet _id tmogDate creationDate completionDate cycleTime)}];
+    }
+  }
+  else {
+    $sth{full}->execute();
+    $ar = $sth{full}->fetchall_arrayref();
+  }
   # Line, slide code, data set, name, TMOG date, discovery date,
   # completion date, cycle time
   foreach my $row (@$ar) {

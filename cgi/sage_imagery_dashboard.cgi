@@ -246,9 +246,7 @@ sub showStandardDashboard
     eval {$rvar = decode_json($response)};
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
-    foreach (@$rvar) {
-      push @$ar,[@{$_}{qw(identifier name ownerKey)}];
-    }
+    push @$ar,[@{$_}{qw(identifier name ownerKey)}] foreach (@$rvar);
   }
   else {
     $sthw{DATASET}->execute();
@@ -301,7 +299,8 @@ sub showStandardDashboard
     }
   }
   $panel{dataset} =
-        h3('Categorized confocal imagery')
+        h3((($MONGO) ? img({src => '/images/mongodb.png'}) : '') .
+           'Categorized confocal imagery')
         . 'Data sets in ' . span({style => 'color: green;'},'green')
         . ' are in the Janelia Workstation' . br
         . table({class => 'sortable',&identify('standard')},

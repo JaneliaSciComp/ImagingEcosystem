@@ -7,6 +7,8 @@ use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
 use DBI;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -27,6 +29,7 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -38,6 +41,7 @@ our ($USERID,$USERNAME);
 my $Session;
 # Database
 our $dbh;
+my $MONGO = 0;
 
 # ****************************************************************************
 # Session authentication
@@ -50,8 +54,8 @@ my $AUTHORIZED = ($Session->param('scicomp'))
 &terminateProgram('You are not authorized to view Workstation imagery')
   unless ($AUTHORIZED);
 our $DATASET = param('dataset') || '';
-my $OPTIONS = ($DATASET ne 'All datasets') ? "WHERE edd.value='$DATASET'"
-                                           : '';
+$DATASET = '' if ('All datasets' eq $DATASET);
+my $OPTIONS = ($DATASET) ? "WHERE edd.value='$DATASET'" : '';
 my %sth = (
 DATASETS => "SELECT edd.value,COUNT(1) FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') GROUP BY 1",
 ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') $OPTIONS ORDER BY 1",
@@ -64,7 +68,7 @@ ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityD
 &initializeProgram();
 (param('dataset')) ? &displayErrors() : &displayQuery();
 # We're done!
-if ($dbh) {
+if ($dbh && (!$MONGO)) {
   ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
   $dbh->disconnect;
 }
@@ -77,13 +81,24 @@ exit(0);
 
 sub initializeProgram
 {
-  # Connect to databases
-  &dbConnect(\$dbh,'workstation');
-  if (my $img = param('image')) {
-    $sth{ERRORS} =~ s/Default 2D Image/$img/e;
-  }
-  foreach (keys %sth) {
-    $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+
+  unless ($MONGO) {
+    # Connect to databases
+    &dbConnect(\$dbh,'workstation');
+    if (my $img = param('image')) {
+      $sth{ERRORS} =~ s/Default 2D Image/$img/e;
+    }
+    foreach (keys %sth) {
+      $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+    }
   }
 }
 
@@ -91,8 +106,24 @@ sub initializeProgram
 sub displayQuery
 {
   &printHeader();
-  $sth{DATASETS}->execute();
-  my $ar = $sth{DATASETS}->fetchall_arrayref();
+  my $ar;
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{SampleErrors};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    push @$ar,[@{$_}{qw(dataSet count)}]
+      foreach (sort {$a->{dataSet} cmp $b->{dataSet}} @$rvar);
+  }
+  else {
+    $sth{DATASETS}->execute();
+    $ar = $sth{DATASETS}->fetchall_arrayref();
+  }
   my %label = map { $_->[0] => (sprintf '%s (%s error%s)',
                     $_->[0],$_->[1],((1 == $_->[1]) ? '' : 's'))} @$ar;
   my $count;
@@ -116,7 +147,8 @@ __EOT__
                 submit({&identify('submit'),
                         class => 'btn btn-success',
                         value => 'Submit'})));
-  print end_form,&sessionFooter($Session),end_html;
+  print hidden(&identify('mongo'),default=>param('mongo')),
+        end_form,&sessionFooter($Session),end_html;
 }
 
 
@@ -124,9 +156,27 @@ sub displayErrors
 {
   # Build HTML
   &printHeader();
-  $sth{ERRORS}->execute();
-  my $ar = $sth{ERRORS}->fetchall_arrayref();
-  # Name, image
+  my $ar;
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{ErrorMIPs};
+    $rest .= "?dataset=$DATASET" if ($DATASET);
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (sort {$a->{sampleName} cmp $b->{sampleName}} @$rvar) {
+        push @$ar,[@{$_}{qw(sampleName dataSet)},$_->{image}[0][0]];
+    }
+  }
+  else {
+    $sth{ERRORS}->execute();
+    $ar = $sth{ERRORS}->fetchall_arrayref();
+  }
+  # Name, dataset, image
   my @row;
   foreach (@$ar) {
     push @row,[@$_];
@@ -141,6 +191,7 @@ sub displayErrors
     }
   }
   my @HEAD = ('Sample ID','Data set','Image');
+  print img({src => '/images/mongodb.png'}) if ($MONGO);
   print "Errors: ",scalar @$ar,(NBSP)x5,
         &createExportFile($ar,"_ws_sample_errors",\@HEAD),
         table({id => 'details',class => 'tablesorter standard'},
