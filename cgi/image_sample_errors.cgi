@@ -169,7 +169,7 @@ sub displayErrors
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
     foreach (sort {$a->{sampleName} cmp $b->{sampleName}} @$rvar) {
-        push @$ar,[@{$_}{qw(sampleName dataSet)},$_->{image}[0][0]];
+        push @$ar,[@{$_}{qw(sampleName dataSet)},$_->{image}{'Signal MIP'}];
     }
   }
   else {

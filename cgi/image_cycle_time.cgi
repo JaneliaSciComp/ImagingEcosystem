@@ -227,7 +227,8 @@ __EOT__
             submit({&identify('submit'),
                     class => 'btn btn-success',
                     value => 'Submit'}));
-  print end_form,&sessionFooter($Session),end_html;
+  print hidden(&identify('mongo'),default=>param('mongo')),
+        end_form,&sessionFooter($Session),end_html;
 }
 
 
@@ -323,6 +324,7 @@ sub displayCompletionStatus
   # Build HTML
   if ($RUNMODE eq 'web') {
     my $html = br;
+    $html .= img({src => '/images/mongodb.png'}) if ($MONGO);
     # Export file
     my $title = ($MEASUREMENT eq 'discovered') ? 'Discovered' : 'Completed';
     my $export = &createExportFile(\@export,'cycle_time',
@@ -408,8 +410,10 @@ sub measureCompletion
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
     foreach (sort {$a->{tmogDate} cmp $b->{tmogDate}} @$rvar) {
-      $_->{cycleTime} /= 3600;
-      push @$ar,[@{$_}{qw(line slideCode dataSet _id tmogDate creationDate completionDate cycleTime)}];
+      push @$ar,[@{$_}{qw(line slideCode dataSet name tmogDate creationDate completionDate cycleTime)}];
+      $ar->[-1][4] =~ s/\..*//;
+      $ar->[-1][5] =~ s/\..*//;
+      $ar->[-1][6] =~ s/\..*//;
     }
   }
   else {
