@@ -208,7 +208,7 @@ sub displayDashboard
     $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     $t0 = [gettimeofday];
     foreach (@$rvar) {
-      push @$ar,[@{$_}{qw(_id count)}];
+      push @$ar,[@{$_}{qw(_id count)}] if ($_->{_id});
     }
     $performance .= sprintf "Remapping: %.2fsec for %d statuses<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
   }
