@@ -10,6 +10,7 @@ use DBI;
 use IO::File;
 use JFRC::LDAP;
 use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
 use REST::Client;
 use Time::HiRes qw(gettimeofday tv_interval);
@@ -22,6 +23,7 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
+my %CONFIG;
 
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
@@ -42,6 +44,7 @@ my $PRIMARY_MIP = 'Signal 1 MIP Image';
 # Export
 my $handle;
 # Database
+my $MONGO = 0;
 our ($dbh,$dbhf,$dbhw);
 my %sth = (
 AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
@@ -148,7 +151,7 @@ if ($dbh) {
   ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
   $dbh->disconnect;
   $dbhf->disconnect;
-  $dbhw->disconnect;
+  $dbhw->disconnect unless ($MONGO);
 }
 exit(0);
 
@@ -158,6 +161,15 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+  $PRIMARY_MIP = 'Signal 1 MIP' if ($MONGO);
   # Modify statements
   if ($START && $STOP) {
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
@@ -173,8 +185,10 @@ sub initializeProgram
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
   &dbConnect(\$dbhf,'flyboy')
     || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
-  &dbConnect(\$dbhw,'workstation')
-    || &terminateProgram("Could not connect to Workstation: ".$DBI::errstr);
+  unless ($MONGO) {
+    &dbConnect(\$dbhw,'workstation')
+      || &terminateProgram("Could not connect to Workstation: ".$DBI::errstr);
+  }
 #  $dbhw = DBI->connect('dbi:mysql:dbname=flyportal;host=val-db',('flyportalRead')x2,{RaiseError=>1,PrintError=>0});
   foreach (keys %sth) {
     if (/^FB_/) {
@@ -182,8 +196,10 @@ sub initializeProgram
       $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr);
     }
     elsif (/^WS_/) {
-      (my $n = $_) =~ s/WS_//;
-      $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbhw->errstr);
+      unless ($MONGO) {
+        (my $n = $_) =~ s/WS_//;
+        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbhw->errstr);
+      }
     }
     else {
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
@@ -192,12 +208,12 @@ sub initializeProgram
   # Set up LDAP service
   $service = JFRC::LDAP->new();
   # Get user permissions
-  my $file = DATA_PATH . $PROGRAM . '.json';
+  $file = DATA_PATH . $PROGRAM . '.json';
   open SLURP,$file
     or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,my $slurp,-s SLURP;
+  sysread SLURP,$slurp,-s SLURP;
   close(SLURP);
-  my $hr = decode_json $slurp;
+  $hr = decode_json $slurp;
   %PERMISSION = %$hr;
   push @performance,sprintf 'Initialization: %.4f sec',tv_interval($t0,[gettimeofday]);
 }
@@ -208,7 +224,8 @@ sub showUserDialog()
   print div({class => 'boxed'},
             table({class => 'basic'},&dateDialog()),
             &submitButton('choose','Search')),br,
-           hidden(&identify('_userid'),default=>param('_userid'));
+           hidden(&identify('_userid'),default=>param('_userid')),
+           hidden(&identify('mongo'),default=>param('mongo'));
 }
 
 
@@ -222,13 +239,32 @@ sub showLine
     (my $wname = $_->[0]) =~ s/.+\///;
     $wname =~ s/\.bz2//;
     $wname .= '.bz2';
-    $sth{LSMMIPS}->execute($wname);
-    my $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
-    my($signalmip) = $hr->{$PRIMARY_MIP}{value};
+    my($signalmip,undef) = &getSingleMIP($wname);
     push @image,img({src => $WEBDAV . $signalmip});
   }
   print div({align => 'center',
              style => 'padding: 20px 0 20px 0; background-color: #111;'},@image);
+}
+
+
+sub getSingleMIP
+{
+  my($wname) = shift;
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{LSMImages} . "?name=$wname";
+    my $response = get $rest;
+    return('','') unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    return($rvar->{files}{$PRIMARY_MIP}||'',$rvar->{brightnessCompensation}||0);
+  }
+  else {
+    $sth{LSMMIPS}->execute($wname);
+    my $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
+    return($hr->{$PRIMARY_MIP}{value},$hr->{'Brightness Compensation'}{value});
+  }
 }
 
 
@@ -257,7 +293,8 @@ sub limitFullSearch
                                    -labels => $type))),
                   &dateDialog(),
                  ),
-            &submitButton('choose','Search')),br;
+            &submitButton('choose','Search')),
+        hidden(&identify('mongo'),default=>param('mongo')),br;
 }
 
 
@@ -488,6 +525,7 @@ sub chooseCrosses
                      )),
             &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded,
                             $export_button),
+            (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
             &submitButton('verify','Next >')),
         div({id => 'scrollarea'},$html),
         hidden(&identify('_userid'),default=>param('_userid'));
@@ -683,19 +721,8 @@ sub addSingleImage
   (my $wname = $name) =~ s/.+\///;
   $wname =~ s/\.bz2//;
   my($bc,$signalmip) = ('')x2;
-  $sth{LSMMIPS}->execute($wname);
-  my $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
-  if (exists $hr->{$PRIMARY_MIP}) {
-    $signalmip = $hr->{$PRIMARY_MIP}{value};
-    $bc = $hr->{'Brightness Compensation'}{value};
-  }
-  else {
-    $wname .= '.bz2';
-    $sth{LSMMIPS}->execute($wname);
-    $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
-    $signalmip = $hr->{$PRIMARY_MIP}{value};
-    $bc = $hr->{'Brightness Compensation'}{value};
-  }
+  ($signalmip,$bc) = &getSingleMIP($wname);
+  ($signalmip,$bc) = &getSingleMIP($wname.'.bz2') unless ($signalmip);
   return('') unless ($signalmip);
   $bc = 0 if ($tmog_date lt '2016-02-17');
   if ($bc) {
