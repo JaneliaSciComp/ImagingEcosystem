@@ -6,6 +6,7 @@
            "DatasetPipeline": "data/dataset/pipeline",
            "ErrorMIPs": "info/sample/errormips",
            "LSMImages": "info/lsmstack/images",
+           "ProcessingErrors": "info/sample/errors",
            "SampleAging": "info/sample?status=Processing",
            "SampleErrors": "info/dataset/sampleerrors",
            "SampleJSON": "data/sample",

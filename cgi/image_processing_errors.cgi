@@ -8,6 +8,8 @@ use CGI::Session;
 use DBI;
 use Getopt::Long;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
 use Switch;
 use XML::Simple;
@@ -30,6 +32,7 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -38,6 +41,7 @@ my $BASE = "/var/www/html/output/";
 my $handle;
 # Web
 our ($USERID,$USERNAME);
+my $MONGO = 0;
 my $Session;
 # Database
 our $dbh;
@@ -76,10 +80,21 @@ exit(0);
 
 sub initializeProgram
 {
-  # Connect to databases
-  &dbConnect(\$dbh,'workstation');
-  foreach (keys %sth) {
-    $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+
+  unless ($MONGO) {
+    # Connect to databases
+    &dbConnect(\$dbh,'workstation');
+    foreach (keys %sth) {
+      $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+    }
   }
 }
 
@@ -88,8 +103,26 @@ sub displayErrors
 {
   # Build HTML
   &printHeader() if ($RUNMODE eq 'web');
-  $sth{ERRORS}->execute();
-  my $ar = $sth{ERRORS}->fetchall_arrayref();
+  my $ar;
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{ProcessingErrors};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (sort {$a->{sampleName} cmp $b->{sampleName}} @$rvar) {
+      push @$ar,[@{$_}{qw(sampleName dataSet classification description)}];
+    }
+  }
+  else {
+    $sth{ERRORS}->execute();
+    $ar = $sth{ERRORS}->fetchall_arrayref();
+  }
+  print STDERR "Retrieved " . scalar(@$ar) . " errors\n";
   # Name, data set, class, description
   my (%count,%stat);
   my @row;
@@ -129,6 +162,7 @@ sub displayErrors
                                           content => 'statpie',
                                           sort => 'value',
                                           width => '900px', height => '500px');
+    print img({src => '/images/mongodb.png'}) if ($MONGO);
     print "Errors: ",scalar @$ar,(NBSP)x5,
           &createExportFile($ar,"_ws_errors",\@HEAD),
           &generateFilter($ar,2,$count{Class}),br,
@@ -137,11 +171,15 @@ sub displayErrors
                   table({id => 'stats',class => 'tablesorter standard'},
                         thead(Tr(th(['Class','Description','Count']))),
                         tbody(map {Tr({class => $_->[0]},td($_))} @stat))),
-              div({style => 'float: left;'},$pie)),
-          table({id => 'details',class => 'tablesorter standard'},
-                thead(Tr(th(\@HEAD))),
-                tbody(map {Tr({class => $_->[2]},td($_))} @row),
-               );
+              div({style => 'float: left;'},$pie));
+    if (scalar(@$ar) <= 8000) {
+      print table({id => 'details',class => 'tablesorter standard'},
+                  thead(Tr(th(\@HEAD))),
+                  tbody(map {Tr({class => $_->[2]},td($_))} @row));
+    }
+    else {
+      print "There are too many errors for detailed display, but they are still available in the Export data";
+    }
     print end_form,&sessionFooter($Session),end_html;
   }
   else {
@@ -183,6 +221,7 @@ sub createExportFile
         $l[$i] =~ s/".+//;
       }
     }
+    $l[3] ||= '';
     $l[4] ||= ''; # Cross barcode
     print $handle join("\t",@l) . "\n";
   }
