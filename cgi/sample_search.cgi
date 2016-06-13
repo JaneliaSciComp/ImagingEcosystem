@@ -5,8 +5,11 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Session;
 use CGI::Carp qw(fatalsToBrowser);
+use Data::Dumper;
 use DBI;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -22,6 +25,7 @@ use constant NBSP => '&nbsp;';
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Janelia Workstation sample search';
 my $BASE = "/var/www/html/output/";
+my %CONFIG;
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 
@@ -31,6 +35,7 @@ my @BREADCRUMBS = ('Imagery tools',
 # Export
 my $handle;
 # Database
+my $MONGO = 0;
 my $SELECTOR = "SELECT DISTINCT e.name,edl.value,eds.value,ede.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData ede ON (e.id=ede.parent_entity_id AND ede.entity_att='Effector') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') ";
 my %sth = (
 SAMPLES => "SELECT name FROM entity WHERE entity_type='Sample' AND name "
@@ -82,9 +87,19 @@ my $AUTHORIZED = ($Session->param('scicomp'))
    || ($Session->param('workstation_flylight'));
 
 our ($dbh,$dbhf,$dbhs);
+# Get WS REST config
+my $file = DATA_PATH . 'workstation_ng.json';
+open SLURP,$file or &terminateProgram("Can't open $file: $!");
+sysread SLURP,my $slurp,-s SLURP;
+close(SLURP);
+my $hr = decode_json $slurp;
+%CONFIG = %$hr;
+$MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 # Connect to databases
-&dbConnect(\$dbh,'workstation')
-  || &terminateProgram("Could not connect to Fly Portal: ".$DBI::errstr);
+unless ($MONGO) {
+  &dbConnect(\$dbh,'workstation')
+    || &terminateProgram("Could not connect to Fly Portal: ".$DBI::errstr);
+}
 &dbConnect(\$dbhf,'flyboy')
   || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
 &dbConnect(\$dbhs,'sage')
@@ -101,7 +116,7 @@ foreach (keys %sth) {
     (my $n = $_) =~ s/FB_//;
     $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr);
   }
-  else {
+  elsif (!$MONGO) {
     $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
   }
 
@@ -110,7 +125,7 @@ foreach (keys %sth) {
 &showOutput();
 
 # We're done!
-if ($dbh) {
+if ($dbh && !$MONGO) {
   ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
   $dbh->disconnect;
 }
@@ -127,7 +142,12 @@ sub showOutput
   # ----- Page header -----
   print &pageHead(),start_form;
   if (param('sample_id')) {
-    print &getSample('sample',param('sample_id'));
+    if ($MONGO) {
+      print &getSampleJSON(param('sample_id'));
+    }
+    else {
+      print &getSample('sample',param('sample_id'));
+    }
   }
   elsif (param('entity_id')) {
     print &getEntity(param('entity_id'),0);
@@ -136,8 +156,9 @@ sub showOutput
     print &showQuery();
   }
   # ----- Footer -----
-  print div({style => 'clear: both;'},NBSP),end_form,
-        &sessionFooter($Session),end_html;
+  print div({style => 'clear: both;'},NBSP),
+        hidden(&identify('mongo'),default=>param('mongo')),
+        end_form,&sessionFooter($Session),end_html;
 }
 
 
@@ -169,9 +190,23 @@ sub showQuery {
   }
   $tab{line}{active} = 'active' unless ($found);
   foreach (@TAB_ORDER) {
-    if (exists $tab{$_}{populate}) {
-      $sth{$tab{$_}{populate}}->execute();
-      $ar = $sth{$tab{$_}{populate}}->fetchall_arrayref();
+    if (exists $tab{$_}{populate} && $tab{$_}{populate}) {
+      my $rvar;
+      if ($MONGO) {
+        ($rvar) = &getMONGO($tab{$_}{populate});
+        $ar = [];
+        if ($_ eq 'dataset') {
+          push @$ar,[$_->{identifier}]
+            foreach (sort {$a->{identifier} cmp $b->{identifier}} @$rvar);
+        }
+        else {
+          push @$ar,[$_] foreach (sort @$rvar);
+        }
+      }
+      else {
+        $sth{$tab{$_}{populate}}->execute();
+        $ar = $sth{$tab{$_}{populate}}->fetchall_arrayref();
+      }
       $tab{$_}{content} = ucfirst($_) . ': '
         . popup_menu(&identify($_.'_id'),
                      'data-placeholder' => "Choose a $_..",
@@ -216,8 +251,19 @@ sub showQuery {
       else {
         $term = param($_ . '_id');
       }
-      $sth{$cur}->execute($term);
-      $ar = $sth{$cur}->fetchall_arrayref();
+      my $rvar;
+      if ($MONGO) {
+        ($rvar) = &getMONGO($cur,$term);
+        $ar = [];
+        foreach (sort @$rvar) {
+          push @$ar,[@{$_}{qw(name line slideCode effector dataSet)},
+                     $_->{image}{'Signal MIP'}]
+        }
+      }
+      else {
+        $sth{$cur}->execute($term);
+        $ar = $sth{$cur}->fetchall_arrayref();
+      }
       if (scalar @$ar) {
         my $t = $_;
         my @row;
@@ -238,12 +284,14 @@ sub showQuery {
           else {
             pop @$r;
           }
+          my $addr = "?sample_id=" . $r->[0];
+          $addr .= ";mongo=1" if ($MONGO);
           if ($DISPLAY) {
             push @row,div({class => 'sample'},$r->[-1],br,
-                          a({href => "?sample_id=".$r->[0]},$r->[0]));
+                          a({href => $addr},$r->[0]));
           }
           else {
-            push @row,[a({href => "?sample_id=".$r->[0]},$r->[0]),
+            push @row,[a({href => $addr},$r->[0]),
                        @{$r}[1..$#$r]];
           }
         }
@@ -284,6 +332,62 @@ sub showQuery {
                        } @TAB_ORDER
                   ));
   $html = div({class => 'boxed'},$html);
+}
+
+
+sub getMONGO
+{
+  my($att,$value) = @_;
+  my($selector,$suffix) = ('')x2;
+  if ($att eq 'DATASETS') {
+    $selector = 'SageImagery';
+  }
+  elsif ($att eq 'LINES') {
+    $selector = 'SampleAttribute';
+    $suffix = '?attribute=line';
+  }
+  elsif ($att eq 'SLIDES') {
+    $selector = 'SampleAttribute';
+    $suffix = '?attribute=slideCode';
+  }
+  elsif ($att eq 'DATASETSUM') {
+    $selector = 'SampleSearch';
+    $suffix = "?dataSet=$value";
+  }
+  elsif ($att eq 'LINESUM') {
+    $selector = 'SampleSearch';
+    $suffix = "?line=$value";
+  }
+  elsif ($att eq 'SAMPLESUM') {
+    $selector = 'SampleSearch';
+    $suffix = "?name=$value";
+  }
+  elsif ($att eq 'SLIDESUM') {
+    $selector = 'SampleSearch';
+    $suffix = "?slideCode=$value";
+  }
+  elsif ($att eq 'SAMPLE') {
+    $selector = 'SampleJSON';
+    $suffix = "?name=$value";
+  }
+  elsif ($att eq 'EVENTS') {
+    $selector = 'SampleEvents';
+    $suffix = "?sampleId=$value";
+  }
+  if ($suffix =~ /%/) {
+    $suffix =~ s/%//g;
+    $suffix .= '&wildcard=true';
+  }
+  my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
+  my $response = get $rest;
+  &terminateProgram("<h3>REST GET returned null response</h3>"
+                    . "<br>Request: $rest<br>")
+    unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
 }
 
 
@@ -368,6 +472,48 @@ sub getEntity
     my $msg = h4('This entity has no attributes');
     $html .= ($skip_header) ? $msg
                             : &bootstrapPanel("Entity ID $id",$msg,'standard');
+  }
+  return($html);
+}
+
+
+sub getSampleJSON
+{
+  my($name) = @_;
+  my $html = hr((($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
+                "Sample $name") . br;
+  my $s = &getMONGO('SAMPLE',$name);
+  if ($s) {
+    my $sid = $s->[0]{_id};
+    my $task = &getMONGO('EVENTS',$sid);
+    my @td;
+    foreach (sort keys %{$s->[0]}) {
+      my $r = ref($s->[0]{$_});
+      if ($r eq 'ARRAY') {
+        if (ref($s->[0]{$_}[0])) {
+          push @td,[$_,pre(to_json($s->[0]{$_},{utf8 => 1, pretty => 1}))];
+        }
+        else {
+          push @td,[$_,join(', ',sort @{$s->[0]{$_}})];
+        }
+      }
+      else {
+        push @td,[$_,$s->[0]{$_}];
+      }
+    }
+    $html .= table({class => 'tablesorter standard'},
+                   thead(Tr(td([qw(Key Value)]))),
+                   tbody(map {Tr(td($_))} @td));
+    if (scalar @$task) {
+      $html .= h3('Task events')
+               . table({class => 'tablesorter standard'},
+                       thead(Tr(td([qw(Event Job Description Date)]))),
+                       tbody(map {Tr(td([$_->{eventType},
+                                         a({href => "/flow_ws.php?flow=$_->{jobName}",
+                                            target => '_blank'},$_->{jobName}),
+                                         ($_->{description}||''),$_->{timestamp}]))}
+                                 @$task));
+    }
   }
   return($html);
 }
