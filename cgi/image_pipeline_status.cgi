@@ -8,6 +8,8 @@ use CGI::Session;
 use Data::Dumper;
 use DBI;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use POSIX qw(ceil strftime);
 use Time::Local;
 use XML::Simple;
@@ -25,6 +27,7 @@ use constant DATA_PATH => '/opt/informatics/data/';
 # ****************************************************************************
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Image processing pipeline status';
+my %CONFIG;
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
@@ -32,7 +35,7 @@ my %STEP;
 my @STEPS;
 my $BASE = "/var/www/html/output/";
 # Total days of history to fetch from the Workstation
-my $WS_LIMIT_DAYS = 14;
+my $WS_LIMIT_DAYS = param('days') || 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 # Stale warnings
 my %STALE = (Pipeline => {process => {limit => 48, class => 'danger'}});
@@ -44,6 +47,7 @@ my %STALE = (Pipeline => {process => {limit => 48, class => 'danger'}});
 my $handle;
 # Database
 our ($dbh,$dbhf,$dbhw);
+my $MONGO = 0;
 my %sth = (
 FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,"
            . "seh.cross_type,seh.lab_project,cross_barcode,seh.wish_list FROM "
@@ -143,7 +147,7 @@ my $ALL = param('all') || 0;
 if ($dbh) {
   $dbh->disconnect;
   $dbhf->disconnect;
-  $dbhw->disconnect;
+  $dbhw->disconnect unless ($MONGO);
 }
 exit(0);
 
@@ -162,14 +166,24 @@ sub initializeProgram
   &terminateProgram('XML error: '.$@) if ($@);
   @STEPS = map { $_->{name} } @{$p->{step}};
   %STEP = map { $_->{name} => $_ } @{$p->{step}};
+  # Get WS REST config
+  my $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %CONFIG = %$hr;
+  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
   # Connect to databases
   &dbConnect(\$dbh,'sage');
   &dbConnect(\$dbhf,'flyboy');
-  &dbConnect(\$dbhw,'workstation');
+  &dbConnect(\$dbhw,'workstation') unless ($MONGO);
   foreach (keys %sth) {
     if (/^WS/) {
-      (my $n = $_) =~ s/WS_//;
-      $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      unless ($MONGO) {
+        (my $n = $_) =~ s/WS_//;
+        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
+      }
     }
     elsif (/^FB/) {
       (my $n = $_) =~ s/FB_//;
@@ -187,25 +201,60 @@ sub displayQueues
   # Build HTML
   &printHeader();
   my (%process,%queue);
-  $sth{Error}->execute();
-  my $ar0 = $sth{Error}->fetchall_arrayref();
+  # Get errors
+  my $ar0;
+  if ($MONGO) {
+    my $rvar = &getMONGO('SampleErrorsAll');
+    foreach (@$rvar) {
+      push @$ar0,[@{$_}{qw(sampleName classification)},$_->{description}||''];
+    }
+  }
+  else {
+    $sth{Error}->execute();
+    $ar0 = $sth{Error}->fetchall_arrayref();
+  }
   my %error;
   foreach (@$ar0) {
     $error{$_->[0]} = [$_->[1],$_->[2]];
   }
+
   shift(@STEPS) unless ($ALL);
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$ALL);
     next if ($s eq 'Scheduling');
-    $sth{$s}->execute();
-    my $ar = $sth{$s}->fetchall_arrayref;
+    my $ar;
+    if ($MONGO && ($s =~ /(Tasking|Pipeline)/)) {
+      my $rvar = &getMONGO($s);
+      if ($s eq 'Tasking') {
+        foreach (sort {$a->{creationDate} cmp $b->{creationDate}} @$rvar) {
+          push @$ar,[@{$_}{qw(name dataSet creationDate pipelineTime)}];
+        }
+      }
+      elsif ($s eq 'Pipeline') {
+        foreach (sort {$b->{timestamp} cmp $a->{timestamp}} @$rvar) {
+          push @$ar,[@{$_}{qw(name dataSet description timestamp age eventType)}];
+        }
+      }
+      #print STDERR "$s returned ".scalar(@$ar)." values\n";
+    }
+    else {
+      $sth{$s}->execute();
+      $ar = $sth{$s}->fetchall_arrayref;
+    }
     if ($s eq 'Discovery') {
       my @arr = @$ar;
       @$ar = ();
       foreach (@arr) {
         my $stack = (split(/\//,$_->[3]))[-1];
-        $sth{Entity}->execute($stack);
-        my($p) = $sth{Entity}->fetchrow_array();
+        my $p;
+        if ($MONGO) {
+          my $rvar = &getMONGO('Entity',$stack);
+          $p = $rvar;
+        }
+        else {
+          $sth{Entity}->execute($stack);
+          ($p) = $sth{Entity}->fetchrow_array();
+        }
         push @$ar,$_ unless ($p);
       }
     }
@@ -224,7 +273,7 @@ sub displayQueues
         my $event = pop(@$_);
         my $sam = $_->[0];
         $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
-                     target => '_blank'},$_->[0]);
+                     target => '_blank'},$_->[0]) if ($_->[0]);
         if ($event eq 'created') {
           splice(@$_,2,1);
           push @{$queue{Scheduling}},$_;
@@ -349,15 +398,62 @@ __EOT__
 }
 
 
+sub getMONGO
+{
+  my($selector,$value) = @_;
+  my $suffix = '';
+  if ($selector eq 'Tasking') {
+    $selector = 'PipelineStatus';
+  }
+  elsif ($selector eq 'Entity') {
+    $suffix = "?name=$value";
+  }
+  elsif ($selector eq 'Pipeline') {
+    $selector = 'TasksLatest';
+    $suffix = '?hours=' . abs($WS_LIMIT_HOURS);
+  }
+  my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
+  my $response = get $rest;
+  if ($selector eq 'Entity') {
+    return((length($response)) ? 1 : 0);
+  }
+  &terminateProgram("<h3>REST GET returned null response</h3>"
+                    . "<br>Request: $rest<br>")
+    unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
+}
+
+
 sub statusTotals
 {
 my %STATUS = (Complete => '090',
               Error => 'f33');
-my %GOOD = map {$_ => 1} qw(Blocked Complete Retired);
-$STATUS{$_} = '39c' foreach(qw(Blocked Retired));
-$STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
-  $sth{Status}->execute();
-  my $ar = $sth{Status}->fetchall_arrayref();
+  my %GOOD = map {$_ => 1} qw(Blocked Complete Retired);
+  $STATUS{$_} = '39c' foreach(qw(Blocked Retired));
+  $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
+  my $ar;
+  if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (@$rvar) {
+      push @$ar,[@{$_}{qw(_id count)}] if ($_->{_id});
+    }
+  }
+  else {
+    $sth{Status}->execute();
+    $ar = $sth{Status}->fetchall_arrayref();
+  }
   my $total = 0;
   my(@bad,@good);
   $total += $_->[1] foreach (@$ar);
@@ -403,7 +499,7 @@ sub stepContents
     ($state,$js) = &generateHistograms($step,$href)
       if ($step =~ /(?:Discovery|Tasking|Scheduling|Pipeline)/);
     if ($step eq 'Tasking') {
-      $head = ['Sample ID','Data set','Discovery date']
+      $head = ['Sample ID','Data set','Discovery date','Time in queue']
     }
     if ($step eq 'Scheduling') {
       $head = ['Sample ID','Data set','Tasking date']
@@ -534,6 +630,7 @@ sub generateHistograms
   my $first = 'na';
   foreach (@{$href->{$step}}) {
     my $l = pop @$_;
+    $_->[3] = 0 unless ($_->[3] && length($_->[3]));
     $first = abs($l) if ($first eq 'na');
     $delta = abs($l) / 24;
     $hist{ceil($delta)}++;
