@@ -11,6 +11,7 @@ use IO::File;
 use JSON;
 use LWP::Simple;
 use POSIX qw(ceil strftime);
+use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -34,6 +35,7 @@ use constant NBSP => '&nbsp;';
 my %STEP;
 my @STEPS;
 my $BASE = "/var/www/html/output/";
+my $ROW_LIMIT = 2500;
 # Total days of history to fetch from the Workstation
 my $WS_LIMIT_DAYS = param('days') || 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
@@ -128,6 +130,7 @@ WS_Error => "SELECT s.name,IFNULL(ced.value,'UnclassifiedError') "
             . "sed.parent_entity_id=s.id AND s.entity_type='Sample' WHERE "
             . "e.entity_type='Error'",
 );
+my $performance = '';
 
 # ****************************************************************************
 # * Main                                                                     *
@@ -174,6 +177,7 @@ sub initializeProgram
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
   $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+  $MONGO = 0 if (param('mysql'));
   # Connect to databases
   &dbConnect(\$dbh,'sage');
   &dbConnect(\$dbhf,'flyboy');
@@ -223,6 +227,7 @@ sub displayQueues
     next if (($s eq 'MV') && !$ALL);
     next if ($s eq 'Scheduling');
     my $ar;
+    my $t0 = [gettimeofday];
     if ($MONGO && ($s =~ /(Tasking|Pipeline)/)) {
       my $rvar = &getMONGO($s);
       if ($s eq 'Tasking') {
@@ -329,8 +334,13 @@ sub displayQueues
         push @{$queue{$s}},$_;
       }
     }
+    my $msg = sprintf "$s processing for %d rows: %.2fsec",
+                      scalar(@$ar),tv_interval($t0,[gettimeofday]);
+    print STDERR "$msg\n";
+    $performance .= $msg . '<br>';
   }
   # Display
+  my $t0 = [gettimeofday];
   my (@details,@special,@status);
   foreach my $step (@STEPS,'Complete') {
     next if (($step eq 'MV') && !$ALL);
@@ -347,6 +357,11 @@ sub displayQueues
       push @details,$data2 if ($data2);
     }
   }
+  my $msg = sprintf "Queue population: %.2fsec",
+                    tv_interval($t0,[gettimeofday]);
+  print STDERR "$msg\n";
+  $performance .= $msg . '<br>';
+  $performance = '' unless (param('performance'));
   my $instructions = <<__EOT__;
 <h3>Instructions</h3><br>
 The diagram to the left shows the image processing pipeline, with rounded boxes
@@ -385,6 +400,7 @@ __EOT__
                       onclick => "showDetails('instructions')"},$APPLICATION." (last $WS_LIMIT_DAYS days)"))),
                 br,
             div({style => 'float: left;'},
+                $performance,
                 div({style => 'float: left;'},
                     div({class => 'flow'},
                         join(div({class => 'downarrow'},'&darr;'),@status)),
@@ -412,10 +428,15 @@ sub getMONGO
     $selector = 'TasksLatest';
     $suffix = '?hours=' . abs($WS_LIMIT_HOURS);
   }
+  my $t0 = [gettimeofday];
   my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
   my $response = get $rest;
   if ($selector eq 'Entity') {
     return((length($response)) ? 1 : 0);
+  }
+  else {
+    $performance .= sprintf "REST GET $selector: %.2fsec<br>",
+                            tv_interval($t0,[gettimeofday])
   }
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")
@@ -532,11 +553,18 @@ sub stepContents
     # Create process/queue table
     $type_title = "$type_title ($STEP{$step}{description})"
       unless ($step =~ /(?:Complete)/);
-    $table = h3("$step $type_title") . $link . br . $js .
-             table({id => "t$step",class => 'tablesorter standard'},
-                   thead(Tr(th($head))),
-                   tbody (map {Tr(td($_))}
-                          @{$href->{$step}}));
+    if (scalar(@{$href->{$step}}) > $ROW_LIMIT) {
+      $table = h3("$step $type_title") . $link . br . $js . br
+               . "There are too many entries to display - please "
+               . "download the Export file.";
+    }
+    else {
+      $table = h3("$step $type_title") . $link . br . $js .
+               table({id => "t$step",class => 'tablesorter standard'},
+                     thead(Tr(th($head))),
+                     tbody (map {Tr(td($_))}
+                            @{$href->{$step}}));
+    }
   }
   my $badge_type = 'empty';
   if ($items) {
@@ -605,7 +633,7 @@ sub createExportFile
   print $handle join("\t",@$head) . "\n";
   foreach (@$ar) {
     my @l = @$_;
-    foreach my $i (0..2,6) {
+    foreach my $i (0..2,3..6) {
       $l[$i] ||= '';
       if ($l[$i] && ($l[$i] =~ /href/)) {
         $l[$i] =~ s/.+=//;
