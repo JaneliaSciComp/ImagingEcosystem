@@ -16,6 +16,7 @@ use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
+$|++;
 
 # ****************************************************************************
 # * Environment-dependent                                                    *
@@ -35,7 +36,7 @@ use constant NBSP => '&nbsp;';
 my %STEP;
 my @STEPS;
 my $BASE = "/var/www/html/output/";
-my $ROW_LIMIT = 2500;
+my $ROW_LIMIT = 5000;
 # Total days of history to fetch from the Workstation
 my $WS_LIMIT_DAYS = param('days') || 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
@@ -240,7 +241,6 @@ sub displayQueues
           push @$ar,[@{$_}{qw(name dataSet description timestamp age eventType)}];
         }
       }
-      #print STDERR "$s returned ".scalar(@$ar)." values\n";
     }
     else {
       $sth{$s}->execute();
@@ -251,6 +251,7 @@ sub displayQueues
       @$ar = ();
       foreach (@arr) {
         my $stack = (split(/\//,$_->[3]))[-1];
+        next unless ($stack =~ /lsm$/);
         my $p;
         if ($MONGO) {
           my $rvar = &getMONGO('Entity',$stack);
@@ -360,6 +361,7 @@ sub displayQueues
   my $msg = sprintf "Queue population: %.2fsec",
                     tv_interval($t0,[gettimeofday]);
   print STDERR "$msg\n";
+  $t0 = [gettimeofday];
   $performance .= $msg . '<br>';
   $performance = '' unless (param('performance'));
   my $instructions = <<__EOT__;
@@ -411,6 +413,9 @@ __EOT__
            ),
            div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;
+  $msg = sprintf "Final print: %.2fsec",
+                 tv_interval($t0,[gettimeofday]);
+  print STDERR "$msg\n";
 }
 
 
@@ -420,6 +425,7 @@ sub getMONGO
   my $suffix = '';
   if ($selector eq 'Tasking') {
     $selector = 'PipelineStatus';
+    $suffix = '?hours=' . abs($WS_LIMIT_HOURS);
   }
   elsif ($selector eq 'Entity') {
     $suffix = "?name=$value";
@@ -520,10 +526,10 @@ sub stepContents
     ($state,$js) = &generateHistograms($step,$href)
       if ($step =~ /(?:Discovery|Tasking|Scheduling|Pipeline)/);
     if ($step eq 'Tasking') {
-      $head = ['Sample ID','Data set','Discovery date','Time in queue']
+      $head = ['Sample ID','Data set','Discovery date'];
     }
     if ($step eq 'Scheduling') {
-      $head = ['Sample ID','Data set','Tasking date']
+      $head = ['Sample ID','Data set','Tasking date'];
     }
     elsif ($step eq 'tmog') {
       $head = ['Cross date','Line','Line 2','Effector','Type','Project','Barcode','Wish list'];
@@ -656,13 +662,14 @@ sub generateHistograms
   my %hist2 = ();
   my ($delta,$state) = ('')x2;
   my $first = 'na';
+  my $ind = ('Tasking' eq $step) ? 1 : 3;
   foreach (@{$href->{$step}}) {
     my $l = pop @$_;
-    $_->[3] = 0 unless ($_->[3] && length($_->[3]));
+    $_->[$ind] = 0 unless ($_->[$ind] && length($_->[$ind]));
     $first = abs($l) if ($first eq 'na');
     $delta = abs($l) / 24;
     $hist{ceil($delta)}++;
-    $hist2{$_->[3]}++;
+    $hist2{$_->[$ind]}++;
   }
   $delta = $first / 24;
   if ($delta >= 7) {
@@ -671,14 +678,16 @@ sub generateHistograms
   elsif ($delta >= 2) {
     $state = 'warning';
   }
-  return($state,'') unless ($step eq 'Discovery');
+  return($state,'') unless ($step =~ /(?:Discovery|Tasking)/);
+  my $container = $step . '_container';
+  my $container2 = $step . '_container2';
   my $js = <<__EOT__;
-<div id="container" style="height: 200px"></div>
-<div id="container2" style="height: 200px"></div>
+<div id="$container" style="height: 200px"></div>
+<div id="$container2" style="height: 200px"></div>
 <script type="text/javascript">
 \$(function () {
 var chart = new Highcharts.Chart({
-chart: {renderTo: 'container',
+chart: {renderTo: '$container',
         type: 'bar'},
 title: {text: 'LSMs by age'},
 credits: {enabled: false},
@@ -696,7 +705,7 @@ __EOT__
              . '],color: "#3cc"}]});';
       $js .= <<__EOT__;
 var chart2 = new Highcharts.Chart({
-chart: {renderTo: 'container2',
+chart: {renderTo: '$container2',
         type: 'bar'},
 title: {text: 'LSMs by data set'},
 credits: {enabled: false},
