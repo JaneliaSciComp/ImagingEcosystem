@@ -54,9 +54,13 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
 my %sth = (
-Intake => "SELECT DATE(capture_date),create_date,DATEDIFF(create_date,capture_date) FROM image WHERE "
-          . "DATEDIFF(NOW(),DATE(create_date)) <= ?"
-          . "AND capture_date IS NOT NULL AND name like '%lsm'",
+Intake => "SELECT IFNULL(DATE(capture_date),DATE(NOW())),create_date,"
+          . "DATEDIFF(create_date,IFNULL(capture_date,NOW())) FROM image "
+          . "WHERE DATEDIFF(NOW(),DATE(create_date)) <= ? AND name like '%lsm'",
+Indexing => "SELECT COUNT(1)  FROM image_vw i JOIN image_property_vw ipd ON "
+            . "(i.id=ipd.image_id AND ipd.type='data_set') WHERE "
+            . "i.family NOT LIKE 'simpson%' AND i.id NOT IN "
+            . "(SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
 WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
             . "JOIN entityData ed ON (e.id=ed.parent_entity_id) WHERE "
@@ -156,6 +160,9 @@ sub displayDashboard
   my $today_status = '';
   $today_status .= "Images captured today: $max_capture<br>";
   $today_status .= "Images ingested today: $max_create";
+  $sth{Indexing}->execute();
+  my $icount = $sth{Indexing}->fetchrow_array();
+  $today_status .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
