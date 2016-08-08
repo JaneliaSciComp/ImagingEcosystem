@@ -6,6 +6,8 @@ use warnings;
 use DBI;
 use Getopt::Long;
 use IO::File;
+use JSON;
+use LWP::Simple;
 use Pod::Text;
 use Pod::Usage;
 use POSIX qw(strftime);
@@ -14,16 +16,28 @@ use POSIX qw(strftime);
 use JFRC::Utils::DB qw(:all);
 
 # ****************************************************************************
+# * Environment-dependent                                                    *
+# ****************************************************************************
+# Change this on foreign installation
+use constant DATA_PATH => '/opt/informatics/data/';
+
+# ****************************************************************************
+# * Constants                                                                *
+# ****************************************************************************
+my %CONFIG;
+
+# ****************************************************************************
 # * Global variables                                                         *
 # ****************************************************************************
 # Command-line parameters
-my($DEBUG,$TEST,$VERBOSE) = (0)x3;
+my($DEBUG,$MONGO,$TEST,$VERBOSE) = (0)x4;
 
 # Database
 our $dbh;
 my %sth = (
 STATUS => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
 );
+
 
 # ****************************************************************************
 # * Main                                                                     *
@@ -44,6 +58,14 @@ pod2text($0),&terminateProgram() if ($HELP);
 
 # Initialize
 $VERBOSE = 1 if ($DEBUG);
+# Get WS REST config
+my $file = DATA_PATH . 'workstation_ng.json';
+open SLURP,$file or &terminateProgram("Can't open $file: $!");
+sysread SLURP,my $slurp,-s SLURP;
+close(SLURP);
+my $hr = decode_json $slurp;
+%CONFIG = %$hr;
+$MONGO = ('mongo' eq $CONFIG{data_source});
 our $handle = ($output_file) ? (new IO::File $output_file,'>'
                 or &terminateProgram("ERROR: could not open $output_file ($!)"))
                            : (new_from_fd IO::File \*STDOUT,'>'
@@ -57,8 +79,26 @@ our $lhandle = new IO::File $log_file,'>>'
 $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
   foreach (keys %sth);
 
-$sth{STATUS}->execute();
-my $ar = $sth{STATUS}->fetchall_arrayref();
+my $ar;
+if ($MONGO) {
+    my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
+    my $response = get $rest;
+    &terminateProgram("<h3>REST GET returned null response</h3>"
+                      . "<br>Request: $rest<br>")
+      unless (length($response));
+    my $rvar;
+    eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+    foreach (@$rvar) {
+      push @$ar,[@{$_}{qw(_id count)}] if ($_->{_id});
+    }
+
+}
+else {
+  $sth{STATUS}->execute();
+  $ar = $sth{STATUS}->fetchall_arrayref();
+}
 
 my $today = strftime "%Y-%m-%d",localtime;
 my %found;
