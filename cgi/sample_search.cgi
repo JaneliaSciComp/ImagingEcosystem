@@ -20,6 +20,8 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
+my @CLOSED = ('right','display:none;');
+my @OPEN = ('down','display:block;');
 
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
@@ -256,8 +258,7 @@ sub showQuery {
         ($rvar) = &getMONGO($cur,$term);
         $ar = [];
         foreach (sort @$rvar) {
-          push @$ar,[@{$_}{qw(name line slideCode effector dataSet)},
-                     $_->{image}{'Signal MIP'}]
+          push @$ar,[@{$_}{qw(name line slideCode effector dataSet defaultImage)}];
         }
       }
       else {
@@ -482,23 +483,82 @@ sub getSampleJSON
   my($name) = @_;
   my $html = hr((($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
                 "Sample $name") . br;
-  my $s = &getMONGO('SAMPLE',$name);
-  if ($s) {
-    my $sid = $s->[0]{_id};
+  my $samples = &getMONGO('SAMPLE',$name);
+  if (scalar(@$samples) > 1) {
+    my $msg = 'Found ' . scalar(@$samples) .  " samples for $name";
+    $html .= &bootstrapPanel('Multiple samples',$msg,'warning');
+  }
+  foreach my $s (@$samples) {
+    my $sid = $s->{_id};
     my $task = &getMONGO('EVENTS',$sid);
     my @td;
-    foreach (sort keys %{$s->[0]}) {
-      my $r = ref($s->[0]{$_});
+    my($arrow,$display) = @CLOSED;
+    foreach (sort keys %{$s}) {
+      my $r = ref($s->{$_});
       if ($r eq 'ARRAY') {
-        if (ref($s->[0]{$_}[0])) {
-          push @td,[$_,pre(to_json($s->[0]{$_},{utf8 => 1, pretty => 1}))];
+        if (ref($s->{$_}[0])) {
+          my $content;
+          foreach my $o (@{$s->{$_}}) {
+            $content .= h2($o->{objective} . ' objective');
+            if ($a = scalar(@{$o->{tiles}})) {
+              $content .= h3("Tiles: $a");
+              foreach my $t (@{$o->{tiles}}) {
+                my $n = delete $t->{anatomicalArea};
+                my $tid = join('_',$o->{objective},$n);
+                my $tcontent = '';
+                if (scalar @{$t->{lsmReferences}}) {
+                  foreach my $l (@{$t->{lsmReferences}}) {
+                    my $n = delete $l->{name};
+                    my $lid = join('_',$l->{'_id'});
+                    $tcontent .= div({style => 'margin-left: 10px;'},
+                                     h4(&toggle($lid,$arrow),$n),
+                                     div({&identify($lid),
+                                          style => $display},pre(to_json($l,{utf8 => 1, pretty => 1}))));
+                  }
+                  delete $t->{lsmReferences};
+                }
+                $tcontent .= pre(to_json($t,{utf8 => 1, pretty => 1}));
+                $content .= div({style => 'margin-left: 10px;'},
+                                h4(&toggle($tid,$arrow),$n),
+                                div({&identify($tid),
+                                     style => $display},$tcontent));
+              }
+            }
+            if ($a = scalar(@{$o->{pipelineRuns}})) {
+              $content .= h3("Pipeline runs: $a");
+              foreach my $p (@{$o->{pipelineRuns}}) {
+                my $n = delete $p->{name};
+                $n .= ' ' . delete $p->{creationDate};
+                my $id = join('_','pipeline',$p->{id});
+                my $pcontent = '';
+                if ($a = scalar(@{$p->{results}})) {
+                  $pcontent = h3("Results: $a");
+                  foreach my $r (@{$p->{results}}) {
+                    my $n = delete $r->{name};
+                    my $id = join('_','result',$r->{id});
+                    $pcontent .= div({style => 'margin-left: 10px;'},
+                                     h4(&toggle($id,$arrow),$n),
+                                     div({&identify($id),
+                                          style => $display},pre(to_json($r,{utf8 => 1, pretty => 1}))));
+                  }
+                  delete $p->{results};
+                }
+                $pcontent .= pre(to_json($p,{utf8 => 1, pretty => 1}));
+                $content .= div({style => 'margin-left: 10px;'},
+                                h4(&toggle($id,$arrow),$n),
+                                div({&identify($id),
+                                     style => $display},$pcontent));
+              }
+            }
+          }
+          push @td,[$_,$content];
         }
         else {
-          push @td,[$_,join(', ',sort @{$s->[0]{$_}})];
+          push @td,[$_,join(', ',sort @{$s->{$_}})];
         }
       }
       else {
-        push @td,[$_,$s->[0]{$_}];
+        push @td,[$_,$s->{$_}];
       }
     }
     $html .= table({class => 'tablesorter standard'},
@@ -516,6 +576,16 @@ sub getSampleJSON
     }
   }
   return($html);
+}
+
+
+sub toggle
+{
+  my($id,$dir) = @_;
+  a({href => '#',
+     onClick => 'toggleVis("'.$id.'"); return false;'},
+    img({&identify('i'.$id),
+         src => '/images/' . $dir . '_triangle_small.png'}));
 }
 
 
