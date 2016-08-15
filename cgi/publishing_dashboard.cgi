@@ -45,6 +45,8 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
 my %sth = (
+  LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
+           . "WHERE published IS NOT NULL",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
                . "COUNT(1) FROM image_data_mv WHERE published IS NOT NULL "
                . "GROUP BY 1,2",
@@ -102,12 +104,17 @@ sub displayDashboard
   }
   # Published
   $sth{PUBLISHED}->execute();
-  my $ar = $sth{PUBLISHED}->fetchall_arrayref();
+  $ar = $sth{PUBLISHED}->fetchall_arrayref();
   my $published;
   if (scalar @$ar) {
+    $sth{LINES}->execute();
+    my($line_count) = $sth{LINES}->fetchrow_array();
+    my $image_count = 0;
+    $image_count += $_->[-1] foreach (@$ar);
     $published = table({id => 'published',class => 'tablesorter standard'},
                        thead(Tr(td(['Website','ALPS release','Lines','Images']))),
-                       tbody(map {Tr(td($_))} @$ar));
+                       tbody(map {Tr(td($_))} @$ar),
+                       tfoot(Tr(td(['','',$line_count,$image_count]))));
   }
   # Render
   print div({class => 'panel panel-warning'},
@@ -121,7 +128,7 @@ sub displayDashboard
                 span({class => 'panel-heading;'},
                      'Published')),
             div({class => 'panel-body'},$published)),
-        div({style => 'clear: both;'},NBSP) if ($waiting);
+        div({style => 'clear: both;'},NBSP) if ($published);
   print end_form,&sessionFooter($Session),end_html;
 }
 
