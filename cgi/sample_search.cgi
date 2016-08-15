@@ -10,6 +10,7 @@ use DBI;
 use IO::File;
 use JSON;
 use LWP::Simple;
+use MongoDB;
 use POSIX qw(strftime);
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -22,6 +23,8 @@ use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
 my @CLOSED = ('right','display:none;');
 my @OPEN = ('down','display:block;');
+my $AUTHORIZED = 0;
+my $ID = 0;
 
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
@@ -73,6 +76,7 @@ SAGE_CT => "SELECT DATEDIFF(?,MAX(create_date)) FROM image WHERE id IN "
 FB_CT2 => "SELECT DATEDIFF(?,MAX(event_date)) FROM stock_event_history_vw "
           . "WHERE cross_barcode=?",
 );
+my %GROUP;
 my @TAB_ORDER = qw(line slide dataset sample);
 
 # ****************************************************************************
@@ -84,11 +88,12 @@ my $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 our $USERID = $Session->param('user_id');
 our $USERNAME = $Session->param('user_name');
+$AUTHORIZED = 1 if (($Session->param('scicomp'))
+                    || ($Session->param('workstation_flylight')));
 my $WIDTH = param('width') || 150;
-my $AUTHORIZED = ($Session->param('scicomp'))
-   || ($Session->param('workstation_flylight'));
 
 our ($dbh,$dbhf,$dbhs);
+my $Subject;
 # Get WS REST config
 my $file = DATA_PATH . 'workstation_ng.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
@@ -121,7 +126,8 @@ foreach (keys %sth) {
   elsif (!$MONGO) {
     $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
   }
-
+  my $mongodb = MongoDB->connect($CONFIG{uri});
+  $Subject= $mongodb->ns('jacs.subject');
 }
 
 &showOutput();
@@ -492,6 +498,7 @@ sub getSampleJSON
     my $sid = $s->{_id};
     my $task = &getMONGO('EVENTS',$sid);
     my @td;
+    $AUTHORIZED = &getAuthorization($s);
     my($arrow,$display) = @CLOSED;
     foreach (sort keys %{$s}) {
       my $r = ref($s->{$_});
@@ -503,22 +510,10 @@ sub getSampleJSON
             if ($a = scalar(@{$o->{tiles}})) {
               $content .= h3("Tiles: $a");
               foreach my $t (@{$o->{tiles}}) {
-                my $n = delete $t->{anatomicalArea};
-                my $tid = join('_',$o->{objective},$n);
-                my $tcontent = '';
-                if (scalar @{$t->{lsmReferences}}) {
-                  foreach my $l (@{$t->{lsmReferences}}) {
-                    my $n = delete $l->{name};
-                    my $lid = join('_',$l->{'_id'});
-                    $tcontent .= div({style => 'margin-left: 10px;'},
-                                     h4(&toggle($lid,$arrow),$n),
-                                     div({&identify($lid),
-                                          style => $display},pre(to_json($l,{utf8 => 1, pretty => 1}))));
-                  }
-                  delete $t->{lsmReferences};
-                }
-                $tcontent .= pre(to_json($t,{utf8 => 1, pretty => 1}));
-                $content .= div({style => 'margin-left: 10px;'},
+                my $tid = join('_',$o->{objective},$t->{anatomicalArea},$t->{name});
+                my $n = delete($t->{anatomicalArea}) . ' (' . delete($t->{name}) . ')';
+                my $tcontent = &process_lsmReferences($t,@CLOSED);
+                $content .= div({style => 'margin-left: 15px;'},
                                 h4(&toggle($tid,$arrow),$n),
                                 div({&identify($tid),
                                      style => $display},$tcontent));
@@ -535,16 +530,16 @@ sub getSampleJSON
                   $pcontent = h3("Results: $a");
                   foreach my $r (@{$p->{results}}) {
                     my $n = delete $r->{name};
-                    my $id = join('_','result',$r->{id});
-                    $pcontent .= div({style => 'margin-left: 10px;'},
+                    my $id = join('_','result',$ID++);
+                    $pcontent .= div({style => 'margin-left: 15px;'},
                                      h4(&toggle($id,$arrow),$n),
                                      div({&identify($id),
-                                          style => $display},pre(to_json($r,{utf8 => 1, pretty => 1}))));
+                                          style => 'margin-left: 15px;'.$display},pre(to_json($r,{utf8 => 1, pretty => 1}))));
                   }
                   delete $p->{results};
                 }
-                $pcontent .= pre(to_json($p,{utf8 => 1, pretty => 1}));
-                $content .= div({style => 'margin-left: 10px;'},
+                $pcontent .= div({style => 'margin-left: 15px;'},pre(to_json($p,{utf8 => 1, pretty => 1})));
+                $content .= div({style => 'margin-left: 15px;'},
                                 h4(&toggle($id,$arrow),$n),
                                 div({&identify($id),
                                      style => $display},$pcontent));
@@ -579,6 +574,117 @@ sub getSampleJSON
 }
 
 
+sub getAuthorization
+{
+  my($s) = shift;
+  return(1) if (($Session->param('scicomp'))
+                || ($Session->param('workstation_flylight')));
+  my %authorized;
+  &addAuthorizedUser(split(':',$s->{ownerKey}),\%authorized);
+  foreach (@{$s->{readers}}) {
+    &addAuthorizedUser(split(':',$_),\%authorized);
+  }
+  return(exists $authorized{$USERID});
+}
+
+
+sub addAuthorizedUser
+{
+  my($type,$name,$hr) = @_;
+  if ($type eq 'user') {
+    $$hr{$name}++;
+    return();
+  }
+  elsif (!exists($GROUP{$name})) {
+    my $data = $Subject->find({groups => {'$in' => ["group:$name"]}}, {_id => 0, key =>1});
+    while (my $row = $data->next) {
+      push @{$GROUP{$name}},(split(':',$row->{key}))[1];
+    }
+  }
+  $hr->{$_}++ foreach (@{$GROUP{$name}});
+}
+
+
+sub process_lsmReferences
+{
+  my($t,$arrow,$display) = @_;
+  my $tcontent = '';
+  if (scalar @{$t->{lsmReferences}}) {
+    foreach my $l (@{$t->{lsmReferences}}) {
+      my ($fcontent,$strip) = ('')x2;
+      my $n = delete $l->{name};
+      my $lid = join('_',$l->{'_id'});
+      if (exists $l->{files}) {
+        my @additional;
+        foreach my $f (sort keys %{$l->{files}}) {
+          if ($l->{files}{$f} =~ /\.png$/) {
+            $strip .= div({style => 'float:left'},
+                          table({class => 'strip'},
+                                Tr(td(&thumbnail($l->{files}{$f}))),
+                                Tr(td($f))));
+          }
+          else {
+            push @additional,Tr(td([$f,$l->{files}{$f}]));
+          }
+        }
+        $fcontent .= div({style => 'float:left; margin-left:15px'},$strip)
+                     . div({style => 'clear: both;'},NBSP) if ($strip);
+        $fcontent .= br . table(@additional) if (scalar @additional);
+        delete $l->{files};
+        $fcontent = &notAuthorized() unless ($AUTHORIZED);
+      }
+      $tcontent .= div({style => 'margin-left: 15px;'},
+                       h4(&toggle($lid,$arrow),$n),
+                       div({&identify($lid),
+                            style => $display},$fcontent,
+                           pre(to_json($l,{utf8 => 1, pretty => 1}))));
+    }
+    $tcontent = div({style => 'margin-left:15px'},"LSMs: ". scalar(@{$t->{lsmReferences}})) . $tcontent;
+    delete $t->{lsmReferences};
+  }
+  delete $t->{files} if (exists($t->{files}) && !scalar(keys %{$t->{files}}));
+  $tcontent .= &process_files($t) if (exists($t->{files}));
+  $tcontent .= pre(to_json($t,{utf8 => 1, pretty => 1}))
+    if (scalar(keys %$t));
+  return($tcontent);
+}
+
+
+sub process_files
+{
+  my $tf = shift;
+  my ($fcontent,$strip) = ('')x2;
+  my @additional;
+  foreach my $f (sort keys %{$tf->{files}}) {
+    if ($tf->{files}{$f} =~ /\.png$/) {
+      $strip .= div({style => 'float:left'},
+                    table({class => 'strip'},
+                          Tr(td(&thumbnail($tf->{files}{$f}))),
+                          Tr(td($f))));
+    }
+    else {
+      push @additional,Tr(td([$f,$tf->{files}{$f}]));
+    }
+  }
+  delete $tf->{files};
+  $fcontent .= div({style => 'float:left; margin-left:15px;'},$strip)
+               . div({style => 'clear: both;'},NBSP) if ($strip);
+  $fcontent = &notAuthorized() unless ($AUTHORIZED);
+  return($fcontent);
+}
+
+
+sub thumbnail
+{
+  my($path) = @_;
+  my $src = "http://jacs-webdav.int.janelia.org/WebDAV$path";
+  a({href => $src,
+     target => '_blank'},
+    img({src => $src,
+         width => '100px'}));
+}
+
+
 sub toggle
 {
   my($id,$dir) = @_;
@@ -586,6 +692,15 @@ sub toggle
      onClick => 'toggleVis("'.$id.'"); return false;'},
     img({&identify('i'.$id),
          src => '/images/' . $dir . '_triangle_small.png'}));
+}
+
+
+sub notAuthorized
+{
+  div({class => "alert alert-danger", role => "alert"},
+      span({ class => "glyphicon glyphicon-exclamation-sign", 'aria-hidden' => "true"}),
+      span({class => "sr-only"},'Error:'),
+      'You are not authorized to view imagery for this sample');
 }
 
 
