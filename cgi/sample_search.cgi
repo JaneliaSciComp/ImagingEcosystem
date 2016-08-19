@@ -264,7 +264,7 @@ sub showQuery {
         ($rvar) = &getMONGO($cur,$term);
         $ar = [];
         foreach (sort @$rvar) {
-          push @$ar,[@{$_}{qw(name line slideCode effector dataSet defaultImage)}];
+          push @$ar,[@{$_}{qw(name line slideCode effector dataSet status defaultImage)}];
         }
       }
       else {
@@ -274,9 +274,10 @@ sub showQuery {
       if (scalar @$ar) {
         my $t = $_;
         my @row;
-        my @header = ('Sample','Line','Slide code','Effector','Data set');
+        my @header = ('Sample','Line','Slide code','Effector','Data set','Status');
         push @header,'Default image' if ($AUTHORIZED);
         foreach my $r (@$ar) {
+          $r->[5] = &renderStatus($r->[5]);
           if ($AUTHORIZED) {
             if ($r->[-1]) {
               $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
@@ -553,6 +554,7 @@ sub getSampleJSON
         }
       }
       else {
+        $s->{$_} = &renderStatus($s->{$_}) if ($_ eq 'status');
         push @td,[$_,$s->{$_}];
       }
     }
@@ -571,6 +573,26 @@ sub getSampleJSON
     }
   }
   return($html);
+}
+
+
+sub renderStatus
+{
+  my $status = shift;
+  my $style = 'font-weight: bold; color: ';
+  if ($status eq 'Complete') {
+    $status = span({style => $style . 'green'},$status);
+  }
+  elsif ($status eq 'Error') {
+    $status = span({style => $style . 'red'},$status);
+  }
+  elsif ($status eq 'Processing') {
+    $status = span({style => $style . 'blue'},$status);
+  }
+  elsif ($status =~ /^(?:Desync|Marked)/) {
+    $status = span({style => $style . 'orange'},$status);
+  }
+  return($status);
 }
 
 
