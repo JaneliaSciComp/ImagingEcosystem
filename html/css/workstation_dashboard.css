@@ -1,3 +1,11 @@
+div.boxed {
+  padding: 5px;
+  border: 1px solid #4EAC44;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
 table.standard {
   background: #333;
   border-collapse: collapse;

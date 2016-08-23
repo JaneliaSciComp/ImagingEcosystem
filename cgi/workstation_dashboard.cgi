@@ -55,7 +55,7 @@ $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
 my %sth = (
 Intake => "SELECT IFNULL(DATE(capture_date),DATE(NOW())),create_date,"
-          . "DATEDIFF(create_date,IFNULL(capture_date,NOW())) FROM image "
+          . "DATEDIFF(create_date,IFNULL(capture_date,NOW())),TIME_TO_SEC(TIMEDIFF(create_date,capture_date)) FROM image "
           . "WHERE DATEDIFF(NOW(),DATE(create_date)) <= ? AND name like '%lsm'",
 Indexing => "SELECT COUNT(1)  FROM image_vw i JOIN image_property_vw ipd ON "
             . "(i.id=ipd.image_id AND ipd.type='data_set') WHERE "
@@ -117,20 +117,29 @@ sub displayDashboard
   &printHeader();
   # Intake
   $sth{Intake}->execute($DELTA_DAYS);
-  my($count,$sum) = (0)x2;
+  my($captured,$count,$sum) = (0)x3;
   my $ar = $sth{Intake}->fetchall_arrayref();
   $count = scalar @$ar;
   my (%bin1,%bin2);
   my %cbin = map {(sprintf '%02d',$_) => 0} (0..23);
   my $max = 0;
   my $today = UnixDate("today","%Y-%m-%d");
+  my ($ct_acc,$ct_cnt,$max_ct,$min_ct) = ((0)x3,1e9);
+  my $ago = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$today),-$DELTA_DAYS);
   foreach (@$ar) {
-    $max = $_->[2] if ($_->[2] > $max);
+    $captured++ if ($_->[0] >= $ago);
     $bin1{$_->[0]}++;
     $cbin{(split(/[ :]/,$_->[1]))[1]}++ unless (index($_->[1],$today));
     $_->[1] =~ s/ .+//;
     $bin2{$_->[1]}++;
+    $max = $_->[2] if ($_->[2] > $max);
     $sum += $_->[2];
+    if (!index($_->[1],$today) && ($_->[2] >= 0)) {
+      $ct_acc += $_->[3];
+      $ct_cnt++;
+      $max_ct = $_->[3] if ($_->[3] > $max_ct);
+      $min_ct = $_->[3] if ($_->[3] < $min_ct);
+    }
   }
   my $max_capture = $bin1{$today} || 0;
   my $max_create = $bin2{$today} || 0;
@@ -152,26 +161,38 @@ sub displayDashboard
   my $clock;
   $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
                           content => 'intakeclock',
-                          title => "LSM intake/hour today",
+                          title => "LSM intake/hour",
                           color => ['#009900'],
                           text_color => 'white',
                           width => '270px',
                           height => '270px') if ($max_create);
   my $today_status = '';
-  $today_status .= "Images captured today: $max_capture<br>";
-  $today_status .= "Images ingested today: $max_create";
+  $today_status .= "Images captured: $max_capture<br>";
+  $today_status .= "Images ingested: $max_create";
+  if ($ct_cnt) {
+    $today_status .= '<br>Capture &rarr; TMOG cycle time<br>';
+    $today_status .= '&nbsp;&nbsp;Minimum: ' . &displayElapsed($min_ct/3600) . br;
+    $today_status .= '&nbsp;&nbsp;Maximum: ' . &displayElapsed($max_ct/3600) . br;
+    $today_status .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc/$ct_cnt)/3600) . br;
+  }
   $sth{Indexing}->execute();
   my $icount = $sth{Indexing}->fetchrow_array();
   $today_status .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
+  $today_status .= $clock;
+  $today_status = div({class => 'boxed'},h3({style => 'text-align: center'},'Today'),$today_status) if ($today_status);
+  my $last_days = div({class => 'boxed'},h3({style => 'text-align: center'},"Last $DELTA_DAYS days ($ago)"),
+                      "Images captured: $captured",br,
+                      "Images ingested: $count",br,
+                      "Capture &rarr; TMOG cycle time<br>",
+                      "&nbsp;&nbsp;Average: ",&displayElapsed($sum/$count,'d'),br,
+                      '&nbsp;&nbsp;Maximum: ',&displayElapsed($max,'d'));
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
             div({class => 'panel-body'},
                 div({style => 'float: left'},
                     div({style => 'float: left; margin-right: 10px;'},
-                        "Images ingested in last $DELTA_DAYS days: $count",br,
-                        "Average age: ",(sprintf '%.2f days',$sum/$count),br,
-                        "Maximum age: $max days",br,br,$today_status,br,$clock
+                        $last_days,$today_status
                        ),
                     div({style => 'float: left'},$histogram1),
                     div({style => 'float: left'},$histogram2))
@@ -327,7 +348,7 @@ sub displayDashboard
   my $export = &createExportFile(\@delta,'workstation_processing',
                                  ['Sample','User','Start date','Delta days']);
   # Render
-  print $performance.br if ($MONGO);
+  print $performance.br if ($MONGO && param('performance'));
   my $pipeline = div({style => 'float: left'},
                      div({style => 'float: left'},
                          table({id => 'stats',class => 'tablesorter standard'},
@@ -360,6 +381,22 @@ sub fillDates
       $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$expected),1);
     }
   }
+}
+
+
+sub displayElapsed
+{
+  my($num,$unit) = @_;
+  if ($unit eq 'd') {
+    $num = ($num <= 1) ? sprintf('%.2f hours',$num/24)
+                       : sprintf('%.2f days',$num);
+  }
+  else {
+    $num = ($num < 24) ? sprintf('%.2f hours',$num)
+                       : sprintf('%.2f days',$num/24);
+  }
+  $num =~ s/\.00//;
+  return($num);
 }
 
 
