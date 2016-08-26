@@ -385,7 +385,8 @@ __EOT__
 Clicking on any of the numbers found in the queue or process areas to the
 left will display details on the items at that particular
 point in the process flow.
-Completion and error data includes only samples from the last $WS_LIMIT_DAYS days.
+Completion and error data includes only samples from the last $WS_LIMIT_DAYS days.<br>
+Cluster status may be checked <a href='http://cluster-status.int.janelia.org' target='_blank'>here</a>; all jobs are under the username <span style='font-style: italic'>jacs</span>.
 <br><br>
 Legend:<br>
 <span class="badge badge-full">&nbsp;&nbsp;&nbsp;</span> Items < 2 days old<br>
