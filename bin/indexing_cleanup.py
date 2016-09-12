@@ -62,8 +62,8 @@ def processImages(cursor):
         grammar = ''
         count['found']+=1
         if family == 'rubin_chacrm':
-            config = '/opt/informatics/data/rubin_light_imagery-config.xml'
-            grammar = '/usr/local/pipeline/grammar/chacrm_sage.gra'
+            config = '/groups/scicomp/informatics/data/rubin_light_imagery-config.xml'
+            grammar = '/misc/local/pipeline/grammar/chacrm_sage.gra'
         elif dsdict.has_key(data_set):
           config = dsdict[data_set]['config']
           grammar = dsdict[data_set]['grammar']
