@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/bin/env perl
 
 use strict;
 use warnings;
@@ -42,17 +42,20 @@ my $DELTA_DAYS = 30;
 # ****************************************************************************
 # Web
 our ($USERID,$USERNAME);
-my $MONGO = 0;
+my ($INTAKE,$MONGO) = (0)x2;
 my $Session;
 # Database
 our ($dbh,$dbhs);
 
 # ****************************************************************************
-# Session authentication
-$Session = &establishSession(css_prefix => $PROGRAM);
-&sessionLogout($Session) if (param('logout'));
-$USERID = $Session->param('user_id');
-$USERNAME = $Session->param('user_name');
+$INTAKE = param('intake');
+unless ($INTAKE) {
+  # Session authentication
+  $Session = &establishSession(css_prefix => $PROGRAM);
+  &sessionLogout($Session) if (param('logout'));
+  $USERID = $Session->param('user_id');
+  $USERNAME = $Session->param('user_name');
+}
 my %sth = (
 Intake => "SELECT IFNULL(DATE(capture_date),DATE(NOW())),create_date,"
           . "DATEDIFF(create_date,IFNULL(capture_date,NOW())),TIME_TO_SEC(TIMEDIFF(create_date,capture_date)) FROM image "
@@ -127,14 +130,14 @@ sub displayDashboard
   my ($ct_acc,$ct_cnt,$max_ct,$min_ct) = ((0)x3,1e9);
   my $ago = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$today),-$DELTA_DAYS);
   foreach (@$ar) {
-    $captured++ if ($_->[0] >= $ago);
+    $captured++ if ($_->[0] ge $ago);
     $bin1{$_->[0]}++;
     $cbin{(split(/[ :]/,$_->[1]))[1]}++ unless (index($_->[1],$today));
     $_->[1] =~ s/ .+//;
     $bin2{$_->[1]}++;
     $max = $_->[2] if ($_->[2] > $max);
     $sum += $_->[2];
-    if (!index($_->[1],$today) && ($_->[2] >= 0)) {
+    if (!index($_->[1],$today) && ($_->[2] >= 0) && $_->[3]) {
       $ct_acc += $_->[3];
       $ct_cnt++;
       $max_ct = $_->[3] if ($_->[3] > $max_ct);
@@ -144,10 +147,11 @@ sub displayDashboard
   my $max_capture = $bin1{$today} || 0;
   my $max_create = $bin2{$today} || 0;
   &fillDates(\%bin2);
-  @$ar = ();
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
-  my %parms = (text_color => '#fff', width => '530px', height => '320px');
+  my $width = param('width') || 530;
+  my %parms = (text_color => '#fff', width => $width.'px',
+               height => (sprintf '%d',$width*.6).'px');
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
                                       title => 'LSM file capture per day',
                                       content => 'capture',
@@ -158,7 +162,7 @@ sub displayDashboard
                                       content => 'intake',
                                       yaxis_title => '# files',
                                       color => '#6f6',%parms);
-  my $clock;
+  my $clock = '';
   $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
                           content => 'intakeclock',
                           title => "LSM intake/hour",
@@ -198,6 +202,17 @@ sub displayDashboard
                     div({style => 'float: left'},$histogram2))
                )),
         div({style => 'clear: both;'},NBSP);
+  if ($INTAKE) {
+    print end_form,end_html;
+  }
+  else {
+    &reportStatus();
+  }
+}
+
+
+sub reportStatus
+{
   # Read status counts from workstation_status.log
   my $file =  DATA_PATH . 'workstation_status.log';
   my $stream = new IO::File $file,"<"
@@ -219,6 +234,7 @@ sub displayDashboard
   $stream->close();
   my (%count,%donut,%piec,%piei);
   my $total = 0;
+  my $ar;
   my ($performance);
   if ($MONGO) {
     my $t0 = [gettimeofday];
@@ -387,6 +403,7 @@ sub fillDates
 sub displayElapsed
 {
   my($num,$unit) = @_;
+  $unit ||= '';
   if ($unit eq 'd') {
     $num = ($num <= 1) ? sprintf('%.2f hours',$num/24)
                        : sprintf('%.2f days',$num);
