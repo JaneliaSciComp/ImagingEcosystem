@@ -227,13 +227,34 @@ sub displayQueues
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$ALL);
     next if ($s eq 'Scheduling');
+    next if ($s eq 'Pipeline'); #PLUG
     my $ar;
     my $t0 = [gettimeofday];
     if ($MONGO && ($s =~ /(Tasking|Pipeline)/)) {
       my $rvar = &getMONGO($s);
       if ($s eq 'Tasking') {
         foreach (sort {$a->{creationDate} cmp $b->{creationDate}} @$rvar) {
-          push @$ar,[@{$_}{qw(name dataSet creationDate pipelineTime)}];
+          # Temporary? Assign queue by status.
+          if ($_->{status} eq 'Complete') {
+            $_->{name} = &linkify($_->{name});
+            push @{$queue{Complete}},[@{$_}{qw(name dataSet x completionDate)}];
+          }
+          elsif ($_->{status} eq 'Processing') {
+            $_->{name} = &linkify($_->{name});
+            push @{$process{Pipeline}},[@{$_}{qw(name dataSet pipelineTime)}];
+          }
+          elsif ($_->{status} eq 'Error') {
+            $_->{name} = &linkify($_->{name});
+            push @{$process{Pipeline_Error}},[@{$_}{qw(name dataSet x x x)}];
+          }
+          elsif ($_->{status} eq 'Marked for Rerun') {
+            $_->{name} = &linkify($_->{name});
+            push @{$process{Tasking_Error}},[@{$_}{qw(name dataSet x x x)}];
+          }
+          else {
+            $_->{name} = &linkify($_->{name});
+            push @$ar,[@{$_}{qw(name dataSet creationDate pipelineTime)}];
+          }
         }
       }
       elsif ($s eq 'Pipeline') {
@@ -246,6 +267,7 @@ sub displayQueues
       $sth{$s}->execute();
       $ar = $sth{$s}->fetchall_arrayref;
     }
+    # Discovery
     if ($s eq 'Discovery') {
       my @arr = @$ar;
       @$ar = ();
@@ -264,6 +286,7 @@ sub displayQueues
         push @$ar,$_ unless ($p);
       }
     }
+    # tmog
     elsif ($s eq 'tmog') {
       my @arr = @$ar;
       @$ar = ();
@@ -274,21 +297,21 @@ sub displayQueues
         push @$ar,$_ unless (exists $bh{$_->[6]});
       }
     }
+
     foreach (@$ar) {
       if ($s eq 'Pipeline') {
         my $event = pop(@$_);
         my $sam = $_->[0];
-        $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
-                     target => '_blank'},$_->[0]) if ($_->[0]);
+        $_->[0] = &linkify($_->[0]);
         if ($event eq 'created') {
           splice(@$_,2,1);
           push @{$queue{Scheduling}},$_;
         }
         elsif ($event eq 'pending') {
-          push @{$queue{$s}},$_;
+          push @{$queue{Pipeline}},$_;
         }
         elsif ($event eq 'running') {
-          push @{$process{$s}},$_;
+          push @{$process{Pipeline}},$_;
         }
         elsif ($event eq 'completed') {
           pop(@$_);
@@ -304,9 +327,8 @@ sub displayQueues
           push @{$process{Pipeline_Error}},$_;
         }
       }
-      elsif ($s eq 'Tasking') {
-        $_->[0] = a({href => "sample_search.cgi?sample_id=" . $_->[0],
-                     target => '_blank'},$_->[0]);
+      elsif (($s eq 'Tasking') || ($s eq 'Pipeline')) {
+        $_->[0] = &linkify($_->[0]);
         push @{$queue{$s}},$_;
       }
       elsif ($s eq 'tmog') {
@@ -420,6 +442,15 @@ __EOT__
 }
 
 
+sub linkify
+{
+  my($n) = shift;
+  return('') unless ($n);
+  a({href => "sample_search.cgi?sample_id=" . $n,
+     target => '_blank'},$n);
+}
+
+
 sub getMONGO
 {
   my($selector,$value) = @_;
@@ -525,7 +556,7 @@ sub stepContents
   my ($js,$state) = ('','');
   if ($items) {
     ($state,$js) = &generateHistograms($step,$href)
-      if ($step =~ /(?:Discovery|Tasking|Scheduling|Pipeline)/);
+      if ($step =~ /(?:Discovery|Tasking|Scheduling)/);
     if ($step eq 'Tasking') {
       $head = ['Sample ID','Data set','Discovery date'];
     }
@@ -539,7 +570,7 @@ sub stepContents
     elsif ($step eq 'Pipeline') {
       $head = ($type eq 'queue')
         ? ['Sample ID','Data set','Description','Scheduling date']
-        : ['Sample ID','Data set','Description','Pipeline start'];
+        : ['Sample ID','Data set','Pipeline time (hours)'];
     }
     elsif ($step eq 'Complete') {
       $head = ['Sample ID','Data set','Description','Completion date'];
@@ -548,11 +579,13 @@ sub stepContents
     my $now = time;
     if ((exists $STALE{$step}) && (exists $STALE{$step}{$type})) {
       foreach (@{$href->{$step}}) {
-        my @f = split(/[-: ]/,$_->[-1]);
-        $f[1]--;
-        my $then = timelocal(reverse @f);
-        my $delta_hours = ($now - $then) / 3600;
-        $STALE{$step}{$type}{count}++ if ($delta_hours >= $STALE{$step}{$type}{limit});
+        # my @f = split(/[-: ]/,$_->[-1]);
+        # $f[1]--;
+        # my $then = timelocal(reverse @f);
+        # my $delta_hours = ($now - $then) / 3600;
+        # $STALE{$step}{$type}{count}++ if ($delta_hours >= $STALE{$step}{$type}{limit});
+        $_->[-1] = sprintf '%.2f',$_->[-1];
+        $STALE{$step}{$type}{count}++ if ($_->[-1] >= $STALE{$step}{$type}{limit});
       }
     }
     # Create export file
@@ -606,7 +639,8 @@ sub stepContents
     $count{$_} = (sprintf '%.2f%%',$count{$_}/$total*100) foreach (keys %count);
     $head = ['Sample ID','Data set','Class','Description','Error date'];
     my $link = &createExportFile($href->{$estep},"_$estep",$head);
-    $table2 = h3("$step process (Errors)") . $link 
+    my $title = ($step eq 'Tasking') ? 'Samples marked for rerun' : "$step process (Errors)";
+    $table2 = h3($title) . $link 
               . &generateFilter($href->{$estep},\%count) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
                     thead(Tr(th($head))),
@@ -618,7 +652,8 @@ sub stepContents
                    div({class => "badge badge-error"},$total));
     $badge = div({style => "float: left"},
                  $badge,
-                 div({class => 'rightarrow'},'&rarr;'),
+                 div({class => 'rightarrow'},
+                     ($step eq 'Tasking') ? '&larr;' : '&rarr;'),
                  div({class => 'error_queue',style => "float: left"},$badge2)
                 );
   }
