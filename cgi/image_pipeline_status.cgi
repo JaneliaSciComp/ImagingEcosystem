@@ -235,6 +235,13 @@ sub displayQueues
       if ($s eq 'Tasking') {
         foreach (sort {$a->{creationDate} cmp $b->{creationDate}} @$rvar) {
           # Temporary? Assign queue by status.
+          my ($class,$desc,$error_date) = ('')x3;
+          if (exists $_->{error}) {
+            ($class,$desc,$error_date) = (@{$_->{error}}{qw(classification description creationDate)});
+            $error_date =~ s/T/ /;
+            $error_date =~ s/\..+//;
+            $class ||= '(none)';
+          }
           if ($_->{status} eq 'Complete') {
             $_->{name} = &linkify($_->{name});
             push @{$queue{Complete}},[@{$_}{qw(name dataSet x completionDate)}];
@@ -245,11 +252,11 @@ sub displayQueues
           }
           elsif ($_->{status} eq 'Error') {
             $_->{name} = &linkify($_->{name});
-            push @{$process{Pipeline_Error}},[@{$_}{qw(name dataSet x x x)}];
+            push @{$process{Pipeline_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
           }
           elsif ($_->{status} eq 'Marked for Rerun') {
             $_->{name} = &linkify($_->{name});
-            push @{$process{Tasking_Error}},[@{$_}{qw(name dataSet x x x)}];
+            push @{$process{Tasking_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
           }
           else {
             $_->{name} = &linkify($_->{name});
@@ -416,6 +423,7 @@ Legend:<br>
 <span class="badge badge-late">&nbsp;&nbsp;&nbsp;</span> Items >= 7 days old<br>
 <span class="badge badge-complete">&nbsp;&nbsp;&nbsp;</span> Samples that completed processing<br>
 <span class="badge badge-error">&nbsp;&nbsp;&nbsp;</span> Samples that did not complete processing<br>
+<span class="badge badge-marked">&nbsp;&nbsp;&nbsp;</span> Samples that are marked for rerun<br>
 __EOT__
   unshift @details,div({&identify('instructions')},$instructions);
   print div({style => 'clear: both;'},NBSP),&statusTotals();
@@ -454,6 +462,7 @@ sub linkify
 sub getMONGO
 {
   my($selector,$value) = @_;
+  $CONFIG{url} = 'http://jacs-informatics.int.janelia.org:8180/rest-v1/'; #PLUG
   my $suffix = '';
   if ($selector eq 'Tasking') {
     $selector = 'PipelineStatus';
@@ -489,9 +498,9 @@ sub getMONGO
 
 sub statusTotals
 {
-my %STATUS = (Complete => '090',
-              Error => 'f33');
+my %STATUS = (Complete => '090');
   my %GOOD = map {$_ => 1} qw(Blocked Complete Retired);
+  $STATUS{$_} = 'f33' foreach(qw(Error Null));
   $STATUS{$_} = '39c' foreach(qw(Blocked Retired));
   $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
   my $ar;
@@ -506,7 +515,8 @@ my %STATUS = (Complete => '090',
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
     foreach (@$rvar) {
-      push @$ar,[@{$_}{qw(_id count)}] if ($_->{_id});
+     $_->{'_id'} ||= 'Null';
+      push @$ar,[@{$_}{qw(_id count)}];
     }
   }
   else {
@@ -649,7 +659,8 @@ sub stepContents
     $badge = div({class => $type,style => "float: left; $style"},$badge);
     my $badge2 = a({href => '#',
                     onclick => "showDetails('$type" . '_' . "$estep')"},
-                   div({class => "badge badge-error"},$total));
+                   div({class => "badge badge-"
+                        . (($step eq 'Tasking') ? 'marked' : 'error')},$total));
     $badge = div({style => "float: left"},
                  $badge,
                  div({class => 'rightarrow'},
