@@ -141,6 +141,8 @@ sub displayErrors
             $desc = 'Sample has differing numbers of images per tile' }
           case /No channel mapping consensus among tiles/ {
             $desc = 'No channel mapping consensus among tiles' }
+          case /No consensus for area in tile .ventral_nerve_cord/ {
+            $desc = 'No consensus for area in tile "ventral_nerve_cord"' }
         }
       }
       $desc ||= '(unspecified)';
