@@ -516,7 +516,7 @@ my %STATUS = (Complete => '090');
                       . "Response: $response<br>Error: $@") if ($@);
     foreach (@$rvar) {
      $_->{'_id'} ||= 'Null';
-      push @$ar,[@{$_}{qw(_id count)}];
+     push @$ar,[@{$_}{qw(_id count)}];
     }
   }
   else {
@@ -651,10 +651,10 @@ sub stepContents
     my $link = &createExportFile($href->{$estep},"_$estep",$head);
     my $title = ($step eq 'Tasking') ? 'Samples marked for rerun' : "$step process (Errors)";
     $table2 = h3($title) . $link 
-              . &generateFilter($href->{$estep},\%count) . $js .
+              . &generateFilter($estep,$href->{$estep},\%count) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
                     thead(Tr(th($head))),
-                    tbody (map {Tr({class => $_->[2]},td($_))}
+                    tbody (map {Tr({class => join('_',$_->[2],$estep)},td($_))}
                            @{$href->{$estep}}));
     $badge = div({class => $type,style => "float: left; $style"},$badge);
     my $badge2 = a({href => '#',
@@ -772,14 +772,15 @@ __EOT__
 
 sub generateFilter
 {
-  my($arr,$href) = @_;
+  my($estep,$arr,$href) = @_;
   my %filt;
   $filt{$_->[2]}++ foreach (@$arr);
   my $html = join((NBSP)x4,
-                  map { checkbox(&identify('show_'.$_),
-                                 -label => " $_ (".$href->{$_}.')',
+                  map { $a = $_ . '_' . $estep;
+                        checkbox(&identify('show_'.$a),
+                                 -label => ' ' . ($_ || 'No class') . " (".$href->{$_}.')',
                                  -checked => 1,
-                                 -onClick => "toggleClass('$_');")
+                                 -onClick => "toggleClass('$a');")
                       } sort keys %filt);
   div({class => 'bg-info'},'Filter: ',(NBSP)x5,$html);
 }
