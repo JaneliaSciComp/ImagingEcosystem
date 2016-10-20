@@ -12,7 +12,6 @@ use IO::File;
 use JSON;
 use LWP::Simple;
 use POSIX qw(strftime);
-use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local;
 use XML::Simple;
 use JFRC::Utils::DB qw(:all);
@@ -40,6 +39,7 @@ my $DELTA_DAYS = 30;
 # ****************************************************************************
 # * Globals                                                                  *
 # ****************************************************************************
+my %PARMS;
 # Web
 our ($USERID,$USERNAME);
 my ($INTAKE,$MONGO) = (0)x2;
@@ -117,6 +117,9 @@ sub initializeProgram
 
 sub displayDashboard
 {
+  my $width = param('width') || 530;
+  %PARMS = (text_color => '#fff', width => $width.'px',
+            height => (sprintf '%d',$width*.6).'px');
   &printHeader();
   # Intake
   $sth{Intake}->execute($DELTA_DAYS);
@@ -149,19 +152,16 @@ sub displayDashboard
   &fillDates(\%bin2);
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
-  my $width = param('width') || 530;
-  my %parms = (text_color => '#fff', width => $width.'px',
-               height => (sprintf '%d',$width*.6).'px');
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
                                       title => 'LSM file capture per day',
                                       content => 'capture',
                                       yaxis_title => '# files',
-                                      color => '#66f',%parms);
+                                      color => '#66f',%PARMS);
   my $histogram2 = &generateHistogram(arrayref => \@bin2,
                                       title => 'LSM file intake per day',
                                       content => 'intake',
                                       yaxis_title => '# files',
-                                      color => '#6f6',%parms);
+                                      color => '#6f6',%PARMS);
   my $clock = '';
   $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
                           content => 'intakeclock',
@@ -235,26 +235,12 @@ sub reportStatus
   my (%count,%donut,%piec,%piei);
   my $total = 0;
   my $ar;
-  my ($performance);
   if ($MONGO) {
-    my $t0 = [gettimeofday];
-    my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
-    my $response = get $rest;
-    &terminateProgram("<h3>REST GET returned null response</h3>"
-                      . "<br>Request: $rest<br>")
-      unless (length($response));
-    $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
-    $t0 = [gettimeofday];
-    my $rvar;
-    eval {$rvar = decode_json($response)};
-    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                      . "Response: $response<br>Error: $@") if ($@);
-    $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
-    $t0 = [gettimeofday];
+    my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{SampleStatus});
     foreach (@$rvar) {
-      push @$ar,[@{$_}{qw(_id count)}] if ($_->{_id});
+      $_->{'_id'} ||= 'Null';
+      push @$ar,[@{$_}{qw(_id count)}];
     }
-    $performance .= sprintf "Remapping: %.2fsec for %d statuses<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
   }
   else {
     $sth{Status}->execute();
@@ -267,6 +253,26 @@ sub reportStatus
                                                 : $piei{$_->[0]} = $_->[1];
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
+  my (%bin3,%bin4);
+  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours=720');
+  foreach (@$rvar) {
+    my $s = $_->{status};
+    next unless ($s =~ /(?:Complete|Error)/);
+    (my $date = $_->{updatedDate}) =~ s/ .*//;
+    ($s eq 'Error') ? $bin4{$date}++ : $bin3{$date}++;
+  }
+  my @bin3 = map { [$_,$bin3{$_}] } sort keys %bin3;
+  my @bin4 = map { [$_,$bin4{$_}] } sort keys %bin4;
+  my $histogram3 = &generateHistogram(arrayref => \@bin3,
+                                      title => 'Sample completion per day',
+                                      content => 'completion',
+                                      yaxis_title => '# samples',
+                                      color => '#6f6',%PARMS);
+  my $histogram4 = &generateHistogram(arrayref => \@bin4,
+                                      title => 'Sample errors per day',
+                                      content => 'errors',
+                                      yaxis_title => '# samples',
+                                      color => '#f66',%PARMS);
   my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff');
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
@@ -302,25 +308,19 @@ sub reportStatus
   # Age of processing samples
   if ($MONGO) {
     @$ar = ();
-    my $t0 = [gettimeofday];
     my $rest = $CONFIG{url}.$CONFIG{query}{SampleAging};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")
       unless (length($response));
-    $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
-    $t0 = [gettimeofday];
     my $rvar;
     eval {$rvar = decode_json($response)};
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
-    $performance .= sprintf "JSON decode: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
     # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
-    $t0 = [gettimeofday];
     foreach (@$rvar) {
       push @$ar,[$_->{name},$_->{ownerKey},$_->{updatedDate}];
     }
-    $performance .= sprintf "Remapping: %.2fsec for %d samples<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
   }
   else {
     $sth{Aging}->execute();
@@ -364,7 +364,7 @@ sub reportStatus
   my $export = &createExportFile(\@delta,'workstation_processing',
                                  ['Sample','User','Start date','Delta days']);
   # Render
-  print $performance.br if ($MONGO && param('performance'));
+  $disposition{Null} = 'In process';
   my $pipeline = div({style => 'float: left'},
                      div({style => 'float: left'},
                          table({id => 'stats',class => 'tablesorter standard'},
@@ -373,7 +373,11 @@ sub reportStatus
                                                  sprintf '%.2f%%',$count{$_}/$total*100]))}
                                     sort keys %count)),
                          $donut1,br,$pie1,br,$pie2),
-                     div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export));
+                     div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export),br,
+                     div({style => 'float: left'},
+                         div({style => 'float: left'},$histogram3),
+                         div({style => 'float: left'},$histogram4))
+                    );
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},
@@ -382,6 +386,21 @@ sub reportStatus
             div({class => 'panel-body'},$pipeline)),
         div({style => 'clear: both;'},NBSP);
   print end_form,&sessionFooter($Session),end_html;
+}
+
+
+sub getREST
+{
+  my($rest) = shift;
+  my $response = get $rest;
+  &terminateProgram("<h3>REST GET returned null response</h3>"
+                    . "<br>Request: $rest<br>")
+    unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
 }
 
 
