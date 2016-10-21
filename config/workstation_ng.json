@@ -1,5 +1,6 @@
-{"data_source": "mysql",
- "url": "http://jacs-ng:8180/rest-v1/",
+{"data_source": "mongo",
+ "uri":"mongodb://flyportalRead:flyportalRead@mongodb3:27017/jacs",
+ "url": "http://jacs-informatics.int.janelia.org:8180/rest-v1/",
  "webdav": "http://jacs-webdav.int.janelia.org/WebDAV",
  "query": {"Blockview": "info/sample/blockview",
            "CycleTime": "info/lsmstack/cycletime",
