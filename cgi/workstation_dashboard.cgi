@@ -35,6 +35,9 @@ my @BREADCRUMBS = ('Imagery tools',
 my %CONFIG;
 use constant NBSP => '&nbsp;';
 my $DELTA_DAYS = 30;
+my %OCOLOR = (20 => '#294121',
+              40 => '#5792BB',
+              63 => '#33475F') ;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -57,10 +60,12 @@ unless ($INTAKE) {
   $USERNAME = $Session->param('user_name');
 }
 my %sth = (
-Intake => "SELECT IFNULL(DATE(capture_date),DATE(NOW())),create_date,"
-          . "DATEDIFF(create_date,IFNULL(capture_date,NOW())),TIME_TO_SEC(TIMEDIFF(create_date,capture_date)) FROM image "
-          . "WHERE DATEDIFF(NOW(),DATE(create_date)) <= ? AND name like '%lsm'",
-Indexing => "SELECT COUNT(1)  FROM image_vw i JOIN image_property_vw ipd ON "
+Intake => "SELECT IFNULL(DATE(i.capture_date),DATE(NOW())),i.create_date,"
+          . "DATEDIFF(i.create_date,IFNULL(i.capture_date,NOW())),"
+          . "TIME_TO_SEC(TIMEDIFF(i.create_date,i.capture_date)),objective "
+          . " FROM image i JOIN image_data_mv id ON (i.id=id.id) "
+          . "WHERE DATEDIFF(NOW(),DATE(i.create_date)) <= ? AND i.name LIKE '%lsm'",
+Indexing => "SELECT COUNT(1) FROM image_vw i JOIN image_property_vw ipd ON "
             . "(i.id=ipd.image_id AND ipd.type='data_set') WHERE "
             . "i.family NOT LIKE 'simpson%' AND i.id NOT IN "
             . "(SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
@@ -123,23 +128,47 @@ sub displayDashboard
   &printHeader();
   # Intake
   $sth{Intake}->execute($DELTA_DAYS);
-  my($captured,$count,$sum) = (0)x3;
+  my(%captured,%count,%sum);
   my $ar = $sth{Intake}->fetchall_arrayref();
-  $count = scalar @$ar;
+  my $today = UnixDate("today","%Y-%m-%d");
+  my $ago = sprintf '%4d-%02d-%02d',
+                    Add_Delta_Days(split('-',$today),-$DELTA_DAYS);
+  $count{all} = scalar @$ar;
   my (%bin1,%bin2);
   my %cbin = map {(sprintf '%02d',$_) => 0} (0..23);
-  my $max = 0;
-  my $today = UnixDate("today","%Y-%m-%d");
+  my %max = (all => 0,20 => 0,40 => 0,63 => 0);
+  my %max_capture = map { $_ => 0 } qw(all 20 40 63);
+  my %max_create = map { $_ => 0 } qw(all 20 40 63);
   my ($ct_acc,$ct_cnt,$max_ct,$min_ct) = ((0)x3,1e9);
-  my $ago = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$today),-$DELTA_DAYS);
   foreach (@$ar) {
-    $captured++ if ($_->[0] ge $ago);
+    my $objective = '';
+    $objective = '20' if ($_->[4] =~ /20[Xx]/);
+    $objective = '40' if ($_->[4] =~ /40[Xx]/);
+    $objective = '63' if ($_->[4] =~ /63[Xx]/);
+    $count{$objective}++;
+    # Capture date
+    if ($_->[0] ge $ago) {
+      $captured{all}++;
+      $captured{$objective}++;
+    }
     $bin1{$_->[0]}++;
+    if ($_->[0] eq $today) {
+      $max_capture{all}++;
+      $max_capture{$objective}++;
+    }
+    # Create date
     $cbin{(split(/[ :]/,$_->[1]))[1]}++ unless (index($_->[1],$today));
     $_->[1] =~ s/ .+//;
     $bin2{$_->[1]}++;
-    $max = $_->[2] if ($_->[2] > $max);
-    $sum += $_->[2];
+    if ($_->[1] eq $today) {
+      $max_create{all}++;
+      $max_create{$objective}++;
+    }
+    $max{all} = $_->[2] if ($_->[2] > $max{all});
+    $max{$objective} = $_->[2] if ($_->[2] > $max{$objective});
+    $sum{all} += $_->[2];
+    $sum{$objective} += $_->[2];
+    # Images created today
     if (!index($_->[1],$today) && ($_->[2] >= 0) && $_->[3]) {
       $ct_acc += $_->[3];
       $ct_cnt++;
@@ -147,8 +176,7 @@ sub displayDashboard
       $min_ct = $_->[3] if ($_->[3] < $min_ct);
     }
   }
-  my $max_capture = $bin1{$today} || 0;
-  my $max_create = $bin2{$today} || 0;
+  # Histograms
   &fillDates(\%bin2);
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
@@ -162,6 +190,7 @@ sub displayDashboard
                                       content => 'intake',
                                       yaxis_title => '# files',
                                       color => '#6f6',%PARMS);
+  # Today
   my $clock = '';
   $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
                           content => 'intakeclock',
@@ -169,38 +198,59 @@ sub displayDashboard
                           color => ['#009900'],
                           text_color => 'white',
                           width => '270px',
-                          height => '270px') if ($max_create);
-  my $today_status = '';
-  $today_status .= "Images captured: $max_capture<br>";
-  $today_status .= "Images ingested: $max_create";
-  if ($ct_cnt) {
-    $today_status .= '<br>Capture &rarr; TMOG cycle time<br>';
-    $today_status .= '&nbsp;&nbsp;Minimum: ' . &displayElapsed($min_ct/3600) . br;
-    $today_status .= '&nbsp;&nbsp;Maximum: ' . &displayElapsed($max_ct/3600) . br;
-    $today_status .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc/$ct_cnt)/3600) . br;
+                          height => '270px') if ($max_create{all});
+  my %today = map { $_ => '' } qw(all 20 40 63);
+  foreach (qw(all 20 40 63)) {
+    next if (($_ ne 'all') && (!$max_capture{$_} && !$max_create{$_}));
+    $today{$_} .= "Images captured: $max_capture{$_}<br>";
+    $today{$_} .= "Images ingested: $max_create{$_}";
+    if ($ct_cnt) {
+      $today{$_} .= '<br>Capture &rarr; TMOG cycle time<br>';
+      $today{$_} .= '&nbsp;&nbsp;Minimum: ' . &displayElapsed($min_ct/3600) . br;
+      $today{$_} .= '&nbsp;&nbsp;Maximum: ' . &displayElapsed($max_ct/3600) . br;
+      $today{$_} .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc/$ct_cnt)/3600) . br;
+    }
   }
+  # Check for images awaiting indexing
   $sth{Indexing}->execute();
   my $icount = $sth{Indexing}->fetchrow_array();
-  $today_status .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
-  $today_status .= $clock;
-  $today_status = div({class => 'boxed'},h3({style => 'text-align: center'},'Today'),$today_status) if ($today_status);
-  my $last_days = div({class => 'boxed'},h3({style => 'text-align: center'},"Last $DELTA_DAYS days ($ago)"),
-                      "Images captured: $captured",br,
-                      "Images ingested: $count",br,
-                      "Capture &rarr; TMOG cycle time<br>",
-                      "&nbsp;&nbsp;Average: ",&displayElapsed($sum/$count,'d'),br,
-                      '&nbsp;&nbsp;Maximum: ',&displayElapsed($max,'d'));
+  $today{all} .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
+  $today{all} .= $clock;
+  foreach (qw(all 20 40 63)) {
+    $today{$_} = h3({style => 'text-align: center'},'Today').$today{$_} if ($today{$_});
+  }
+  # Last 30 days
+  my %last = map { $_ => '' } qw(all 20 40 63);
+  foreach (qw(all 20 40 63)) {
+    my $title = '';
+    unless (/all/) {
+      $title = span({style => 'padding: 3px 5px 2px 5px; background-color: '
+                              . $OCOLOR{$_} 
+                              . '; color: #fff'},$_ . 'x objective') . br;
+                             
+    }
+    $last{$_} = h3({style => 'text-align: center'},$title,
+                   "Last $DELTA_DAYS days ($ago)")
+                . "Images captured: $captured{$_}" . br
+                . "Images ingested: $count{$_}" . br
+                . "Capture &rarr; TMOG cycle time<br>"
+                . "&nbsp;&nbsp;Average: "
+                . &displayElapsed($sum{$_}/$count{$_},'d') . br
+                . '&nbsp;&nbsp;Maximum: '
+                . &displayElapsed($max{$_},'d');
+  }
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Intake')),
             div({class => 'panel-body'},
                 div({style => 'float: left'},
                     div({style => 'float: left; margin-right: 10px;'},
-                        $last_days,$today_status
-                       ),
-                    div({style => 'float: left'},$histogram1),
-                    div({style => 'float: left'},$histogram2))
-               )),
+                        div({class => 'boxed'},$last{all},hr,$today{all})),
+                    div({style => 'float: left'},$histogram1,br,$histogram2),
+                    div({style => 'float: left; margin-left: 10px;'},
+                        join('',map {div({class => 'boxed'},$last{$_},
+                                         ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
+                   ))),
         div({style => 'clear: both;'},NBSP);
   if ($INTAKE) {
     print end_form,end_html;
@@ -254,25 +304,43 @@ sub reportStatus
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours=720');
+  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours=1440');
   foreach (@$rvar) {
     my $s = $_->{status};
-    next unless ($s =~ /(?:Complete|Error)/);
+    next unless ($s =~ /^(?:Complete|Error|Marked)/);
     (my $date = $_->{updatedDate}) =~ s/ .*//;
-    ($s eq 'Error') ? $bin4{$date}++ : $bin3{$date}++;
+    next if (($date eq '2016-10-14') && ($s =~ /^Marked/));
+    ($s eq 'Complete') ? $bin3{$date}++ : $bin4{$date}++;
   }
   my @bin3 = map { [$_,$bin3{$_}] } sort keys %bin3;
   my @bin4 = map { [$_,$bin4{$_}] } sort keys %bin4;
-  my $histogram3 = &generateHistogram(arrayref => \@bin3,
-                                      title => 'Sample completion per day',
-                                      content => 'completion',
+  my %bin5 = map { $_ => 1 } keys(%bin3);
+  $bin5{$_} = 1 foreach (keys %bin3);
+  my $hashref = {'_categories' => [sort keys %bin5],
+                 Complete => [map { $bin3{$_}||0 } sort keys %bin5],
+                 Error => [map { $bin4{$_}||0 } sort keys %bin5]
+                };
+  my $width = 600;
+  %PARMS = (text_color => '#fff', width => $width.'px',
+            height => (sprintf '%d',$width*.6).'px');
+  my $format = "this.x + '<br><b>' + this.series.name + ':</b> ' + this.y";
+  my $histogram3 = &generateHistogram(hashref => $hashref,
+                                      title => 'Completions/errors per day',
+                                      subtitle => 'Last 60 days',
+                                      content => 'unstackedchart',
+                                      formatter => $format,
+                                      color => ['#50b432','#cc6633'],
                                       yaxis_title => '# samples',
-                                      color => '#6f6',%PARMS);
-  my $histogram4 = &generateHistogram(arrayref => \@bin4,
-                                      title => 'Sample errors per day',
-                                      content => 'errors',
+                                      %PARMS);
+  my $histogram4 = &generateHistogram(hashref => $hashref,
+                                      title => 'Completions/errors per day',
+                                      subtitle => 'Last 60 days',
+                                      content => 'stackedchart',
+                                      formatter => $format,
+                                      stacked => 1,
+                                      color => ['#50b432','#cc6633'],
                                       yaxis_title => '# samples',
-                                      color => '#f66',%PARMS);
+                                      %PARMS);
   my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff');
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
@@ -376,8 +444,8 @@ sub reportStatus
                      div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export),br,
                      div({style => 'float: left'},
                          div({style => 'float: left'},$histogram3),
-                         div({style => 'float: left'},$histogram4))
-                    );
+                         div({style => 'float: left'},$histogram4)
+                        ));
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},
