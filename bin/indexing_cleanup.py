@@ -1,13 +1,17 @@
 #!/opt/python/bin/python2.7
 
 import argparse
+import json
 import os
+import pprint
 import subprocess
 import sys
+import urllib2
 import MySQLdb
 from pymongo import MongoClient
 
 # Command line parms
+INDEX_ONLY = False
 VERBOSE = False
 DEBUG = False
 TEST = False
@@ -57,6 +61,8 @@ def processImages(cursor):
     except MySQLdb.Error as e:
         sqlError(e)
 
+    lsm = dict()
+    pp = pprint.PrettyPrinter(indent=4)
     for (family,data_set,name) in cursor:
         config = ''
         grammar = ''
@@ -69,51 +75,85 @@ def processImages(cursor):
           grammar = dsdict[data_set]['grammar']
         else:
           print 'Could not determine configuration and grammar for data set %s' % (data_set)
-        if config and grammar:
-            command = ['perl','/opt/informatics/bin/sage_loader.pl','-config',config,'-grammar',grammar,'-item',name,'-lab','flylight','-verbose']
-            if VERBOSE:
-                print 'Processing %s %s' % (data_set,name)
-                if DEBUG:
-                    print '  '+' '.join(command)
-            try:
-                if TEST:
-                    tmp = 'OK'
+        lsm.setdefault(data_set,[]).append(name)
+        if config and grammar and INDEX_ONLY:
+            indexImage(config,grammar,name,data_set)
+
+    operation = 'indexed'
+    if not INDEX_ONLY:
+        operation = 'indexed/discovered'
+        for dataset,lsmlist in lsm.items():
+            if (VERBOSE):
+                print "Running indexing/discovery on data set " + dataset
+            post = {"lsmNames": lsmlist}
+            post_url = 'http://jacs.int.janelia.org:8180/rest-v1/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
+            req = urllib2.Request(post_url)
+            req.add_header('Content-Type', 'application/json')
+            if TEST:
+                count['success'] += len(lsmlist)
+                indexed[dataset] = indexed.setdefault(dataset,0) + len(lsmlist)
+            else:
+                try:
+                    response = urllib2.urlopen(req,json.dumps(post))
+                except urllib2.HTTPError, e:
+                    print 'Call to %s failed: %s.' % (dataset,e.code)
+                    count['failure'] += len(lsmlist)
+                    if DEBUG:
+                        pp.pprint(e.read())
                 else:
-                    tmp = subprocess.check_output(command,stderr=subprocess.STDOUT)
-                if (tmp.find('Cannot read file') != -1) or (tmp.find('Permission denied') != -1) or (tmp.find('Unable to uncompress the stack') != -1):
-                    if VERBOSE:
-                        print '  Could not read LSM file'
-                    count['failure']+=1
-                elif tmp.find('Incomplete image processing') != -1:
-                    if VERBOSE:
-                        print '  Image processing failed'
-                    count['failure']+=1
-                else:
-                    count['success']+=1
-                    indexed[data_set] = indexed.setdefault(data_set,0) + 1
-            except subprocess.CalledProcessError as e:
-                print e.output
-                count['failure']+=1
-            except Exception as e:
-                print e.output
-                count['failure']+=1
-        if DEBUG:
-            print '-'*79
+                    count['success'] += len(lsmlist)
+                    indexed[dataset] = indexed.setdefault(dataset,0) + len(lsmlist)
+                    if DEBUG:
+                        pp.pprint(response.read())
+
     print 'Unindexed images: %d' % count['found']
-    print 'Images successfully indexed: %d' % count['success']
+    print 'Images successfully %s: %d' % (operation,count['success'])
     if len(indexed):
         for (ds) in sorted(indexed):
             print '  %s: %d' % (ds,indexed[ds])
     print 'Images failing indexing: %d' % count['failure']
 
+def indexImage(config,grammar,name,data_set):
+    command = ['perl','/opt/informatics/bin/sage_loader.pl','-config',config,'-grammar',grammar,'-item',name,'-lab','flylight','-verbose']
+    if VERBOSE:
+        print 'Processing %s %s' % (data_set,name)
+        if DEBUG:
+            print '  '+' '.join(command)
+    try:
+        if TEST:
+            tmp = 'OK'
+        else:
+            tmp = subprocess.check_output(command,stderr=subprocess.STDOUT)
+        if (tmp.find('Cannot read file') != -1) or (tmp.find('Permission denied') != -1) or (tmp.find('Unable to uncompress the stack') != -1):
+            if VERBOSE:
+                print '  Could not read LSM file'
+            count['failure']+=1
+        elif tmp.find('Incomplete image processing') != -1:
+            if VERBOSE:
+                print '  Image processing failed'
+            count['failure']+=1
+        else:
+            count['success']+=1
+            indexed[data_set] = indexed.setdefault(data_set,0) + 1
+    except subprocess.CalledProcessError as e:
+        print e.output
+        count['failure']+=1
+    except Exception as e:
+        print e.output
+        count['failure']+=1
+    if DEBUG:
+        print '-'*79
+
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Find and index newly tmogged imagery')
+    parser = argparse.ArgumentParser(description='Find and index/discover newly tmogged imagery')
+    parser.add_argument('-index',action='store_true',dest='index',default=False,help='Do not run discovery')
     parser.add_argument('-verbose',action='store_true',dest='verbose',default=False,help='Turn on verbose output')
     parser.add_argument('-debug',action='store_true',dest='debug',default=False,help='Turn on debug output')
-    parser.add_argument('-test',action='store_true',dest='test',default=False,help='Test mode - does not actually run the indexer')
+    parser.add_argument('-test',action='store_true',dest='test',default=False,help='Test mode - does not actually run the indexer or discovery service')
     args = parser.parse_args()
+    INDEX_ONLY = args.index
     VERBOSE = args.verbose
     DEBUG = args.debug
     TEST = args.test
