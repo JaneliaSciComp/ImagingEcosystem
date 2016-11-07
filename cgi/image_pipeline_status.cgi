@@ -151,7 +151,7 @@ my $ALL = param('all') || 0;
 if ($dbh) {
   $dbh->disconnect;
   $dbhf->disconnect;
-  $dbhw->disconnect unless ($MONGO);
+  $dbhw->disconnect;
 }
 exit(0);
 
@@ -182,13 +182,11 @@ sub initializeProgram
   # Connect to databases
   &dbConnect(\$dbh,'sage');
   &dbConnect(\$dbhf,'flyboy');
-  &dbConnect(\$dbhw,'workstation') unless ($MONGO);
+  &dbConnect(\$dbhw,'workstation');
   foreach (keys %sth) {
     if (/^WS/) {
-      unless ($MONGO) {
-        (my $n = $_) =~ s/WS_//;
-        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
-      }
+      (my $n = $_) =~ s/WS_//;
+      $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
     }
     elsif (/^FB/) {
       (my $n = $_) =~ s/FB_//;
@@ -224,10 +222,11 @@ sub displayQueues
   }
 
   shift(@STEPS) unless ($ALL);
+  my %needs_indexing;
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$ALL);
     next if ($s eq 'Scheduling');
-    next if ($s eq 'Pipeline'); #PLUG
+    next if ($s eq 'Pipeline');
     my $ar;
     my $t0 = [gettimeofday];
     if ($MONGO && ($s =~ /(Tasking|Pipeline)/)) {
@@ -271,6 +270,7 @@ sub displayQueues
       }
     }
     else {
+      print "Executing $s\n";
       $sth{$s}->execute();
       $ar = $sth{$s}->fetchall_arrayref;
     }
@@ -290,7 +290,7 @@ sub displayQueues
           $sth{Entity}->execute($stack);
           ($p) = $sth{Entity}->fetchrow_array();
         }
-        push @$ar,$_ unless ($p);
+        push @$ar,$_ unless ($p || exists($needs_indexing{$_->[3]}));
       }
     }
     # tmog
@@ -302,6 +302,12 @@ sub displayQueues
       my %bh = map {$_->[0] => 1} @$bc;
       foreach (@arr) {
         push @$ar,$_ unless (exists $bh{$_->[6]});
+      }
+    }
+    # Indexing
+    elsif ($s eq 'Indexing') {
+      foreach (@$ar) {
+        $needs_indexing{$_->[3]}++;
       }
     }
 
