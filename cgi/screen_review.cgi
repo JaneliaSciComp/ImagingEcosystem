@@ -113,7 +113,7 @@ my $ALL_20X = param('all20x') || 0;
 # Initialize
 &initializeProgram();
 #delete $PERMISSION{svirskasr};
-($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,0,1)
+($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
   if (exists $PERMISSION{$USERID});
 
 # ----- Page header -----
@@ -1084,6 +1084,11 @@ sub requestCrosses
       else {
         $error{$line} = $json_text . (NBSP)x5 . $client->responseContent();
       }
+    }
+    else {
+      $ad ||= '';
+      $dbd ||= '';
+      $error{$line} = "Missing AD or DBD (AD: $ad, DBD: $dbd)";
     }
   }
   if (scalar keys %success) {
