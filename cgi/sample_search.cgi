@@ -564,11 +564,11 @@ sub getSampleJSON
     if (scalar @$task) {
       $html .= h3('Task events')
                . table({class => 'tablesorter standard'},
-                       thead(Tr(td([qw(Event Job Description Date)]))),
+                       thead(Tr(td([qw(Event Job Description Date),'Task ID']))),
                        tbody(map {Tr(td([$_->{eventType},
                                          a({href => "/flow_ws.php?flow=$_->{jobName}",
                                             target => '_blank'},$_->{jobName}),
-                                         ($_->{description}||''),$_->{timestamp}]))}
+                                         ($_->{description}||''),$_->{timestamp},$_->{taskId}]))}
                                  @$task));
     }
   }
