@@ -8,9 +8,11 @@ use CGI::Session;
 use Date::Calc qw(Add_Delta_Days);
 use Date::Manip qw(UnixDate);
 use DBI;
+use HTML::TableExtract;
 use IO::File;
 use JSON;
 use LWP::Simple;
+use LWP::UserAgent;
 use POSIX qw(strftime);
 use Time::Local;
 use XML::Simple;
@@ -428,9 +430,11 @@ sub reportStatus
                                      color => \@pcolor,
                                      text_color => '#bbc',
                                      legend => 'right',
-                                     width => '600px', height => '400px');
+                                     width => '400px', height => '300px');
   my $export = &createExportFile(\@delta,'workstation_processing',
                                  ['Sample','User','Start date','Delta days']);
+  # Processing samples
+  my $processing = &getProcessingStats();
   # Render
   $disposition{Null} = 'In process';
   my $pipeline = div({style => 'float: left'},
@@ -440,8 +444,16 @@ sub reportStatus
                                tbody(map {Tr(td([$disposition{$_},$_,&commify($count{$_}),
                                                  sprintf '%.2f%%',$count{$_}/$total*100]))}
                                     sort keys %count)),
-                         $donut1,br,$pie1,br,$pie2),
-                     div({style => 'float: left',align => 'center'},$chart,br,$pie3,$export),br,
+                         $donut1),
+                     div({style => 'float: left',align => 'center'},$chart),br,
+                     div({style => 'clear: both;'},NBSP),
+                     div({style => 'float: left;'},
+                         div({style => 'float: left;padding-right: 10px;'},$pie2),
+                         div({style => 'float: left;padding-right: 10px;'},$pie3,br,$export),
+                         div({style => 'float: left;padding-right: 10px;'},
+                             span({style => 'font-family: "Lucida Grande",color:#bbc;font-size:20px;fill:#bbc;'},
+                                  'Server status'),(br)x2,$processing),
+                        ),br,
                      div({style => 'float: left'},
                          div({style => 'float: left'},$histogram3),
                          div({style => 'float: left'},$histogram4)
@@ -484,6 +496,46 @@ sub fillDates
       $expected = sprintf '%4d-%02d-%02d',Add_Delta_Days(split('-',$expected),1);
     }
   }
+}
+
+
+sub getProcessingStats
+{
+  my $ua = LWP::UserAgent->new;
+  my $suffix = ':8180/jmx-console/HtmlAdaptor?action=inspectMBean&name=jboss.mq.destination%3Aservice%3DQueue%2Cname%3DsamplePipelineLauncher';
+  my %hash;
+  foreach my $hostnum ('',2,3) {
+    my $url = 'http://jacs-data' . $hostnum . $suffix;
+    my $request = HTTP::Request->new(GET => $url);
+    my $response = $ua->request($request);
+    if ($response->code == 200) {
+      my $content = $response->content;
+      my $te = HTML::TableExtract->new(headers => [qw(Name Type Value Access Description)]);
+      $te->parse($content);
+      foreach my $ts ($te->tables) {
+        foreach my $row ($ts->rows) {
+          $hash{'jacs-data'.$hostnum}{$row->[0]} = $row->[2];
+        }
+      }
+    }
+  }
+  my @row = ();
+  my @sum = (span({style => 'font-weight: bold'},'TOTAL'));
+  foreach my $hostnum ('',2,3) {
+    my $host = 'jacs-data' . $hostnum;
+    (my $queued = ($hash{$host}{QueueDepth} || '-')) =~ s/^\s+//;
+    chomp($queued);
+    (my $on_queue = ($hash{$host}{InProcessMessageCount} || '-')) =~ s/^\s+//;
+    chomp($on_queue);
+    push @row,[$host,$queued,$on_queue];
+    $sum[1] += $queued;
+    $sum[2] += $on_queue;
+  }
+  table({id => 'proc', class => 'tablesorter standard'},
+        thead(Tr(th([qw(Server Queued),'On cluster']))),
+        tbody(map {Tr(td($_->[0]),td({style => 'text-align: center'},[@$_[1..2]]))} @row),
+        tfoot(Tr(td($sum[0]),td({style => 'text-align: center'},[@sum[1..2]])))
+       );
 }
 
 
