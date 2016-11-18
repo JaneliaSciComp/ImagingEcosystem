@@ -40,6 +40,7 @@ my $DELTA_DAYS = 30;
 my %OCOLOR = (20 => '#294121',
               40 => '#5792BB',
               63 => '#33475F') ;
+my @HOST_NUMBERS = ('',2,3,);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -51,6 +52,9 @@ my ($INTAKE,$MONGO) = (0)x2;
 my $Session;
 # Database
 our ($dbh,$dbhs);
+# General
+my $Error_rate = '';
+my @Unavailable_hosts = ();
 
 # ****************************************************************************
 $INTAKE = param('intake');
@@ -241,24 +245,24 @@ sub displayDashboard
                 . '&nbsp;&nbsp;Maximum: '
                 . &displayElapsed($max{$_},'d');
   }
-  print div({class => 'panel panel-primary'},
-            div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},'Intake')),
-            div({class => 'panel-body'},
-                div({style => 'float: left'},
-                    div({style => 'float: left; margin-right: 10px;'},
-                        div({class => 'boxed'},$last{all},hr,$today{all})),
-                    div({style => 'float: left'},$histogram1,br,$histogram2),
-                    div({style => 'float: left; margin-left: 10px;'},
-                        join('',map {div({class => 'boxed'},$last{$_},
-                                         ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
-                   ))),
-        div({style => 'clear: both;'},NBSP);
+  my $intake = div({class => 'panel panel-primary'},
+                   div({class => 'panel-heading'},
+                       span({class => 'panel-heading;'},'Intake')),
+                   div({class => 'panel-body'},
+                       div({style => 'float: left'},
+                           div({style => 'float: left; margin-right: 10px;'},
+                               div({class => 'boxed'},$last{all},hr,$today{all})),
+                           div({style => 'float: left'},$histogram1,br,$histogram2),
+                           div({style => 'float: left; margin-left: 10px;'},
+                               join('',map {div({class => 'boxed'},$last{$_},
+                                                ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
+                   )))
+               . div({style => 'clear: both;'},NBSP);
+  my $pipeline = ($INTAKE) ? '' : &reportStatus();
+  &printCurrentStatus();
+  print $intake,$pipeline;
   if ($INTAKE) {
     print end_form,end_html;
-  }
-  else {
-    &reportStatus();
   }
 }
 
@@ -322,6 +326,8 @@ sub reportStatus
                  Complete => [map { $bin3{$_}||0 } sort keys %bin5],
                  Error => [map { $bin4{$_}||0 } sort keys %bin5]
                 };
+  my $last_key = (sort keys %bin5)[-1];
+  $Error_rate = sprintf '%.1f',($bin4{$last_key} / ($bin3{$last_key} + $bin4{$last_key})) * 100;
   my $width = 600;
   %PARMS = (text_color => '#fff', width => $width.'px',
             height => (sprintf '%d',$width*.6).'px');
@@ -458,14 +464,43 @@ sub reportStatus
                          div({style => 'float: left'},$histogram3),
                          div({style => 'float: left'},$histogram4)
                         ));
+  return (div({class => 'panel panel-primary'},
+             div({class => 'panel-heading'},
+                 span({class => 'panel-heading;'},
+                      (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
+                      'Workstation pipeline')),
+             div({class => 'panel-body'},$pipeline))
+          . div({style => 'clear: both;'},NBSP)
+          . end_form . &sessionFooter($Session) . end_html);
+}
+
+
+sub printCurrentStatus
+{
+  return unless ($Error_rate);
+  my $total_hosts = scalar @HOST_NUMBERS;
+  my $active_hosts = $total_hosts - scalar(@Unavailable_hosts);
+  my $err_msg;
+  if ($active_hosts != $total_hosts) {
+    $err_msg = ' (unavailable servers: ' . join(', ',@Unavailable_hosts) . ')';
+  }
+  my $err_style = 'lime';
+  $err_style = 'red' if ($Error_rate > 5);
+  $err_style = "color: $err_style";
+  my $srv_style = 'lime';
+  $srv_style = 'red' unless ($active_hosts == $total_hosts);
+  $srv_style = "color: $srv_style";
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},
-                     (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
-                     'Workstation pipeline')),
-            div({class => 'panel-body'},$pipeline)),
-        div({style => 'clear: both;'},NBSP);
-  print end_form,&sessionFooter($Session),end_html;
+                span({class => 'panel-heading;'},'Current status')),
+            div({class => 'panel-body',style => 'font-size: 18pt'},
+                'Error rate: ',
+                span({style => $err_style},$Error_rate.'%'),(NBSP)x10,
+                'Available servers: ',
+                span({style => $srv_style},
+                     (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg)
+               )),
+           div({style => 'clear: both;'},NBSP);
 }
 
 
@@ -504,7 +539,7 @@ sub getProcessingStats
   my $ua = LWP::UserAgent->new;
   my $suffix = ':8180/jmx-console/HtmlAdaptor?action=inspectMBean&name=jboss.mq.destination%3Aservice%3DQueue%2Cname%3DsamplePipelineLauncher';
   my %hash;
-  foreach my $hostnum ('',2,3) {
+  foreach my $hostnum (@HOST_NUMBERS) {
     my $url = 'http://jacs-data' . $hostnum . $suffix;
     my $request = HTTP::Request->new(GET => $url);
     my $response = $ua->request($request);
@@ -518,10 +553,13 @@ sub getProcessingStats
         }
       }
     }
+    else {
+      push @Unavailable_hosts,'jacs-data'.$hostnum;
+    }
   }
   my @row = ();
   my @sum = (span({style => 'font-weight: bold'},'TOTAL'));
-  foreach my $hostnum ('',2,3) {
+  foreach my $hostnum (@HOST_NUMBERS) {
     my $host = 'jacs-data' . $hostnum;
     (my $queued = ($hash{$host}{QueueDepth} || '-')) =~ s/^\s+//;
     chomp($queued);
