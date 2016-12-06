@@ -36,7 +36,8 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my %CONFIG;
 use constant NBSP => '&nbsp;';
-my $DELTA_DAYS = 30;
+my $MEASUREMENT_DAYS = param('days') || 30;
+my $MEASUREMENT_HOURS = $MEASUREMENT_DAYS * 24;
 my %OCOLOR = (20 => '#294121',
               40 => '#5792BB',
               63 => '#33475F') ;
@@ -53,7 +54,7 @@ my $Session;
 # Database
 our ($dbh,$dbhs);
 # General
-my $Error_rate = '';
+my ($Completed,$Cycle_time,$Errored,$Error_rate) = ('')x4;
 my @Unavailable_hosts = ();
 
 # ****************************************************************************
@@ -133,12 +134,12 @@ sub displayDashboard
             height => (sprintf '%d',$width*.6).'px');
   &printHeader();
   # Intake
-  $sth{Intake}->execute($DELTA_DAYS);
+  $sth{Intake}->execute($MEASUREMENT_DAYS);
   my(%captured,%count,%sum);
   my $ar = $sth{Intake}->fetchall_arrayref();
   my $today = UnixDate("today","%Y-%m-%d");
   my $ago = sprintf '%4d-%02d-%02d',
-                    Add_Delta_Days(split('-',$today),-$DELTA_DAYS);
+                    Add_Delta_Days(split('-',$today),-$MEASUREMENT_DAYS);
   $count{all} = scalar @$ar;
   my (%bin1,%bin2);
   my %cbin = map {(sprintf '%02d',$_) => 0} (0..23);
@@ -236,7 +237,7 @@ sub displayDashboard
                              
     }
     $last{$_} = h3({style => 'text-align: center'},$title,
-                   "Last $DELTA_DAYS days ($ago)")
+                   "Last $MEASUREMENT_DAYS days ($ago)")
                 . "Images captured: $captured{$_}" . br
                 . "Images ingested: $count{$_}" . br
                 . "Capture &rarr; TMOG cycle time<br>"
@@ -250,10 +251,10 @@ sub displayDashboard
                        span({class => 'panel-heading;'},'Intake')),
                    div({class => 'panel-body'},
                        div({style => 'float: left'},
-                           div({style => 'float: left; margin-right: 10px;'},
+                           div({class => 'left10'},
                                div({class => 'boxed'},$last{all},hr,$today{all})),
-                           div({style => 'float: left'},$histogram1,br,$histogram2),
-                           div({style => 'float: left; margin-left: 10px;'},
+                           div({class => 'left10'},$histogram1,br,$histogram2),
+                           div({style => 'float: left;'},
                                join('',map {div({class => 'boxed'},$last{$_},
                                                 ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
                    )))
@@ -310,31 +311,44 @@ sub reportStatus
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours=1440');
+  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours='
+                      . $MEASUREMENT_HOURS);
+  my ($pipeline_acc,$samples,$successful) = (0)x3;
   foreach (@$rvar) {
     my $s = $_->{status};
     next unless ($s =~ /^(?:Complete|Error|Marked)/);
     (my $date = $_->{updatedDate}) =~ s/ .*//;
-    next if (($date eq '2016-10-14') && ($s =~ /^Marked/));
+    next if (($date eq '2016-10-14') && ($s =~ /^Marked/)); #PLUG
+    $samples++;
     ($s eq 'Complete') ? $bin3{$date}++ : $bin4{$date}++;
+    if ($s eq 'Complete') {
+      $successful++;
+      $pipeline_acc += $_->{pipelineTime};
+    }
   }
+  $Cycle_time = sprintf '%.2f',$pipeline_acc/$successful/24 if ($successful);
   my @bin3 = map { [$_,$bin3{$_}] } sort keys %bin3;
   my @bin4 = map { [$_,$bin4{$_}] } sort keys %bin4;
-  my %bin5 = map { $_ => 1 } keys(%bin3);
-  $bin5{$_} = 1 foreach (keys %bin3);
-  my $hashref = {'_categories' => [sort keys %bin5],
-                 Complete => [map { $bin3{$_}||0 } sort keys %bin5],
-                 Error => [map { $bin4{$_}||0 } sort keys %bin5]
-                };
-  my $last_key = (sort keys %bin5)[-1];
-  $Error_rate = sprintf '%.1f',($bin4{$last_key} / ($bin3{$last_key} + $bin4{$last_key})) * 100;
+  my %bin_days = map { $_ => 1 } keys(%bin3);
+  my %bin5;
+  foreach (sort keys %bin_days) {
+    $bin5{$_}{'Error rate %'} = 0 + sprintf '%.2f',($bin4{$_} / ($bin3{$_}+$bin4{$_}) * 100);
+  }
+  $bin_days{$_} = 1 foreach (keys %bin3);
+  my $hashref = {'_categories' => [sort keys %bin_days],
+                 Complete => [map { $bin3{$_}||0 } sort keys %bin_days],
+                 Error => [map { $bin4{$_}||0 } sort keys %bin_days]};
+  my $last_key = (sort keys %bin_days)[-1];
+  $Completed = $bin3{$last_key} + $bin4{$last_key};
+  $Errored = $bin4{$last_key} || 0;
+  $Error_rate = sprintf '%.1f',($Errored / $Completed) * 100;
   my $width = 600;
-  %PARMS = (text_color => '#fff', width => $width.'px',
+  %PARMS = (subtitle => "$samples samples over the last $MEASUREMENT_DAYS days",
+            text_color => '#fff', width => $width.'px',
             height => (sprintf '%d',$width*.6).'px');
   my $format = "this.x + '<br><b>' + this.series.name + ':</b> ' + this.y";
   my $histogram3 = &generateHistogram(hashref => $hashref,
                                       title => 'Completions/errors per day',
-                                      subtitle => 'Last 60 days',
                                       content => 'unstackedchart',
                                       formatter => $format,
                                       color => ['#50b432','#cc6633'],
@@ -342,13 +356,16 @@ sub reportStatus
                                       %PARMS);
   my $histogram4 = &generateHistogram(hashref => $hashref,
                                       title => 'Completions/errors per day',
-                                      subtitle => 'Last 60 days',
                                       content => 'stackedchart',
                                       formatter => $format,
                                       stacked => 1,
                                       color => ['#50b432','#cc6633'],
                                       yaxis_title => '# samples',
                                       %PARMS);
+  my $line2 = &generateSimpleLineChart(hashref => \%bin5,
+                                       title => 'Error rate',
+                                       color => ['#cc6633'],
+                                       %PARMS);
   my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff');
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
@@ -374,10 +391,11 @@ sub reportStatus
                                      legend => 'right',
                                      width => '400px', height => '300px',
                                     );
-  my $chart = &generateSimpleLineChart(hashref => \%chash,
+  my $line1 = &generateSimpleLineChart(hashref => \%chash,
                                        title => 'Sample status history (in process)',
                                        subtitle => "$first_date - $last_date",
                                        content => 'status',
+                                       background_color => '#222',
                                        color => \@color,
                                        text_color => '#bbc',
                                        );
@@ -439,8 +457,6 @@ sub reportStatus
                                      width => '400px', height => '300px');
   my $export = &createExportFile(\@delta,'workstation_processing',
                                  ['Sample','User','Start date','Delta days']);
-  # Processing samples
-  my $processing = &getProcessingStats();
   # Render
   $disposition{Null} = 'In process';
   my $pipeline = div({style => 'float: left'},
@@ -451,17 +467,15 @@ sub reportStatus
                                                  sprintf '%.2f%%',$count{$_}/$total*100]))}
                                     sort keys %count)),
                          $donut1),
-                     div({style => 'float: left',align => 'center'},$chart),br,
+                     div({style => 'float: left',align => 'center'},$line1),br,
                      div({style => 'clear: both;'},NBSP),
                      div({style => 'float: left;'},
-                         div({style => 'float: left;padding-right: 10px;'},$pie2),
-                         div({style => 'float: left;padding-right: 10px;'},$pie3,br,$export),
-                         div({style => 'float: left;padding-right: 10px;'},
-                             span({style => 'font-family: "Lucida Grande",color:#bbc;font-size:20px;fill:#bbc;'},
-                                  'Server status'),(br)x2,$processing),
+                         div({class => 'left10'},$pie1),
+                         div({class => 'left10'},$pie2),
+                         div({class => 'left10'},$pie3,br,$export),
                         ),br,
                      div({style => 'float: left'},
-                         div({style => 'float: left'},$histogram3),
+                         div({style => 'float: left'},$line2),
                          div({style => 'float: left'},$histogram4)
                         ));
   return (div({class => 'panel panel-primary'},
@@ -485,21 +499,47 @@ sub printCurrentStatus
     $err_msg = ' (unavailable servers: ' . join(', ',@Unavailable_hosts) . ')';
   }
   my $err_style = 'lime';
-  $err_style = 'red' if ($Error_rate > 5);
+  if ($Error_rate > 10) {
+    $err_style = 'red';
+  }
+  elsif ($Error_rate > 5) {
+    $err_style = 'orange';
+  }
   $err_style = "color: $err_style";
   my $srv_style = 'lime';
   $srv_style = 'red' unless ($active_hosts == $total_hosts);
   $srv_style = "color: $srv_style";
+  my $ct = '';
+  if ($Cycle_time) {
+    my $ct_style = 'lime';
+    if ($Cycle_time > 2) {
+      $ct_style = 'red';
+    }
+    elsif ($Cycle_time > 1) {
+      $ct_style = 'orange';
+    }
+    $ct = 'Avg. cycle time: '
+          . span({style => "color: $ct_style"},
+                 $Cycle_time) . ' days'
+          . span({style => 'font-size: 10pt'},
+                 " (Discovery &rarr; Completion over $MEASUREMENT_DAYS days)"),
+  }
   print div({class => 'panel panel-primary'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Current status')),
             div({class => 'panel-body',style => 'font-size: 18pt'},
-                'Error rate: ',
-                span({style => $err_style},$Error_rate.'%'),(NBSP)x10,
-                'Available servers: ',
-                span({style => $srv_style},
-                     (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg)
-               )),
+                div({style => 'float: left'},
+                    div({class=> 'left30'},
+                        'Error rate: ',
+                        span({style => $err_style},$Error_rate.'%'),
+                        span({style => 'font-size: 10pt'},"($Errored/$Completed samples)")),
+                div({class=> 'left30'},
+                    'Available servers: ',
+                    span({style => $srv_style},
+                         (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg),
+                    &getProcessingStats()),
+                div({class=> 'left30'},$ct)
+               ))),
            div({style => 'clear: both;'},NBSP);
 }
 
@@ -571,7 +611,9 @@ sub getProcessingStats
   }
   table({id => 'proc', class => 'tablesorter standard'},
         thead(Tr(th([qw(Server Queued),'On cluster']))),
-        tbody(map {Tr(td($_->[0]),td({style => 'text-align: center'},[@$_[1..2]]))} @row),
+        tbody(map {Tr(td(a({href => 'http://' . $_->[0] . $suffix,
+                            target => '_blank'},$_->[0])),
+                      td({style => 'text-align: center'},[@$_[1..2]]))} @row),
         tfoot(Tr(td($sum[0]),td({style => 'text-align: center'},[@sum[1..2]])))
        );
 }
