@@ -7,7 +7,6 @@ use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
 use Date::Calc qw(Add_Delta_Days);
 use Date::Manip qw(UnixDate);
-use DBI;
 use HTML::TableExtract;
 use IO::File;
 use JSON;
@@ -16,7 +15,6 @@ use LWP::UserAgent;
 use POSIX qw(strftime);
 use Time::Local;
 use XML::Simple;
-use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
 use JFRC::Highcharts qw(:all);
 
@@ -34,7 +32,7 @@ my $BASE = "/var/www/html/output/";
 our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
-my %CONFIG;
+my (%REST,%WS_CONFIG);
 use constant NBSP => '&nbsp;';
 my $MEASUREMENT_DAYS = param('days') || 30;
 my $MEASUREMENT_HOURS = $MEASUREMENT_DAYS * 24;
@@ -49,10 +47,8 @@ my @HOST_NUMBERS = ('',2,3,);
 my %PARMS;
 # Web
 our ($USERID,$USERNAME);
-my ($INTAKE,$MONGO) = (0)x2;
+my $INTAKE = 0;
 my $Session;
-# Database
-our ($dbh,$dbhs);
 # General
 my ($Completed,$Cycle_time,$Errored,$Error_rate) = ('')x4;
 my @Unavailable_hosts = ();
@@ -66,21 +62,6 @@ unless ($INTAKE) {
   $USERID = $Session->param('user_id');
   $USERNAME = $Session->param('user_name');
 }
-my %sth = (
-Intake => "SELECT IFNULL(DATE(i.capture_date),DATE(NOW())),i.create_date,"
-          . "DATEDIFF(i.create_date,IFNULL(i.capture_date,NOW())),"
-          . "TIME_TO_SEC(TIMEDIFF(i.create_date,i.capture_date)),objective "
-          . " FROM image i JOIN image_data_mv id ON (i.id=id.id) "
-          . "WHERE DATEDIFF(NOW(),DATE(i.create_date)) <= ? AND i.name LIKE '%lsm'",
-Indexing => "SELECT COUNT(1) FROM image_vw i JOIN image_property_vw ipd ON "
-            . "(i.id=ipd.image_id AND ipd.type='data_set') WHERE "
-            . "i.family NOT LIKE 'simpson%' AND i.id NOT IN "
-            . "(SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
-WS_Status => "SELECT value,COUNT(1) FROM entityData WHERE entity_att='Status' GROUP BY 1",
-WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
-            . "JOIN entityData ed ON (e.id=ed.parent_entity_id) WHERE "
-            . "entity_att='Status' AND value='Processing' ORDER BY 3",
-);
 
 
 # ****************************************************************************
@@ -89,11 +70,6 @@ WS_Aging => "SELECT name,e.owner_key,ed.updated_date FROM entity e "
 &initializeProgram();
 &displayDashboard();
 # We're done!
-if ($dbh || $dbhs) {
-  ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
-  $dbh->disconnect;
-  $dbhs->disconnect;
-}
 exit(0);
 
 
@@ -103,27 +79,20 @@ exit(0);
 
 sub initializeProgram
 {
-  # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  # Get general REST config
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
-  %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
-
-  # Connect to databases
-  &dbConnect(\$dbh,'workstation');
-  &dbConnect(\$dbhs,'sage');
-  foreach (keys %sth) {
-    if (/^WS/) {
-      (my $n = $_) =~ s/WS_//;
-      $sth{$n} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
-    }
-    else {
-      $sth{$_} = $dbhs->prepare($sth{$_}) || &terminateProgram($dbhs->errstr);
-    }
-  }
+  %REST = %$hr;
+  # Get WS REST config
+  $file = DATA_PATH . 'workstation_ng.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,$slurp,-s SLURP;
+  close(SLURP);
+  $hr = decode_json $slurp;
+  %WS_CONFIG = %$hr;
 }
 
 
@@ -134,9 +103,13 @@ sub displayDashboard
             height => (sprintf '%d',$width*.6).'px');
   &printHeader();
   # Intake
-  $sth{Intake}->execute($MEASUREMENT_DAYS);
   my(%captured,%count,%sum);
-  my $ar = $sth{Intake}->fetchall_arrayref();
+  my $ar;
+  my $rvar = &getREST($REST{sage}{url}."/images_tmogged_since/days/$MEASUREMENT_DAYS");
+  foreach (@{$rvar->{images}}) {
+    $_->{'capture_date'} =~ s/ .+//;
+    push @$ar,[@{$_}{qw(capture_date create_date capture_tmog_cycle_days capture_tmog_cycle_sec objective)}];
+  }
   my $today = UnixDate("today","%Y-%m-%d");
   my $ago = sprintf '%4d-%02d-%02d',
                     Add_Delta_Days(split('-',$today),-$MEASUREMENT_DAYS);
@@ -219,8 +192,8 @@ sub displayDashboard
     }
   }
   # Check for images awaiting indexing
-  $sth{Indexing}->execute();
-  my $icount = $sth{Indexing}->fetchrow_array();
+  my $rvar = &getREST($REST{sage}{url}."/unindexed_images");
+  my $icount = scalar(@{$rvar->{images}}) || 0;
   $today{all} .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
   $today{all} .= $clock;
   foreach (qw(all 20 40 63)) {
@@ -285,34 +258,29 @@ sub reportStatus
     }
     $disposition{$status} = ($status =~ /(?:Blocked|Complete|Retired)/)
                             ? 'Complete' : 'In process';
-    next if ($status =~ /(?:Blocked|Complete|Retired)/);
+    next if ($status =~ /(?:Blocked|Complete|Retired|Desync|Marked|New|Null|Queued)/);
     $chash{$date}{$status} = 1*$count;
   }
   $stream->close();
   my (%count,%donut,%piec,%piei);
   my $total = 0;
   my $ar;
-  if ($MONGO) {
-    my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{SampleStatus});
-    foreach (@$rvar) {
-      $_->{'_id'} ||= 'Null';
-      push @$ar,[@{$_}{qw(_id count)}];
-    }
-  }
-  else {
-    $sth{Status}->execute();
-    $ar = $sth{Status}->fetchall_arrayref();
+  my $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{SampleStatus});
+  foreach (@$rvar) {
+    $_->{'_id'} ||= 'Null';
+    push @$ar,[@{$_}{qw(_id count)}];
   }
   foreach (@$ar) {
     $count{$_->[0]} = $_->[1];
     $total += $_->[1];
+    next if ($_->[0] eq 'Null');
     ($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? $piec{$_->[0]} = $_->[1]
                                                 : $piei{$_->[0]} = $_->[1];
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  my $rvar = &getREST($CONFIG{url}.$CONFIG{query}{PipelineStatus}.'?hours='
-                      . $MEASUREMENT_HOURS);
+  my $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{PipelineStatus}
+                      . '?hours=' . $MEASUREMENT_HOURS);
   my ($pipeline_acc,$samples,$successful) = (0)x3;
   foreach (@$rvar) {
     my $s = $_->{status};
@@ -366,7 +334,7 @@ sub reportStatus
                                        title => 'Error rate',
                                        color => ['#cc6633'],
                                        %PARMS);
-  my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff');
+  my @color = ('#ff6666','#6666ff','#ff66ff','#66ffff','#ccffcc');
   my $donut1 = &generateHalfDonutChart(hashref => \%donut,
                                        title => 'Disposition',
                                        content => 'disposition',
@@ -400,25 +368,19 @@ sub reportStatus
                                        text_color => '#bbc',
                                        );
   # Age of processing samples
-  if ($MONGO) {
-    @$ar = ();
-    my $rest = $CONFIG{url}.$CONFIG{query}{SampleAging};
-    my $response = get $rest;
-    &terminateProgram("<h3>REST GET returned null response</h3>"
-                      . "<br>Request: $rest<br>")
-      unless (length($response));
-    my $rvar;
-    eval {$rvar = decode_json($response)};
-    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                      . "Response: $response<br>Error: $@") if ($@);
-    # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
-    foreach (@$rvar) {
-      push @$ar,[$_->{name},$_->{ownerKey},$_->{updatedDate}];
-    }
-  }
-  else {
-    $sth{Aging}->execute();
-    $ar = $sth{Aging}->fetchall_arrayref();
+  @$ar = ();
+  my $rest = $WS_CONFIG{url}.$WS_CONFIG{query}{SampleAging};
+  my $response = get $rest;
+  &terminateProgram("<h3>REST GET returned null response</h3>"
+                    . "<br>Request: $rest<br>")
+    unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
+  foreach (@$rvar) {
+    push @$ar,[$_->{name},$_->{ownerKey},$_->{updatedDate}];
   }
   my @delta;
   %piec = ();
@@ -481,7 +443,6 @@ sub reportStatus
   return (div({class => 'panel panel-primary'},
              div({class => 'panel-heading'},
                  span({class => 'panel-heading;'},
-                      (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
                       'Workstation pipeline')),
              div({class => 'panel-body'},$pipeline))
           . div({style => 'clear: both;'},NBSP)
