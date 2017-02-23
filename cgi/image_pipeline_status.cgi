@@ -41,7 +41,7 @@ my $ROW_LIMIT = 5000;
 my $WS_LIMIT_DAYS = param('days') || 14;
 my $WS_LIMIT_HOURS = -24 * $WS_LIMIT_DAYS;
 # Stale warnings
-my %STALE = (Pipeline => {process => {limit => 48, class => 'danger'}});
+my %STALE = (Processing => {process => {limit => 48, class => 'danger'}});
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -82,28 +82,6 @@ Discovery => 'SELECT i.family,i.line,ip1.value,i.name,ip2.value,'
              . 'JOIN image_property_vw ip2 ON (i.id=ip2.image_id AND '
              . "ip2.type='data_set') WHERE TIMESTAMPDIFF(HOUR,NOW(),"
              . "i.create_date) >= $WS_LIMIT_HOURS ORDER BY 6",
-# -----------------------------------------------------------------------------
-WS_Tasking => "SELECT e.name,ed1.value,e.creation_date,"
-              . "TIMESTAMPDIFF(HOUR,NOW(),e.creation_date) FROM entity e "
-              . "LEFT OUTER JOIN entityData ed ON (e.id=ed.parent_entity_id "
-              . "AND ed.entity_att='Status') JOIN entityData ed1 ON "
-              . "(e.id=ed1.parent_entity_id AND "
-              . "ed1.entity_att='Data Set Identifier') WHERE "
-              . "e.entity_type='Sample' AND TIMESTAMPDIFF(HOUR,NOW(),"
-              . "e.creation_date) >= $WS_LIMIT_HOURS AND ed.value IS NULL "
-              . "AND e.name NOT LIKE '%~%' ORDER BY 3",
-WS_Pipeline => "SELECT * FROM (SELECT e.name,ed.value,t.description,"
-               . "t.event_timestamp,TIMESTAMPDIFF(HOUR,NOW(),"
-               . "t.event_timestamp),t.event_type FROM task_event t "
-               . "JOIN task_parameter tp ON (tp.task_id=t.task_id AND "
-               . "parameter_name='sample entity id') JOIN entity e ON "
-               . "(e.id=tp.parameter_value) JOIN entityData ed ON "
-               . "(e.id=ed.parent_entity_id AND "
-               . "entity_att='Data Set Identifier') JOIN task ON "
-               . "(task.task_id=tp.task_id AND "
-               . "task.task_name!='SyncSampleToScality') WHERE "
-               . "TIMESTAMPDIFF(HOUR,NOW(),t.event_timestamp) >= "
-               . "$WS_LIMIT_HOURS ORDER BY 4 DESC,event_no DESC) x GROUP BY 1",
 # -----------------------------------------------------------------------------
 Barcode => "SELECT DISTINCT value FROM image_property_vw WHERE "
            . "type='cross_barcode'",
@@ -225,13 +203,12 @@ sub displayQueues
   my %needs_indexing;
   foreach my $s (@STEPS[1..$#STEPS]) {
     next if (($s eq 'MV') && !$ALL);
-    next if ($s eq 'Scheduling');
-    next if ($s eq 'Pipeline');
+    next if ($s eq 'Scheduled' || $s eq 'Processing');
     my $ar;
     my $t0 = [gettimeofday];
-    if ($MONGO && ($s =~ /(Tasking|Pipeline)/)) {
+    if ($MONGO && ($s =~ /(Queued)/)) {
       my $rvar = &getMONGO($s);
-      if ($s eq 'Tasking') {
+      if ($s eq 'Queued') {
         foreach (sort {$a->{creationDate} cmp $b->{creationDate}} @$rvar) {
           # Temporary? Assign queue by status.
           my ($class,$desc,$error_date) = ('')x3;
@@ -241,36 +218,31 @@ sub displayQueues
             $error_date =~ s/\..+//;
             $class ||= '(none)';
           }
-          if ($_->{status} eq 'Complete') {
-            $_->{name} = &linkify($_->{name});
-            push @{$queue{Complete}},[@{$_}{qw(name dataSet x completionDate)}];
-          }
-          elsif ($_->{status} eq 'Processing') {
-            $_->{name} = &linkify($_->{name});
-            push @{$process{Pipeline}},[@{$_}{qw(name dataSet pipelineTime)}];
-          }
-          elsif ($_->{status} eq 'Error') {
-            $_->{name} = &linkify($_->{name});
-            push @{$process{Pipeline_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
-          }
-          elsif ($_->{status} eq 'Marked for Rerun') {
-            $_->{name} = &linkify($_->{name});
-            push @{$process{Tasking_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
-          }
           else {
             $_->{name} = &linkify($_->{name});
+          }
+          if ($_->{status} eq 'Scheduled') {
+            push @{$process{Queued}},[@{$_}{qw(name dataSet pipelineTime)}];
+          }
+          elsif ($_->{status} eq 'Processing') {
+            push @{$process{Processing}},[@{$_}{qw(name dataSet pipelineTime)}];
+          }
+          elsif ($_->{status} eq 'Complete') {
+            push @{$queue{Complete}},[@{$_}{qw(name dataSet x completionDate)}];
+          }
+          elsif ($_->{status} eq 'Error') {
+            push @{$process{Processing_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
+          }
+          elsif ($_->{status} eq 'Marked for Rerun') {
+            push @{$process{Queued_Error}},[@{$_}{qw(name dataSet)},$class,$desc,$error_date];
+          }
+          else {
             push @$ar,[@{$_}{qw(name dataSet creationDate pipelineTime)}];
           }
         }
       }
-      elsif ($s eq 'Pipeline') {
-        foreach (sort {$b->{timestamp} cmp $a->{timestamp}} @$rvar) {
-          push @$ar,[@{$_}{qw(name dataSet description timestamp age eventType)}];
-        }
-      }
     }
     else {
-      print "Executing $s\n";
       $sth{$s}->execute();
       $ar = $sth{$s}->fetchall_arrayref;
     }
@@ -312,35 +284,11 @@ sub displayQueues
     }
 
     foreach (@$ar) {
-      if ($s eq 'Pipeline') {
-        my $event = pop(@$_);
-        my $sam = $_->[0];
+      if (($s eq 'Queued') || ($s eq 'Scheduled')) {
         $_->[0] = &linkify($_->[0]);
-        if ($event eq 'created') {
-          splice(@$_,2,1);
-          push @{$queue{Scheduling}},$_;
-        }
-        elsif ($event eq 'pending') {
-          push @{$queue{Pipeline}},$_;
-        }
-        elsif ($event eq 'running') {
-          push @{$process{Pipeline}},$_;
-        }
-        elsif ($event eq 'completed') {
-          pop(@$_);
-          push @{$queue{Complete}},$_;
-        }
-        elsif ($event eq 'error') {
-          pop(@$_);
-          splice(@$_,2,0,'Unknown');
-          if (exists $error{$sam}) {
-            $_->[2] = $error{$sam}[0];
-            $_->[3] = $error{$sam}[1];
-          }
-          push @{$process{Pipeline_Error}},$_;
-        }
+        push @{$process{$s}},$_;
       }
-      elsif (($s eq 'Tasking') || ($s eq 'Pipeline')) {
+      elsif ($s eq 'Pipeline') {
         $_->[0] = &linkify($_->[0]);
         push @{$queue{$s}},$_;
       }
@@ -470,16 +418,12 @@ sub getMONGO
   my($selector,$value) = @_;
   $CONFIG{url} = 'http://jacs-informatics.int.janelia.org:8180/rest-v1/'; #PLUG
   my $suffix = '';
-  if ($selector eq 'Tasking') {
+  if ($selector eq 'Queued') {
     $selector = 'PipelineStatus';
     $suffix = '?hours=' . abs($WS_LIMIT_HOURS);
   }
   elsif ($selector eq 'Entity') {
     $suffix = "?name=$value";
-  }
-  elsif ($selector eq 'Pipeline') {
-    $selector = 'TasksLatest';
-    $suffix = '?hours=' . abs($WS_LIMIT_HOURS);
   }
   my $t0 = [gettimeofday];
   my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
@@ -508,7 +452,7 @@ my %STATUS = (Complete => '090');
   my %GOOD = map {$_ => 1} qw(Blocked Complete Retired);
   $STATUS{$_} = 'f33' foreach(qw(Error Null));
   $STATUS{$_} = '39c' foreach(qw(Blocked Retired));
-  $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','Processing');
+  $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','New','Processing','Queued','Scheduled');
   my $ar;
   if ($MONGO) {
     my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
@@ -572,18 +516,18 @@ sub stepContents
   my ($js,$state) = ('','');
   if ($items) {
     ($state,$js) = &generateHistograms($step,$href)
-      if ($step =~ /(?:Discovery|Tasking|Scheduling)/);
-    if ($step eq 'Tasking') {
-      $head = ['Sample ID','Data set','Discovery date'];
+      if ($step =~ /(?:Discovery|Queued|Scheduled)/);
+    if ($step eq 'Queued') {
+      $head = ['Sample ID','Data set','Queued date'];
     }
-    if ($step eq 'Scheduling') {
-      $head = ['Sample ID','Data set','Tasking date'];
+    if ($step eq 'Scheduled') {
+      $head = ['Sample ID','Data set','Scheduled date'];
     }
-    elsif ($step eq 'tmog') {
+    if ($step eq 'tmog') {
       $head = ['Cross date','Line','Line 2','Effector','Type','Project','Barcode','Wish list'];
       $state = 'late';
     }
-    elsif ($step eq 'Pipeline') {
+    elsif ($step eq 'Processing') {
       $head = ($type eq 'queue')
         ? ['Sample ID','Data set','Description','Scheduling date']
         : ['Sample ID','Data set','Pipeline time (hours)'];
@@ -655,7 +599,7 @@ sub stepContents
     $count{$_} = (sprintf '%.2f%%',$count{$_}/$total*100) foreach (keys %count);
     $head = ['Sample ID','Data set','Class','Description','Error date'];
     my $link = &createExportFile($href->{$estep},"_$estep",$head);
-    my $title = ($step eq 'Tasking') ? 'Samples marked for rerun' : "$step process (Errors)";
+    my $title = ($step eq 'Queued') ? 'Samples marked for rerun' : "$step process (Errors)";
     $table2 = h3($title) . $link 
               . &generateFilter($estep,$href->{$estep},\%count) . $js .
               table({id => "t$estep",class => 'tablesorter standard'},
@@ -666,11 +610,11 @@ sub stepContents
     my $badge2 = a({href => '#',
                     onclick => "showDetails('$type" . '_' . "$estep')"},
                    div({class => "badge badge-"
-                        . (($step eq 'Tasking') ? 'marked' : 'error')},$total));
+                        . (($step eq 'Queued') ? 'marked' : 'error')},$total));
     $badge = div({style => "float: left"},
                  $badge,
                  div({class => 'rightarrow'},
-                     ($step eq 'Tasking') ? '&larr;' : '&rarr;'),
+                     ($step eq 'Queued') ? '&larr;' : '&rarr;'),
                  div({class => 'error_queue',style => "float: left"},$badge2)
                 );
   }
@@ -715,7 +659,7 @@ sub generateHistograms
   my %hist2 = ();
   my ($delta,$state) = ('')x2;
   my $first = 'na';
-  my $ind = ('Tasking' eq $step) ? 1 : 3;
+  my $ind = ('Queued' eq $step) ? 1 : 3;
   foreach (@{$href->{$step}}) {
     my $l = pop @$_;
     $_->[$ind] = 0 unless ($_->[$ind] && length($_->[$ind]));
@@ -731,7 +675,7 @@ sub generateHistograms
   elsif ($delta >= 2) {
     $state = 'warning';
   }
-  return($state,'') unless ($step =~ /(?:Discovery|Tasking)/);
+  return($state,'') unless ($step =~ /(?:Discovery|Queued)/);
   my $container = $step . '_container';
   my $container2 = $step . '_container2';
   my $js = <<__EOT__;
