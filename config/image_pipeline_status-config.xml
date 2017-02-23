@@ -4,35 +4,48 @@
 <step>
   <name>Cross</name>
   <description>Fly Core cross</description>
+  <style>background: #9ce7ef</style>
 </step>
 <step>
   <name>tmog</name>
   <description>tmog</description>
+  <style>background: #08c4d6</style>
 </step>
 <step>
   <name>Indexing</name>
   <description>Indexing with SAGE loader</description>
   <condition>LSMs waiting for Indexing are in the SAGE image table, but have no LSM metadata associated with them.</condition>
+  <style>background: #08c4d6</style>
 </step>
 <step>
   <name>MV</name>
   <description>Build materialized view</description>
   <condition>LSMs waiting for MV are in the SAGE image table, but not in the image_data_mv materialized view. Note that MV is *not* necessary for an LSM to enter the Disovery process.</condition>
+  <style>background: #08c4d6</style>
 </step>
 <step>
   <name>Discovery</name>
   <description>Janelia Workstation discovery service</description>
   <condition>LSMs waiting for Discovery are in the SAGE image table, but not in the Workstation entity table.</condition>
+  <style>background: #51b1b3</style>
 </step>
 <step>
-  <name>Tasking</name>
-  <description>Janelia Workstation task creation</description>
-  <condition>Samples waiting for Tasking are in the Workstation entity table, but do not have a status (in the entityData table).</condition>
+  <name>Scheduled</name>
+  <description>Waiting on assignment to jacs-data server</description>
+  <condition>Samples have not yet been assigned to a jacs-data server.</condition>
+  <style>background: #51b1b3</style>
 </step>
 <step>
-  <name>Pipeline</name>
+  <name>Queued</name>
+  <description>Waiting on cluster availability</description>
+  <condition>Samples have not yet scheduled to run on the compute cluster.</condition>
+  <style>background: #51b1b3</style>
+</step>
+<step>
+  <name>Processing</name>
   <description>Janelia Workstation pipeline</description>
-  <condition>Samples waiting for Pipeline have a most recent event ogf "created". If the most recent event is "pending", the sample is being processed (or waiting for cluater resources). A most recent event of "completed" or "error" indicates successful processing or failure, respectively.</condition>
+  <condition>Samples waiting for Pipeline have a most recent event of "created". If the most recent event is "pending", the sample is being processed (or waiting for cluater resources). A most recent event of "completed" or "error" indicates successful processing or failure, respectively.</condition>
+  <style>background: #51b1b3</style>
 </step>
 
 </config>
