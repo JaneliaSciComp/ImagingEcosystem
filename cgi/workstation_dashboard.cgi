@@ -209,6 +209,7 @@ sub displayDashboard
                               . '; color: #fff'},$_ . 'x objective') . br;
                              
     }
+    $last{$_} = '';
     $last{$_} = h3({style => 'text-align: center'},$title,
                    "Last $MEASUREMENT_DAYS days ($ago)")
                 . "Images captured: $captured{$_}" . br
@@ -217,7 +218,8 @@ sub displayDashboard
                 . "&nbsp;&nbsp;Average: "
                 . &displayElapsed($sum{$_}/$count{$_},'d') . br
                 . '&nbsp;&nbsp;Maximum: '
-                . &displayElapsed($max{$_},'d');
+                . &displayElapsed($max{$_},'d')
+      if ($count{$_});
   }
   my $intake = div({class => 'panel panel-primary'},
                    div({class => 'panel-heading'},
