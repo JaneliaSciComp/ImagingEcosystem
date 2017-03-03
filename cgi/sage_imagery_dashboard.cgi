@@ -81,7 +81,7 @@ my @COLOR = qw(000066 006666 660000 666600 006600 660066);
 # Parameters
 my ($DATABASE,$MONGO) = ('',0);
 my %sth = (
-ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/tier2','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
+ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/dm11','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
 CAPTURED => "SELECT family,DATE_FORMAT(MAX(capture_date),'%Y-%m-%d'),COUNT(2),"
             . 'COUNT(DISTINCT line),SUM(file_size) FROM '
             . 'image_data_mv GROUP BY 1',
@@ -126,6 +126,18 @@ FDRIVER => 'SELECT driver,COUNT(1) from image_data_mv WHERE family=? GROUP BY 1'
 FPROJECT => 'SELECT imaging_project,COUNT(1) from image_data_mv WHERE family=? GROUP BY 1',
 FDATA_SET => 'SELECT data_set,COUNT(1) from image_data_mv WHERE family=? GROUP BY 1',
 FTILE => 'SELECT tile,COUNT(1) from image_data_mv WHERE family=? GROUP BY 1',
+CYCLE => "SELECT cvt.display_name AS family,SEC_TO_TIME(AVG(TIME_TO_SEC(TIMEDIFF"
+         . "(i.create_date,capture_date)))) AS t FROM image_data_mv i "
+         . "JOIN cv_term_vw cvt ON (i.family=cvt.cv_term AND cv='family') WHERE "
+         . "name LIKE '%lsm' AND CAPTURE_DATE IS NOT NULL "
+         . "AND DATE_FORMAT(CURRENT_DATE(),'%Y%m')=DATE_FORMAT(capture_date,'%Y%m') "
+         . "GROUP BY 1",
+CYCLEY => "SELECT cvt.display_name AS family,SEC_TO_TIME(AVG(TIME_TO_SEC(TIMEDIFF"
+          . "(i.create_date,capture_date)))) AS t FROM image_data_mv i "
+          . "JOIN cv_term_vw cvt ON (i.family=cvt.cv_term AND cv='family') WHERE "
+          . "name LIKE '%lsm' AND CAPTURE_DATE IS NOT NULL "
+          . "AND DATE_FORMAT(CURRENT_DATE(),'%Y')=DATE_FORMAT(capture_date,'%Y') "
+          . "GROUP BY 1",
 FDCOUNT => 'SELECT cvt.display_name,driver,imaging_project,data_set,COUNT(1) '
            . 'FROM image_data_mv i '
            . "JOIN cv_term_vw cvt ON (i.family=cvt.cv_term AND cv='family') "
@@ -378,7 +390,11 @@ sub showCaptureDashboard
   my $ALL = param('all');
   push @BREADCRUMBS,($APPLICATION,'?','Capture dashboard');
   print &pageHead(),start_form,&hiddenParameters();
-  my $statement = (param('ytd')) ? 'FDCOUNTY' : 'FDCOUNT';
+  my $statement = (param('ytd')) ? 'CYCLEY' : 'CYCLE';
+  $sth{$statement}->execute();
+  my $ct = $sth{$statement}->fetchall_hashref('family');
+  my %mean_ct = map { $_ => $ct->{$_}{t}} keys %$ct;
+  $statement = (param('ytd')) ? 'FDCOUNTY' : 'FDCOUNT';
   $sth{$statement}->execute();
   my $ar = $sth{$statement}->fetchall_arrayref();
   my (%family,%info);
@@ -412,11 +428,16 @@ sub showCaptureDashboard
                        style => 'border: 2px solid #'.$COLOR[$i],
                       },$family{$_}{COUNT});
     if (exists $info{$_}) {
+      my $cycle_time = '';
+      if (exists $mean_ct{$_}) {
+        ($a = $mean_ct{$_}) =~ s/\..*//;
+        $cycle_time = "Average capture &rarr; TMOG cycle time: $a";
+      }
       $info{$_} = Tr(th(['Driver','Project','Data set','Count'])) . $info{$_};
       $content .= div({id => $pid,
                        style => 'display: none;border: 2px solid #'.$COLOR[$i],
                        class => 'info'},
-                      h3('Imagery details'),table({&identify('standard')},$info{$_}));
+                      h3('Imagery details'),table({&identify('standard')},$info{$_}),$cycle_time);
     }
     $i++;
     $i = 0 if ($i > 5);
