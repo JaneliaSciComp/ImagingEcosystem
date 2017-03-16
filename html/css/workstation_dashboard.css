@@ -5,6 +5,37 @@ div.boxed {
   -webkit-border-radius: 12px;
   -moz-border-radius: 12px;
 }
+div.boxed20 {
+  padding: 5px;
+  border: 2px solid #294121;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+div.boxed40 {
+  padding: 5px;
+  border: 2px solid #5792bb;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+div.boxed63 {
+  padding: 5px;
+  border: 2px solid #33475f;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+div.left10 {
+  float: left;
+  margin-right: 10px;
+}
+
+div.left30 {
+  float: left;
+  margin-right: 30px;
+}
 
 table.standard {
   background: #333;

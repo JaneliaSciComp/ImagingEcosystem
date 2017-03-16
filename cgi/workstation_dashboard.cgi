@@ -230,7 +230,7 @@ sub displayDashboard
                                div({class => 'boxed'},$last{all},hr,$today{all})),
                            div({class => 'left10'},$histogram1,br,$histogram2),
                            div({style => 'float: left;'},
-                               join('',map {div({class => 'boxed'},$last{$_},
+                               join('',map {div({class => 'boxed'.$_},$last{$_},
                                                 ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
                    )))
                . div({style => 'clear: both;'},NBSP);
