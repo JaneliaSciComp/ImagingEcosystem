@@ -376,7 +376,8 @@ sub getMONGO
   }
   elsif ($att eq 'SAMPLE') {
     $selector = 'SampleJSON';
-    $suffix = "?name=$value";
+    $suffix = ($value =~ /^\d+$/) ? "?sampleId=$value" : "?name=$value";
+    # $suffix = "?name=$value";
   }
   elsif ($att eq 'EVENTS') {
     $selector = 'SampleEvents';
@@ -562,10 +563,17 @@ sub getSampleJSON
                    thead(Tr(td([qw(Key Value)]))),
                    tbody(map {Tr(td($_))} @td));
     if (scalar @$task) {
+      my $id = '';
+      my $alt = 1;
       $html .= h3('Task events')
-               . table({class => 'tablesorter standard'},
+               . table({class => 'standard'},
                        thead(Tr(td([qw(Event Job Description Date),'Task ID']))),
-                       tbody(map {Tr(td([$_->{eventType},
+                       tbody(map {if ($_->{taskId} != $id) {
+                                    $alt = 1 - $alt;
+                                    $id = $_->{taskId};
+                                  }
+                                  Tr({class => "row_alt$alt"},
+                                     td([$_->{eventType},
                                          a({href => "/flow_ws.php?flow=$_->{jobName}",
                                             target => '_blank'},$_->{jobName}),
                                          ($_->{description}||''),$_->{timestamp},$_->{taskId}]))}
