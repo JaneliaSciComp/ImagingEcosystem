@@ -555,7 +555,13 @@ sub getSampleJSON
         }
       }
       else {
-        $s->{$_} = &renderStatus($s->{$_}) if ($_ eq 'status');
+        if (($_ eq '_id') && $AUTHORIZED) {
+          $s->{$_} .= a({href => "image_secdata.cgi?id=$s->{$_}",
+                         target => '_blank'},' (View secondary data)');
+        }
+        elsif ($_ eq 'status') {
+          $s->{$_} = &renderStatus($s->{$_});
+        }
         push @td,[$_,$s->{$_}];
       }
     }
