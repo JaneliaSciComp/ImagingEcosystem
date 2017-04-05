@@ -97,6 +97,10 @@ RUNNING => "SELECT DATE_FORMAT(capture_date,'%Y%u'),COUNT(1) FROM "
            . 'image_vw WHERE capture_date IS NOT NULL AND family NOT LIKE '
            . "'fly_olympiad%' AND family NOT LIKE '%external' AND family "
            . "NOT IN ('baker_biorad','simpson_lab_grooming') GROUP BY 1",
+SPACE => "SELECT DATE_FORMAT(capture_date,'%Y%u'),SUM(file_size)/(1024*1024*1024*1024) FROM "
+         . 'image_data_mv WHERE capture_date IS NOT NULL AND family NOT LIKE '
+         . "'fly_olympiad%' AND family NOT LIKE '%external' AND family "
+         . "NOT IN ('baker_biorad','simpson_lab_grooming') GROUP BY 1",
 LINES => 'SELECT w.week,COUNT(line) FROM (SELECT line,'
          . "MIN(DATE_FORMAT(capture_date,'%Y%u')) AS week FROM image_vw WHERE "
          . "capture_date IS NOT NULL AND family NOT LIKE 'fly_olympiad%' AND "
@@ -534,7 +538,7 @@ sub showAnnotDashboard
                                                     .'{point.percentage:.1f}%');
   my $lower = div({style => 'float: left;'},
                   table({class => 'sortable',&identify('standard')},
-                        thead(Tr(td(['Annotator','Family','Location','Count',
+                        thead(Tr(th(['Annotator','Family','Location','Count',
                                      'Size (TB)']))),
                         tbody(map {Tr(td($_))} @$ar),
                         tfoot(Tr(th(['TOTAL','','',$total{count},
@@ -616,6 +620,9 @@ sub showRateDashboard
     }
     $panel{running} = &zoomChart($ar,"Confocal $term running total",$term,'running',2);
   }
+  $sth{SPACE}->execute();
+  $ar = $sth{SPACE}->fetchall_arrayref();
+  $panel{space} = &zoomChart($ar,"TB of data captured per week",'TB','space',3);
   # Images/lines per month (by family)
   my $stop = param('stop') || UnixDate("today","%Y%m");
   my $start = param('start') || UnixDate(DateCalc($stop,'- 1 year'),"%Y%m");
@@ -644,7 +651,7 @@ sub showRateDashboard
                                  $term,$start,$stop,'dataset');
   }
   # Render
-  my @display = ($chart eq 'all') ? qw(running weeklyrate family dataset)
+  my @display = ($chart eq 'all') ? qw(running weeklyrate space family dataset)
                                   : ($chart);
   print map {div({&identify("chart_$_"),style => 'float: left;'},$panel{$_})} @display;
 }

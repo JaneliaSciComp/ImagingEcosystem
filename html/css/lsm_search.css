@@ -1,0 +1,48 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+table.standard {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.standard th {
+  background: #e7e7e7;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  text-align: left;
+  border: 1px solid #058d95;
+  padding: 0 2px 0 2px;
+}
+
+.panel-warning > .panel-heading {
+  background-color: #c63;
+  border-color: #000;
+  color: white;
+  font-weight: bold;
+}
+
+.panel-warning > .panel-body{
+  border-color: #c63;
+}
+
+.panel-success> .panel-heading {
+  background-color: green;
+  border-color: #000;
+  color: white;
+  font-weight: bold;
+}
+
+.panel-success> .panel-body{
+  border-color: green;
+}

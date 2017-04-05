@@ -121,7 +121,7 @@ sub displayResults
       }
     }
     $events = table({id => 'events',class => 'standard'},
-                    thead(Tr(td([qw(Host Facility Priority Level
+                    thead(Tr(th([qw(Host Facility Priority Level
                                  Tag Date Program Message Seq)]))),
                     tbody(map {Tr(td($_))} @$ar));
   }

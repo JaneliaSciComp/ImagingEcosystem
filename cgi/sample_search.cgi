@@ -566,14 +566,14 @@ sub getSampleJSON
       }
     }
     $html .= table({class => 'tablesorter standard'},
-                   thead(Tr(td([qw(Key Value)]))),
+                   thead(Tr(th([qw(Key Value)]))),
                    tbody(map {Tr(td($_))} @td));
     if (scalar @$task) {
       my $id = '';
       my $alt = 1;
       $html .= h3('Task events')
                . table({class => 'standard'},
-                       thead(Tr(td([qw(Event Job Description Date),'Task ID']))),
+                       thead(Tr(th([qw(Event Job Description Date),'Task ID']))),
                        tbody(map {if ($_->{taskId} != $id) {
                                     $alt = 1 - $alt;
                                     $id = $_->{taskId};
@@ -781,7 +781,7 @@ sub getSample
         $ar = $sth{LSMS}->fetchall_arrayref();
         $tasks .= h3('Associated LSM files')
                   . table({class => 'tablesorter standard'},
-                          thead(Tr(td(['Name','Objective','Area','Tile']))),
+                          thead(Tr(th(['Name','Objective','Area','Tile']))),
                           tbody(map {$a = a({href => "view_sage_imagery.cgi?_op=stack;_family=$_->[0];_image=$_->[1]",
                                              target => '_blank'},$_->[1]);
                                      $a .= ' '

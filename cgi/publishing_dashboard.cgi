@@ -48,7 +48,7 @@ my %sth = (
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
            . "WHERE published IS NOT NULL",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
-               . "COUNT(1) FROM image_data_mv WHERE published IS NOT NULL "
+               . "COUNT(1) FROM image_data_mv WHERE published='Y' "
                . "GROUP BY 1,2",
   WAITING => "SELECT published_to,alps_release,publishing_user,"
              . "COUNT(DISTINCT line),COUNT(1) FROM image_data_mv WHERE "
@@ -98,7 +98,7 @@ sub displayDashboard
       $_->[2] = $annotator || $_->[2];
     }
     $waiting = table({id => 'waiting',class => 'tablesorter standard'},
-                     thead(Tr(td(['Website','ALPS release','Annotator','Lines',
+                     thead(Tr(th(['Website','ALPS release','Annotator','Lines',
                                   'Images']))),
                      tbody(map {Tr(td($_))} @$ar));
   }
@@ -112,7 +112,7 @@ sub displayDashboard
     my $image_count = 0;
     $image_count += $_->[-1] foreach (@$ar);
     $published = table({id => 'published',class => 'tablesorter standard'},
-                       thead(Tr(td(['Website','ALPS release','Lines','Images']))),
+                       thead(Tr(th(['Website','ALPS release','Lines','Images']))),
                        tbody(map {Tr(td($_))} @$ar),
                        tfoot(Tr(td(['','',$line_count,$image_count]))));
   }
