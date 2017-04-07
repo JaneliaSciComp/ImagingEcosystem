@@ -221,6 +221,12 @@ sub displayDashboard
                 . &displayElapsed($max{$_},'d')
       if ($count{$_});
   }
+  my $objective_boxes = '';
+  foreach my $o qw(20 40 63) {
+    next unless ($last{$o});
+    $objective_boxes .= div({class => 'boxed'.$o},$last{$o},
+                            ($today{$o}) ? hr . $today{$o} : '');
+  }
   my $intake = div({class => 'panel panel-primary'},
                    div({class => 'panel-heading'},
                        span({class => 'panel-heading;'},'Intake')),
@@ -229,10 +235,7 @@ sub displayDashboard
                            div({class => 'left10'},
                                div({class => 'boxed'},$last{all},hr,$today{all})),
                            div({class => 'left10'},$histogram1,br,$histogram2),
-                           div({style => 'float: left;'},
-                               join('',map {div({class => 'boxed'.$_},$last{$_},
-                                                ($today{$_}) ? hr . $today{$_} : '')} qw(20 40 63))),
-                   )))
+                           div({style => 'float: left;'},$objective_boxes))))
                . div({style => 'clear: both;'},NBSP);
   my $pipeline = ($INTAKE) ? '' : &reportStatus();
   &printCurrentStatus();
