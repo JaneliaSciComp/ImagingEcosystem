@@ -1,0 +1,54 @@
+body {
+  background-color: #222;
+  color: #bbc;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.imagebox {
+  text-align: center;
+  position: relative;
+  z-index: 0;
+  background-color: #000;
+}
+
+.controls td {
+  padding-right: 10px;
+}
+
+.bottom_overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(66,66,66,0.7);
+  overflow: hidden;
+  width: 100%;
+  height: 0;
+  z-index: 1;
+  transition: .5s ease;
+}
+
+.top_overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(66,66,66,0.7);
+  overflow: hidden;
+  width: 100%;
+  height: 0;
+  z-index: 1;
+  transition: .5s ease;
+}
+
+.imagebox:hover .bottom_overlay {
+  height: 157px;
+}
+
+.imagebox:hover .top_overlay {
+  height: 40px;
+}

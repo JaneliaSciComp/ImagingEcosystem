@@ -1,0 +1,74 @@
+body {
+  background-color: #222;
+  color: #bbc;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.overlay_images {
+  position: relative;
+  clear: both;
+}
+
+.overlay_images:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+#image1 {
+  top: 0px;
+  left: 0px;
+}
+
+#image2 {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+}
+
+.imagebox {
+  position: relative;
+  background-color: #000;
+}
+
+.controls td {
+  padding-right: 10px;
+}
+
+.bottom_overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(66,66,66,0.7);
+  overflow: hidden;
+  width: 100%;
+  height: 0;
+  z-index: 10;
+  transition: .5s ease;
+}
+
+.top_overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(66,66,66,0.7);
+  overflow: hidden;
+  width: 100%;
+  height: 0;
+  z-index: 10;
+  transition: .5s ease;
+}
+
+.imagebox:hover .bottom_overlay {
+  height: 70px;
+}
+
+.imagebox:hover .top_overlay {
+  height: 40px;
+}
