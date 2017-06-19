@@ -17,7 +17,7 @@ DEBUG = False
 TEST = False
 # SQL statements
 SQL = {
-  'ALL': "SELECT i.family,ipd.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
+  'ALL': "SELECT i.family,ipd.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample') AND TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
 }
 # Counters
 count = {'failure': 0, 'found': 0, 'success': 0}
@@ -84,27 +84,31 @@ def processImages(cursor):
         operation = 'indexed/discovered'
         for dataset,lsmlist in lsm.items():
             if (VERBOSE):
-                print "Running indexing/discovery on data set " + dataset
-            post = {"lsmNames": lsmlist}
-            post_url = 'http://jacs.int.janelia.org:8180/rest-v1/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
-            req = urllib2.Request(post_url)
-            req.add_header('Content-Type', 'application/json')
-            if TEST:
-                count['success'] += len(lsmlist)
-                indexed[dataset] = indexed.setdefault(dataset,0) + len(lsmlist)
-            else:
-                try:
-                    response = urllib2.urlopen(req,json.dumps(post))
-                except urllib2.HTTPError, e:
-                    print 'Call to %s failed: %s.' % (dataset,e.code)
-                    count['failure'] += len(lsmlist)
-                    if DEBUG:
-                        pp.pprint(e.read())
+                print "Running indexing/discovery on data set " + dataset + " with " + str(len(lsmlist)) + " LSM(s)"
+            chunks = [lsmlist[i:i+50] for i in xrange(0,len(lsmlist),50)]
+            for sublist in chunks:
+                post = {"lsmNames": sublist}
+                post_url = 'http://jacs.int.janelia.org:8180/rest-v1/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
+                req = urllib2.Request(post_url)
+                req.add_header('Content-Type', 'application/json')
+                if DEBUG:
+                    print "  Posting " + str(len(sublist)) + " LSM(s)"
+                if TEST:
+                    count['success'] += len(sublist)
+                    indexed[dataset] = indexed.setdefault(dataset,0) + len(sublist)
                 else:
-                    count['success'] += len(lsmlist)
-                    indexed[dataset] = indexed.setdefault(dataset,0) + len(lsmlist)
-                    if DEBUG:
-                        pp.pprint(response.read())
+                    try:
+                        response = urllib2.urlopen(req,json.dumps(post))
+                    except urllib2.HTTPError, e:
+                        print 'Call to %s failed: %s.' % (dataset,e.code)
+                        count['failure'] += len(sublist)
+                        if DEBUG:
+                            pp.pprint(e.read())
+                    else:
+                        count['success'] += len(sublist)
+                        indexed[dataset] = indexed.setdefault(dataset,0) + len(sublist)
+                        if DEBUG:
+                            pp.pprint(response.read())
 
     print 'Unindexed images: %d' % count['found']
     print 'Images successfully %s: %d' % (operation,count['success'])
