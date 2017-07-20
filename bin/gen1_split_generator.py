@@ -74,7 +74,7 @@ def generateCross(fragdict, frag1, frag2):
                 continue
             score += generateScore(f2['line'])
             if (DEBUG):
-                print "  score %s x %s = %f" % (f1['line'], f2['line'], score)
+                print "  Score %s x %s = %f" % (f1['line'], f2['line'], score)
             if (score > max_score['score']):
                 max_score['score'] = score
                 max_score['dbd'] = f1['line']
@@ -85,7 +85,6 @@ def generateCross(fragdict, frag1, frag2):
 def generateScore(line):
     suffix = line.rsplit('_', 2)
     last = "_".join(suffix[-2:])
-    print "  %s -> %s" % (line, last)
     if (last in SUFFIX_SCORE):
         return(SUFFIX_SCORE[last])
     else:
