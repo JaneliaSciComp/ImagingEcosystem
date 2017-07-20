@@ -41,7 +41,7 @@ def processInput():
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
-                if (DEBUG):
+                if (VERBOSE):
                     print "  Found cross %s x %s" % (ad, dbd)
     if (VERBOSE):
         print "Crosses found: %d" % (crosses)
