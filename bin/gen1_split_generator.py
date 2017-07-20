@@ -60,7 +60,7 @@ def generateCross(fragdict, frag1, frag2):
                 continue
             score += generateScore(f2['line'])
             if (DEBUG):
-                print "  score %s x %s = %f" % (f1['line'], f2['line'], score)
+                print "  Score %s x %s = %f" % (f1['line'], f2['line'], score)
             if (score > max_score['score']):
                 max_score['score'] = score
                 max_score['ad'] = f1['line']
