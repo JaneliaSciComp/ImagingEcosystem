@@ -146,10 +146,13 @@ def readLines(fragdict):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Generate Gen1 initial splits')
-    parser.add_argument('-file',dest='file',default='',help='Input file')
-    parser.add_argument('-verbose',action='store_true',dest='verbose',default=False,help='Turn on verbose output')
-    parser.add_argument('-debug',action='store_true',dest='debug',default=False,help='Turn on debug output')
+    parser = argparse.ArgumentParser(
+        description='Generate Gen1 initial splits')
+    parser.add_argument('-file', dest='file', default='', help='Input file')
+    parser.add_argument('-verbose', action='store_true', dest='verbose',
+                        default=False, help='Turn on verbose output')
+    parser.add_argument('-debug', action='store_true', dest='debug',
+                        default=False, help='Turn on debug output')
     args = parser.parse_args()
     INPUT_FILE = args.file
     VERBOSE = args.verbose
