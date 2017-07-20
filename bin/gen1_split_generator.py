@@ -1,0 +1,161 @@
+import argparse
+import json
+import pprint
+import re
+import urllib2
+
+RESPONDER = 'http://informatics-flask-dev.int.janelia.org:83/sage_responder/'
+SUFFIX_SCORE = {'AV_01': 1,
+                'AV_57': 1,
+                'BB_04': 1,
+                'BB_21': 1,
+                'XA_21': 0,
+                'XD_01': 1}
+
+
+def processInput():
+    if (VERBOSE):
+        print "Fetching split halves"
+    url = RESPONDER + "split_halves"
+    req = urllib2.Request(url)
+    req.add_header('Content-Type', 'application/json')
+    try:
+        response = urllib2.urlopen(req,)
+    except urllib2.HTTPError, e:
+        print 'Call to %s failed: %s.' % (url, e.code)
+        pp.pprint(e.read())
+    else:
+        fd = json.load(response)
+        fragdict = fd['split_halves']
+    if (VERBOSE):
+        print "Found %d fragments with AD/DBDs" % (len(fragdict))
+        print "Processing line fragment list"
+    fraglist = readLines(fragdict)
+    if (VERBOSE):
+        print "Generating crosses"
+    crosses = 0
+    for idx, frag1 in enumerate(fraglist):
+        for frag2 in fraglist[idx:]:
+            if (frag1 == frag2):
+                continue
+            (ad, dbd) = generateCross(fragdict, frag1, frag2)
+            if (ad and dbd):
+                crosses += 1
+                if (DEBUG):
+                    print "  Found cross %s x %s" % (ad, dbd)
+    if (VERBOSE):
+        print "Crosses found: %d" % (crosses)
+
+
+def generateCross(fragdict, frag1, frag2):
+    if (DEBUG):
+        print "%s x %s" % (frag1, frag2)
+    max_score = {'score': 0, 'ad': '', 'dbd': ''}
+    for f1 in fragdict[frag1]:
+        if (f1['type'] == 'DBD'):
+            continue
+        score = generateScore(f1['line'])
+        for f2 in fragdict[frag2]:
+            if (f2['type'] == 'AD'):
+                continue
+            score += generateScore(f2['line'])
+            if (DEBUG):
+                print "  score %s x %s = %f" % (f1['line'], f2['line'], score)
+            if (score > max_score['score']):
+                max_score['score'] = score
+                max_score['ad'] = f1['line']
+                max_score['dbd'] = f2['line']
+    for f1 in fragdict[frag1]:
+        if (f1['type'] == 'AD'):
+            continue
+        score = generateScore(f1['line'])
+        for f2 in fragdict[frag2]:
+            if (f2['type'] == 'DBD'):
+                continue
+            score += generateScore(f2['line'])
+            if (DEBUG):
+                print "  score %s x %s = %f" % (f1['line'], f2['line'], score)
+            if (score > max_score['score']):
+                max_score['score'] = score
+                max_score['dbd'] = f1['line']
+                max_score['ad'] = f2['line']
+    return(max_score['ad'], max_score['dbd'])
+
+
+def generateScore(line):
+    suffix = line.rsplit('_', 2)
+    last = "_".join(suffix[-2:])
+    print "  %s -> %s" % (line, last)
+    if (last in SUFFIX_SCORE):
+        return(SUFFIX_SCORE[last])
+    else:
+        return(0)
+
+
+def readLines(fragdict):
+    linelist = []
+    fragsFound = dict()
+    frags_read = 0
+    F = open(INPUT_FILE, 'r')
+    for search_term in F:
+        search_term = search_term.rstrip()
+        if (search_term in fragsFound):
+            continue
+        else:
+            fragsFound[search_term] = 1
+        frags_read = frags_read + 1
+        new_term = ''
+        if search_term.isdigit():
+            new_term = 'VT' + search_term.zfill(6)
+        else:
+            new_term = '*' + search_term + '*'
+        if (DEBUG):
+            print search_term + ' (' + new_term + ')'
+        url = RESPONDER + "lines?name=" + new_term + '&_columns=name'
+        req = urllib2.Request(url)
+        req.add_header('Content-Type', 'application/json')
+        try:
+            response = urllib2.urlopen(req,)
+        except urllib2.HTTPError, e:
+            print 'Call to %s failed: %s.' % (url, e.code)
+            pp.pprint(e.read())
+        else:
+            ld = json.load(response)
+            ld = ld['line_data']
+            for l in ld:
+                if (('_' + search_term) not in l['name']):
+                    continue
+                fragment = re.sub('_[A-Z][A-Z]_[0-9][0-9]', '', l['name'])
+                if (DEBUG):
+                    print '  ' + l['name'] + ' -> ' + fragment
+                if (fragment not in fragdict):
+                    print "  No AD or DBD found for fragment %s" % (fragment)
+                    continue
+                linelist.append(fragment)
+                break
+    linelist.sort()
+    if (VERBOSE):
+        print "Fragments read: %d" % (frags_read)
+        n = len(linelist)
+        print "Eligible line fragments: %d" % n
+        combos = (n * (n - 1)) / 2
+        print "Theoretical crosses: %d" % (combos)
+    return(linelist)
+
+
+# -----------------------------------------------------------------------------
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Generate Gen1 initial splits')
+    parser.add_argument('-file',dest='file',default='',help='Input file')
+    parser.add_argument('-verbose',action='store_true',dest='verbose',default=False,help='Turn on verbose output')
+    parser.add_argument('-debug',action='store_true',dest='debug',default=False,help='Turn on debug output')
+    args = parser.parse_args()
+    INPUT_FILE = args.file
+    VERBOSE = args.verbose
+    DEBUG = args.debug
+    if DEBUG:
+        VERBOSE = True
+    pp = pprint.PrettyPrinter(indent=4)
+    processInput()
