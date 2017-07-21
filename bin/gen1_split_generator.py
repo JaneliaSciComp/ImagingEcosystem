@@ -9,7 +9,7 @@ SUFFIX_SCORE = {'AV_01': 1,
                 'AV_57': 1,
                 'BB_04': 1,
                 'BB_21': 1,
-                'XA_21': 0,
+                'XA_21': 1,
                 'XD_01': 1}
 
 
@@ -58,11 +58,12 @@ def generateCross(fragdict, frag1, frag2):
         for f2 in fragdict[frag2]:
             if (f2['type'] == 'AD'):
                 continue
-            score += generateScore(f2['line'])
+            final_score = score + generateScore(f2['line'])
             if (DEBUG):
-                print "  Score %s x %s = %f" % (f1['line'], f2['line'], score)
-            if (score > max_score['score']):
-                max_score['score'] = score
+                print "  Score %s x %s = %f" % (f1['line'], f2['line'],
+                                                final_score)
+            if (final_score > max_score['score']):
+                max_score['score'] = final_score
                 max_score['ad'] = f1['line']
                 max_score['dbd'] = f2['line']
     for f1 in fragdict[frag1]:
@@ -72,11 +73,12 @@ def generateCross(fragdict, frag1, frag2):
         for f2 in fragdict[frag2]:
             if (f2['type'] == 'DBD'):
                 continue
-            score += generateScore(f2['line'])
+            final_score = score + generateScore(f2['line'])
             if (DEBUG):
-                print "  Score %s x %s = %f" % (f1['line'], f2['line'], score)
-            if (score > max_score['score']):
-                max_score['score'] = score
+                print "  Score %s x %s = %f" % (f1['line'], f2['line'],
+                                                final_score)
+            if (final_score > max_score['score']):
+                max_score['score'] = final_score
                 max_score['dbd'] = f1['line']
                 max_score['ad'] = f2['line']
     return(max_score['ad'], max_score['dbd'])
@@ -96,18 +98,20 @@ def readLines(fragdict):
     fragsFound = dict()
     frags_read = 0
     F = open(INPUT_FILE, 'r')
-    for search_term in F:
-        search_term = search_term.rstrip()
+    for input_line in F:
+        search_term = input_line.rstrip()
+        new_term = ''
+        if search_term.isdigit():
+            st = convertVT('VT' + search_term.zfill(6))
+            if (DEBUG):
+                print "(Converted %s to %s)" % (search_term, st)
+            search_term = st.split('_')[1]
+        new_term = '*' + search_term + '*'
         if (search_term in fragsFound):
             continue
         else:
             fragsFound[search_term] = 1
         frags_read = frags_read + 1
-        new_term = ''
-        if search_term.isdigit():
-            new_term = 'VT' + search_term.zfill(6)
-        else:
-            new_term = '*' + search_term + '*'
         if (DEBUG):
             print search_term + ' (' + new_term + ')'
         url = RESPONDER + "lines?name=" + new_term + '&_columns=name'
@@ -140,6 +144,23 @@ def readLines(fragdict):
         combos = (n * (n - 1)) / 2
         print "Theoretical crosses: %d" % (combos)
     return(linelist)
+
+
+def convertVT(vt):
+    url = RESPONDER + "translatevt/" + vt
+    req = urllib2.Request(url)
+    req.add_header('Content-Type', 'application/json')
+    try:
+        response = urllib2.urlopen(req,)
+    except urllib2.HTTPError, e:
+        print 'Call to %s failed: %s.' % (url, e.code)
+        pp.pprint(e.read())
+    else:
+        ld = json.load(response)
+        if ('line_data' in ld):
+            return(ld['line_data'][0]['line'])
+        else:
+            return('')
 
 
 # -----------------------------------------------------------------------------
