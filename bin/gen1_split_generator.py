@@ -41,8 +41,13 @@ def processInput():
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
-                if (VERBOSE):
+                if (DEBUG):
                     print "  Found cross %s x %s" % (ad, dbd)
+                CROSSES.write("%s x %s\n" % (ad, dbd))
+            elif ((not ad) and (not dbd)):
+                NO_CROSSES.write("Missing AD and DBD for %s x %s\n" % (frag1, frag2))
+            else:
+                NO_CROSSES.write("Missing " + ("AD" if dbd else "DBD") + " for %s x %s\n" % (frag1, frag2))
     if (VERBOSE):
         print "Crosses found: %d" % (crosses)
 
@@ -52,6 +57,7 @@ def generateCross(fragdict, frag1, frag2):
         print "%s x %s" % (frag1, frag2)
     max_score = {'score': 0, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
+        # frag1 = AD, frag2 = DBD
         if (f1['type'] == 'DBD'):
             continue
         score = generateScore(f1['line'])
@@ -67,6 +73,7 @@ def generateCross(fragdict, frag1, frag2):
                 max_score['ad'] = f1['line']
                 max_score['dbd'] = f2['line']
     for f1 in fragdict[frag1]:
+        # frag1 = DBD, frag2 = AD
         if (f1['type'] == 'AD'):
             continue
         score = generateScore(f1['line'])
@@ -137,6 +144,7 @@ def readLines(fragdict):
                     continue
                 linelist.append(fragment)
                 break
+    F.close()
     linelist.sort()
     if (VERBOSE):
         print "Fragments read: %d" % (frags_read)
@@ -182,4 +190,8 @@ if __name__ == '__main__':
     if DEBUG:
         VERBOSE = True
     pp = pprint.PrettyPrinter(indent=4)
+    CROSSES = open(INPUT_FILE + '.crosses.txt', 'w')
+    NO_CROSSES = open(INPUT_FILE + '.no_crosses.txt', 'w')
     processInput()
+    CROSSES.close()
+    NO_CROSSES.close()
