@@ -106,6 +106,7 @@ def readLines(fragdict):
             if (DEBUG):
                 print "(Converted %s to %s)" % (search_term, st)
             search_term = st.split('_')[1]
+        search_term = search_term.upper()
         new_term = '*' + search_term + '*'
         if (search_term in fragsFound):
             continue
