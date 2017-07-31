@@ -45,7 +45,8 @@ def processInput():
                     print "  Found cross %s x %s" % (ad, dbd)
                 CROSSES.write("%s x %s\n" % (ad, dbd))
             elif ((not ad) or (not dbd)):
-                NO_CROSSES.write("Missing AD/DBD for %s x %s\n" % (frag1, frag2))
+                NO_CROSSES.write("Missing AD/DBD for %s x %s\n" % (frag1,
+                                                                   frag2))
     if (VERBOSE):
         print "Crosses found: %d" % (crosses)
 
