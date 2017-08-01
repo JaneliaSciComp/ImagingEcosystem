@@ -53,7 +53,7 @@ def processInput():
 
 def generateCross(fragdict, frag1, frag2):
     if (DEBUG):
-        print "%s x %s" % (frag1, frag2)
+        print "%s-x-%s" % (frag1, frag2)
     max_score = {'score': 0, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
         # frag1 = AD, frag2 = DBD
@@ -65,7 +65,7 @@ def generateCross(fragdict, frag1, frag2):
                 continue
             final_score = score + generateScore(f2['line'])
             if (DEBUG):
-                print "  Score %s x %s = %f" % (f1['line'], f2['line'],
+                print "  Score %s-x-%s = %f" % (f1['line'], f2['line'],
                                                 final_score)
             if (final_score > max_score['score']):
                 max_score['score'] = final_score
@@ -81,7 +81,7 @@ def generateCross(fragdict, frag1, frag2):
                 continue
             final_score = score + generateScore(f2['line'])
             if (DEBUG):
-                print "  Score %s x %s = %f" % (f1['line'], f2['line'],
+                print "  Score %s-x-%s = %f" % (f1['line'], f2['line'],
                                                 final_score)
             if (final_score > max_score['score']):
                 max_score['score'] = final_score
@@ -101,8 +101,8 @@ def generateScore(line):
 
 def goodCross(ad, dbd):
     if (DEBUG):
-        print "  Found cross %s x %s" % (ad, dbd)
-    CROSSES.write("%s x %s\n" % (ad, dbd))
+        print "  Found cross %s-x-%s" % (ad, dbd)
+    CROSSES.write("%s-x-%s\n" % (ad, dbd))
     if (ad not in fcdict):
         flycoreData(ad)
     if (dbd not in fcdict):
@@ -111,8 +111,10 @@ def goodCross(ad, dbd):
     pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
     FLYCORE.write("%s\t%s\t%s\t%s\t%s" % ('Tanya Wolff','',alias,pfrag,''))
     for w in (ad,dbd):
-        FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % ('Rack',fcdict[w]['__kp_UniqueID'],fcdict[w]['RobotID'],
-                                                                fcdict[w]['Genotype_GSI_Name_PlateWell'],fcdict[w]['Chromosome'],
+        FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (fcdict[w]['location']['RACK_LOCATION'],
+                                                                fcdict[w]['__kp_UniqueID'],fcdict[w]['RobotID'],
+                                                                fcdict[w]['Genotype_GSI_Name_PlateWell'],
+                                                                fcdict[w]['Chromosome'],
                                                                 w,fcdict[w]['fragment'],fcdict[w]['Production_Info'],
                                                                 fcdict[w]['Quality_Control']))
     FLYCORE.write("\n")
@@ -127,9 +129,21 @@ def flycoreData(line):
     except urllib2.HTTPError, e:
         print 'Call to %s failed: %s.' % (url, e.code)
         pp.pprint(e.read())
+        return
     else:
         fd = json.load(response)
         fcdict[line] = fd['linedata']
+    url = FLYCORE_RESPONDER + "?request=location&robot_id=" + fcdict[line]['RobotID']
+    req = urllib2.Request(url)
+    req.add_header('Content-Type', 'application/json')
+    try:
+        response = urllib2.urlopen(req,)
+    except urllib2.HTTPError, e:
+        print 'Call to %s failed: %s.' % (url, e.code)
+        pp.pprint(e.read())
+    else:
+        fd = json.load(response)
+        fcdict[line]['location'] = fd['location']
 
 
 def readLines(fragdict):
