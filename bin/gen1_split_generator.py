@@ -43,7 +43,7 @@ def processInput():
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
-                goodCross(ad,dbd)
+                goodCross(ad, dbd)
             elif ((not ad) or (not dbd)):
                 NO_CROSSES.write("Missing AD/DBD for %s-x-%s\n" % (frag1,
                                                                    frag2))
@@ -109,14 +109,15 @@ def goodCross(ad, dbd):
         flycoreData(dbd)
     alias = ad + '-x-' + dbd
     pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
-    FLYCORE.write("%s\t%s\t%s\t%s\t%s" % ('Tanya Wolff','',alias,pfrag,''))
-    for w in (ad,dbd):
-        FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (fcdict[w]['location']['RACK_LOCATION'],
-                                                                fcdict[w]['__kp_UniqueID'],fcdict[w]['RobotID'],
-                                                                fcdict[w]['Genotype_GSI_Name_PlateWell'],
-                                                                fcdict[w]['Chromosome'],
-                                                                w,fcdict[w]['fragment'],fcdict[w]['Production_Info'],
-                                                                fcdict[w]['Quality_Control']))
+    FLYCORE.write("%s\t%s\t%s\t%s\t%s" % ('Tanya Wolff', '', alias, pfrag, ''))
+    for w in (ad, dbd):
+        FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
+                      % (fcdict[w]['location']['RACK_LOCATION'],
+                         fcdict[w]['__kp_UniqueID'], fcdict[w]['RobotID'],
+                         fcdict[w]['Genotype_GSI_Name_PlateWell'],
+                         fcdict[w]['Chromosome'], w, fcdict[w]['fragment'],
+                         fcdict[w]['Production_Info'],
+                         fcdict[w]['Quality_Control']))
     FLYCORE.write("\n")
 
 
@@ -247,10 +248,13 @@ if __name__ == '__main__':
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
     FLYCORE.write('IS')
-    for i in (1,2):
-        for h in ('__flipper_flystocks_stock::RACK_LOCATION','StockFinder::__kp_UniqueID','StockFinder::RobotID',
-                  'StockFinder::Genotype_GSI_Name_PlateWell','StockFinder::Chromosome','StockFinder::Stock_Name',
-                  'StockFinder::fragment','StockFinder::Production_Info','StockFinder::Quality_Control'):
+    for i in (1, 2):
+        for h in ('__flipper_flystocks_stock::RACK_LOCATION',
+                  'StockFinder::__kp_UniqueID', 'StockFinder::RobotID',
+                  'StockFinder::Genotype_GSI_Name_PlateWell',
+                  'StockFinder::Chromosome', 'StockFinder::Stock_Name',
+                  'StockFinder::fragment', 'StockFinder::Production_Info',
+                  'StockFinder::Quality_Control'):
             FLYCORE.write("\t%s" % (h))
     FLYCORE.write("\n")
     NO_CROSSES = open(INPUT_FILE + '.no_crosses.txt', 'w')
