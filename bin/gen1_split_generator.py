@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import json
 import pprint
 import re
@@ -20,6 +21,7 @@ fcdict = dict()
 def processInput():
     if (VERBOSE):
         print "Fetching split halves"
+    start_time = datetime.now()
     url = SAGE_RESPONDER + "split_halves"
     req = urllib2.Request(url)
     req.add_header('Content-Type', 'application/json')
@@ -49,8 +51,10 @@ def processInput():
             elif ((not ad) or (not dbd)):
                 NO_CROSSES.write("Missing AD/DBD for %s-x-%s\n" % (frag1,
                                                                    frag2))
+    stop_time = datetime.now()
     if (VERBOSE):
         print "  Crosses found: %d" % (crosses)
+        print "Elapsed time: ", stop_time - start_time
 
 
 def generateCross(fragdict, frag1, frag2):
