@@ -17,12 +17,14 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 # Change this on foreign installation
 use constant DATA_PATH => '/opt/informatics/data/';
+# Should be "All" or "GAL4"
+my $DRIVER = 'GAL4';
 
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
-our $APPLICATION = 'Gen1 representative image selector';
+our $APPLICATION = 'Gen1 ' . (($DRIVER eq 'All') ? '' : $DRIVER . ' ') . 'representative image selector';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my %CONFIG;
@@ -85,7 +87,7 @@ sub initializeProgram
 
 sub displayInput
 {
-  &printHeader();
+  &printHeader("reloadSetup();");
   my $rest = $CONFIG{sage}{url}.'gen1_images?family=dickson&line=BJD_1*';
   my $response = get $rest;
   &terminateProgram("<h3>REST GET returned null response</h3>"
@@ -97,6 +99,7 @@ sub displayInput
   my $selected = 0;
   foreach (@{$rvar->{image_data}}) {
     my($line,$driver,$area,$annotator) = @$_{qw(line driver area annotator)};
+    next if (($driver eq 'LexA') && ($DRIVER ne 'All'));
     $line{$line}{$driver}{$area} ||= 0;
     $annotator ||= '';
     if ($annotator) {
@@ -196,7 +199,7 @@ sub displayInput
                   scalar(keys %line_count),((scalar(keys %line_count) == 1) ? '' : 's');
   my $perc = sprintf '%.2f',$tfw/$ttw*100;
   $m .= (sprintf "Completed %d/%d wells (%s%%)<br>",$tfw,$ttw,$perc);
-  $m = table(Tr(td($m),td($pie1)));
+  $m = ($DRIVER eq 'All') ? table(Tr(td($m),td($pie1))) : table(Tr(td($m)));
   $m .= h3({align => 'center'},'Progress bar') . br .
         div({class => 'progress'},
             div({class => 'progress-bar progress-bar-info progress-bar-striped',
@@ -277,19 +280,22 @@ sub renderLines
     my $line_block .= h1($short
         . ((exists $vt_mapping{$short}) ? " ($vt_mapping{$short})" : ''));
     my %dblock = ();
+    my %mismatch = ();
     foreach my $driver (sort keys %{$line->{$short}}) {
+      next if (($driver eq 'LexA') && ($DRIVER ne 'All'));
       my %ablock = ();
       foreach my $area (sort keys %{$line->{$short}{$driver}}) {
-        $ablock{$area} = &renderArea($line->{$short}{$driver}{$area});
+        ($ablock{$area},$mismatch{$area}) = &renderArea($line->{$short}{$driver}{$area});
       }
       unless (scalar(keys %ablock) == 2) {
         $ablock{(exists $ablock{Brain}) ? 'VNC' : 'Brain'} = div({class => 'alert alert-danger'},'No<br>imagery');
       }
       foreach (sort keys %ablock) {
-        $dblock{$driver} .= div({class => 'area'},h3($_),$ablock{$_});
+        my($style) = ($mismatch{$_}) ? ('background-color: ' . $mismatch{$_}) : '';
+        $dblock{$driver} .= div({class => 'area',style => $style},h3($_),$ablock{$_});
       }
     }
-    unless (scalar(keys %dblock) == 2) {
+    if ((scalar(keys %dblock) != 2) && ($DRIVER eq 'All')) {
       $dblock{(exists $dblock{LexA}) ? 'GAL4_Collection' : 'LexA'} = div({class => 'alert alert-danger'},'No areas imaged');
     }
     foreach (sort keys %dblock) {
@@ -304,6 +310,7 @@ sub renderArea
 {
   my($image_list) = shift;
   my @columns = ();
+  my($mismatches,$novts) = (0)x2;
   foreach (@$image_list) {
     my($line,$image_id,$name,$url,$vtmatch,$vtid,$qi,$annotator) = @$_;
     # Get secondary images
@@ -357,22 +364,30 @@ sub renderArea
                           img({src => $src,height => 180})))),
                         Tr(td({width=>'50%'},$vt),td({width=>'20%'},$checkbox),
                            td({width=>'30%'},$qi)));
+    $mismatches++ if ($vt eq 'VT mismatch');
+    $novts++ if ($vt eq 'No VT');
   }
   my $html = table(Tr(td([@columns])));
-  return($html);
+  my $color = '';
+  $color = '#663366' if ($mismatches == scalar(@$image_list));
+  $color = '#666600' if (($novts + $mismatches) == scalar(@$image_list));
+  return($html,$color);
 }
 
 
 sub printHeader {
+  my($onload) = shift;
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
                     ('highcharts-4.0.1/highcharts',
                      'highcharts-4.0.1/highcharts-more',
                      $PROGRAM);
-
+  my %load = ();
+  $load{load} = $onload if ($onload);
   print &standardHeader(title => $APPLICATION,
                         script => \@scripts,
                         css_prefix => $PROGRAM,
                         breadcrumbs => \@BREADCRUMBS,
-                        expires => 'now'),
+                        expires => 'now',
+                        %load),
         start_multipart_form;
 }
