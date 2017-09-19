@@ -36,7 +36,10 @@ use constant NBSP => '&nbsp;';
 our ($USERID,$USERNAME);
 my $Session;
 # Database
-our ($dbh);
+our (%pdbh,%sth);
+our $dbh;
+# Counters
+my (%image_check,%line_check);
 
 # ****************************************************************************
 # Session authentication
@@ -44,15 +47,29 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 &sessionLogout($Session) if (param('logout'));
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
-my %sth = (
+my %sths = (
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
-           . "WHERE published IS NOT NULL",
+           . "WHERE published='Y'",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
                . "COUNT(1) FROM image_data_mv WHERE published='Y' "
-               . "GROUP BY 1,2",
+               . "GROUP BY 1,2 ORDER BY 1,2",
   WAITING => "SELECT published_to,alps_release,publishing_user,"
              . "COUNT(DISTINCT line),COUNT(1) FROM image_data_mv WHERE "
              . "published IS NULL AND to_publish='Y' GROUP BY 1,2,3",
+  SPLIT_GAL4 => "SELECT COUNT(DISTINCT line) FROM image_data_mv WHERE "
+               . "published='Y' AND published_to='Split GAL4'",
+);
+my %FLEW = (
+  PUBLISHED => "SELECT COUNT(DISTINCT line),COUNT(1) FROM image_data_mv "
+               . "WHERE family != 'rubin_lab_external'",
+);
+my %MBEW = (
+  LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv",
+  PUBLISHED => "SELECT alps_release,COUNT(DISTINCT line),COUNT(1) FROM "
+               . "image_data_mv GROUP BY 1",
+  HALVES => "SELECT value,COUNT(1) FROM line l JOIN line_property_vw lp ON "
+            . "(l.id=lp.line_id AND lp.type='flycore_project') WHERE "
+            . "l.name NOT IN (SELECT line FROM image_data_mv) GROUP BY 1",
 );
 
 
@@ -63,8 +80,12 @@ my %sth = (
 &displayDashboard();
 # We're done!
 if ($dbh) {
-  ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
+  ref($sths{$_}) && $sths{$_}->finish foreach (keys %sths);
   $dbh->disconnect;
+  foreach my $i (keys %sth) {
+    ref($sth{$i}{$_}) && $sth{$i}{$_}->finish foreach (keys %{$sth{$i}});
+    $pdbh{$i}->disconnect;
+  }
 }
 exit(0);
 
@@ -77,59 +98,166 @@ sub initializeProgram
 {
   # Connect to databases
   &dbConnect(\$dbh,'sage');
-  $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
-    foreach (keys %sth);
+  $sths{$_} = $dbh->prepare($sths{$_}) || &terminateProgram($dbh->errstr)
+    foreach (keys %sths);
+  foreach my $i ('flew-dev','flew-prod') {
+    print STDERR "Connect to $i\n";
+    &dbConnect(\$pdbh{$i},split('-',$i));
+    $sth{$i}{$_} = $pdbh{$i}->prepare($FLEW{$_}) || &terminateProgram($pdbh{$i}->errstr)
+      foreach (keys %FLEW);
+  }
+  foreach my $i ('mbew-dev','mbew-prod') {
+    print STDERR "Connect to $i\n";
+    &dbConnect(\$pdbh{$i},split('-',$i));
+    $sth{$i}{$_} = $pdbh{$i}->prepare($MBEW{$_}) || &terminateProgram($pdbh{$i}->errstr)
+      foreach (keys %MBEW);
+  }
 }
 
 
 sub displayDashboard
 {
+  my %BG = ('Pre-staged' => '#bb0',
+            Staged => '#c90',
+            Production => '#696');
   &printHeader();
+  my $waiting = '';
+  my %published;
+  ($published{'Pre-staged'},$waiting) = &getPrestagedData();
+  $published{Staged} = &getStagedData('mbew-dev');
+  $published{Staged} .= &getStagedData('flew-dev');
+  $published{Production} = &getStagedData('mbew-prod');
+  $published{Production} .= &getStagedData('flew-prod');
+  # Render
+  if ($waiting) {
+    print div({class => 'panel panel-info'},
+              div({class => 'panel-heading'},
+                  span({class => 'panel-heading;'},
+                       'Awaiting publishing')),
+              div({class => 'panel-body'},$waiting))
+          . div({style => 'clear: both;'},NBSP);
+  }
+  my $render = '';
+  foreach ('Pre-staged','Staged','Production') {
+    $render .= div({class => 'boxed',
+                    style => "float: left; width: 350px; height: 520px;background-color: $BG{$_};"},
+                   h1({style => 'color: #fff'},$_),$published{$_});
+  }
+  print div({class => 'panel panel-success'},
+            div({class => 'panel-heading'},
+                span({class => 'panel-heading;'},'Published')),
+            div({class => 'panel-body'},
+                div({style => 'float: left;'},$render)));
+  print end_form,&sessionFooter($Session),end_html;
+}
+
+
+sub getPrestagedData
+{
   my $service = JFRC::LDAP->new();
-  my $annotator;
+  my ($annotator,$ar,$waiting) = ('')x3;
   # Waiting
-  $sth{WAITING}->execute();
-  my $ar = $sth{WAITING}->fetchall_arrayref();
-  my $waiting;
+  $sths{WAITING}->execute();
+  $ar = $sths{WAITING}->fetchall_arrayref();
   if (scalar @$ar) {
     foreach (@$ar) {
-      my $u = $service->getUser($_->[2]);
-      $annotator = join(' ',$u->{givenName},$u->{sn});
+      unless ($_->[0]) {
+        $_->[0] = 'FLEW';
+        $_->[1] = '(FLEW)';
+      }
+      if ($_->[2]) {
+        my $u = $service->getUser($_->[2]);
+        $annotator = join(' ',$u->{givenName},$u->{sn});
+      }
       $_->[2] = $annotator || $_->[2];
     }
     $waiting = table({id => 'waiting',class => 'tablesorter standard'},
-                     thead(Tr(th(['Website','ALPS release','Annotator','Lines',
-                                  'Images']))),
+                     thead(Tr(th(['Website','ALPS release','Annotator',
+                                  'Lines','Images']))),
                      tbody(map {Tr(td($_))} @$ar));
   }
   # Published
-  $sth{PUBLISHED}->execute();
-  $ar = $sth{PUBLISHED}->fetchall_arrayref();
+  $sths{PUBLISHED}->execute();
+  $ar = $sths{PUBLISHED}->fetchall_arrayref();
   my $published;
   if (scalar @$ar) {
-    $sth{LINES}->execute();
-    my($line_count) = $sth{LINES}->fetchrow_array();
+    $sths{LINES}->execute();
+    my($line_count) = $sths{LINES}->fetchrow_array();
     my $image_count = 0;
     $image_count += $_->[-1] foreach (@$ar);
+    my %group;
+    foreach (@$ar) {
+      if ($_->[0] =~ /^FLEW/) {
+        $_->[1] = ($_->[0] eq 'FLEW') ? '(FLEW)' : '(FLEW-VT)';
+        $_->[0] = 'FLEW';
+      }
+      $a = $_->[0];
+      $_->[0] = a({href => (($_->[0] eq 'FLEW') ? 'http://www.janelia.org/gal4-gen1'
+                                                : 'http://splitgal4.janelia.org'),
+                   target => '_blank'},$_->[0]);
+      $group{$_->[0]}{name} = $a;
+      $group{$_->[0]}{lines} += $_->[2];
+      $group{$_->[0]}{images} += $_->[3];
+      $line_check{'Pre-staged'}{$_->[1]} = $_->[2];
+      $image_check{'Pre-staged'}{$_->[1]} = $_->[3];
+    }
+    $sths{SPLIT_GAL4}->execute();
+    foreach (keys %group) {
+      $group{$_}{lines} = $sths{SPLIT_GAL4}->fetchrow_array() if (/Split GAL4/);
+    }
     $published = table({id => 'published',class => 'tablesorter standard'},
                        thead(Tr(th(['Website','ALPS release','Lines','Images']))),
                        tbody(map {Tr(td($_))} @$ar),
-                       tfoot(Tr(td(['','',$line_count,$image_count]))));
+                       tfoot(Tr(td(['','',$line_count,$image_count]))))
+                 . table({class => 'standard'},
+                         thead(Tr(th(['Website','Lines','Images']))),
+                         tbody(map {Tr(td([$_,$group{$_}{lines},$group{$_}{images}]))} sort {$group{$a}{name} cmp $group{$b}{name}} keys %group));
   }
-  # Render
-  print div({class => 'panel panel-warning'},
-            div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},
-                     'Awaiting publishing')),
-            div({class => 'panel-body'},$waiting)),
-        div({style => 'clear: both;'},NBSP) if ($waiting);
-  print div({class => 'panel panel-success'},
-            div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},
-                     'Published')),
-            div({class => 'panel-body'},$published)),
-        div({style => 'clear: both;'},NBSP) if ($published);
-  print end_form,&sessionFooter($Session),end_html;
+  return($published,$waiting);
+}
+
+
+sub getStagedData
+{
+  my $instance = shift;
+  $sth{$instance}{PUBLISHED}->execute();
+  my $ar = $sth{$instance}{PUBLISHED}->fetchall_arrayref();
+  my $published = '';
+  my($previous) = ($instance =~ /dev/) ? 'Pre-staged' : 'Staged';
+  my($current) = ($instance =~ /dev/) ? 'Staged' : 'Production';
+  if ($instance =~ /mbew/) {
+    $sth{$instance}{LINES}->execute();
+    my($line_count) = $sth{$instance}{LINES}->fetchrow_array();
+    my $image_count = 0;
+    foreach (@$ar) {
+      $image_count += $_->[2];
+      $line_check{$current}{$_->[0]} = $_->[1];
+      $image_check{$current}{$_->[0]} = $_->[2];
+      $_->[1] = span({style => 'color: red'},$_->[1])
+        if ($line_check{$previous}{$_->[0]} != $_->[1]);
+      $_->[2] = span({style => 'color: red'},$_->[2])
+        if ($image_check{$previous}{$_->[0]} != $_->[2]);
+    }
+    $published = table({id => 'publishedm',class => 'tablesorter standard'},
+                       thead(Tr(th(['ALPS release','Lines','Images']))),
+                       tbody(map {Tr(td($_))} @$ar),
+                       tfoot(Tr(td(['',$line_count,$image_count]))));
+    $sth{$instance}{HALVES}->execute();
+    $ar = $sth{$instance}{HALVES}->fetchall_arrayref();
+    my $tsh = 0;
+    $tsh += $_->[1] foreach (@$ar);
+    $published .= table({id => 'publishedh',class => 'tablesorter standard'},
+                        thead(Tr(th(['Lines','Images']))),
+                        tbody(map {Tr(td($_))} @$ar),
+                        tfoot(Tr(td(['',$tsh]))));
+  }
+  else {
+    $published = table({id => 'publishedf',class => 'tablesorter standard'},
+                       thead(Tr(th(['Lines','Images']))),
+                       tbody(map {Tr(td($_))} @$ar));
+  }
+  my($header) = ($instance =~ /flew/) ? 'Gen1 GAL4/LexA' : 'Split-GAL4';
+  return(h2($header) . $published);
 }
 
 
