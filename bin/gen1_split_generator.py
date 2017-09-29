@@ -5,7 +5,7 @@ import pprint
 import re
 import urllib2
 
-SAGE_RESPONDER = 'http://informatics-flask-dev.int.janelia.org:83/' + \
+SAGE_RESPONDER = 'http://informatics-flask.int.janelia.org:83/' + \
     'sage_responder/'
 FLYCORE_RESPONDER = 'http://informatics-prod.int.janelia.org/' + \
     'cgi-bin/flycore_responder.cgi'
