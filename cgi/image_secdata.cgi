@@ -70,7 +70,7 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
@@ -102,7 +102,7 @@ sub displaySecdata
   if ($query =  param('lsm')) {
     $query =~ s/.+\///;
     $query =~ s/\.bz2$//;
-    my $rest = $CONFIG{url}.$CONFIG{query}{LSMImages} . '?name=' . $query;
+    my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . '?name=' . $query;
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")
@@ -117,7 +117,7 @@ sub displaySecdata
   elsif ($query =  param('id')) {
   }
   if ($query) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{SampleJSON} . '?sampleId=' . $query;
+    my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{SampleJSON} . '?sampleId=' . $query;
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")
@@ -195,6 +195,7 @@ sub renderFileBlock
   my $base = $res->{filepath} . '/';
   my $files = $res->{files};
   my $block = '';
+  my (%name,%url);
   foreach (sort keys %{$files}) {
     my $thumb;
     my $url = $WEBDAV . $base . $files->{$_};
@@ -205,7 +206,16 @@ sub renderFileBlock
       case /Fast-loading Stack/ { $thumb = '/images/movie_mp4.png';
                                    $url = $WEBDAV . $files->{$_}; }
       else { $thumb = $WEBDAV . $base . $files->{$_};
-             $url = "view_image.cgi?url=$url&caption=$_"; }
+             if ($_ eq 'Reference MIP') {
+               $name{image1} = $_;
+               $url{image1} = $url;
+             }
+             elsif ($_ eq 'Signal MIP') {
+               $name{image2} = $_;
+               $url{image2} = $url;
+             }
+             $url = "view_image.cgi?url=$url&caption=$_";
+           }
     }
     my $img .= table({},
                      Tr(td(a({href => $url,
@@ -214,6 +224,19 @@ sub renderFileBlock
                                   height => 100})))),
                      Tr(td($_)));
     $block .= div({class => 'single_mip'},$img);
+  }
+  if (exists($url{image1}) && exists($url{image2})) {
+    my $p = join('&',map { $_.'name='.$name{$_}.'&'.$_.'url='.$url{$_}.'&'} 
+                         keys %name);
+    my $images = join(' and ',sort values %name);
+    $p .= "&caption=Overlay of $images";
+    my $title = "Display overlay of $images";
+    $block .= div({class => 'single_mip'},
+                  table({},
+                        Tr(td({map {$_ => 100} qw(height width)},
+                              a({href => "image_overlay.cgi?$p",
+                                 target => '_blank'},$title))),
+                        Tr(td('Overlay'))));
   }
   div({style => 'float: left;'},
       div({class => 'line',
@@ -225,7 +248,7 @@ sub renderFileBlock
 sub renderSingleLSM
 {
   my($lsm_name) = shift;
-  my $rest = $CONFIG{url}.$CONFIG{query}{LSMImages} . '?name=' . $lsm_name;
+  my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . '?name=' . $lsm_name;
   my $response = get $rest;
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")

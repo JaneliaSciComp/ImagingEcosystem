@@ -53,9 +53,9 @@ my %sths = (
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
                . "COUNT(1) FROM image_data_mv WHERE published='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
-  WAITING => "SELECT published_to,alps_release,publishing_user,"
-             . "COUNT(DISTINCT line),COUNT(1) FROM image_data_mv WHERE "
-             . "published IS NULL AND to_publish='Y' GROUP BY 1,2,3",
+  WAITING => "SELECT line,published_to,alps_release,publishing_user,"
+             . "COUNT(name) FROM image_data_mv WHERE published IS NULL "
+             . "AND to_publish='Y' GROUP BY 1,2,3,4",
   SPLIT_GAL4 => "SELECT COUNT(DISTINCT line) FROM image_data_mv WHERE "
                . "published='Y' AND published_to='Split GAL4'",
 );
@@ -161,19 +161,19 @@ sub getPrestagedData
   $ar = $sths{WAITING}->fetchall_arrayref();
   if (scalar @$ar) {
     foreach (@$ar) {
-      unless ($_->[0]) {
-        $_->[0] = 'FLEW';
-        $_->[1] = '(FLEW)';
+      unless ($_->[1]) {
+        $_->[1] = 'FLEW';
+        $_->[2] = '(FLEW)';
       }
-      if ($_->[2]) {
-        my $u = $service->getUser($_->[2]);
+      if ($_->[3]) {
+        my $u = $service->getUser($_->[3]);
         $annotator = join(' ',$u->{givenName},$u->{sn});
       }
-      $_->[2] = $annotator || $_->[2];
+      $_->[3] = ($annotator ne ' ') ? $annotator : $_->[3];
     }
     $waiting = table({id => 'waiting',class => 'tablesorter standard'},
-                     thead(Tr(th(['Website','ALPS release','Annotator',
-                                  'Lines','Images']))),
+                     thead(Tr(th(['Line','Website','ALPS release','Annotator',
+                                  'Images']))),
                      tbody(map {Tr(td($_))} @$ar));
   }
   # Published
