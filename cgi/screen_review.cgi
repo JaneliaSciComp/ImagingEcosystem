@@ -36,7 +36,8 @@ my @BREADCRUMBS = ('Imagery tools',
 my @CROSS = qw(Polarity MCFO Stabilization);
 my $STACK = 'view_sage_imagery.cgi?_op=stack;_family=split_screen_review;_image';
 my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
-my $PRIMARY_MIP = 'Signal 1 MIP Image';
+my $PRIMARY_MIP = 'Signal 1 MIP';
+my $SECONDARY_MIP = 'Signal MIP ch1';
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -169,7 +170,6 @@ sub initializeProgram
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
   $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
-  $PRIMARY_MIP = 'Signal 1 MIP' if ($MONGO);
   # Modify statements
   if ($START && $STOP) {
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
@@ -180,6 +180,7 @@ sub initializeProgram
   elsif ($STOP) {
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
   }
+  print STDERR "Primary query: $sth{IMAGES}\n";
   # Connect to databases
   &dbConnect(\$dbh,'sage')
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
@@ -258,7 +259,8 @@ sub getSingleMIP
     eval {$rvar = decode_json($response)};
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
-    return($rvar->{files}{$PRIMARY_MIP}||'',$rvar->{brightnessCompensation}||0);
+use Data::Dumper; print STDERR Dumper($rvar)."\n";
+    return($rvar->{files}{$PRIMARY_MIP}||$rvar->{files}{$SECONDARY_MIP}||'',$rvar->{brightnessCompensation}||0);
   }
   else {
     $sth{LSMMIPS}->execute($wname);
