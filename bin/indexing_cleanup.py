@@ -118,7 +118,7 @@ def processImages(cursor):
     print 'Images failing indexing: %d' % count['failure']
 
 def indexImage(config,grammar,name,data_set):
-    command = ['perl','/opt/informatics/bin/sage_loader.pl','-config',config,'-grammar',grammar,'-item',name,'-lab','flylight','-verbose']
+    command = ['perl','/opt/informatics/bin/sage_loader.pl','-config',config,'-grammar',grammar,'-item',name,'-lab','flylight','-verbose','-description','Image load from indexing_cleanup']
     if VERBOSE:
         print 'Processing %s %s' % (data_set,name)
         if DEBUG:
