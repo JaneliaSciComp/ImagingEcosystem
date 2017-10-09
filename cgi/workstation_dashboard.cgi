@@ -50,8 +50,11 @@ our ($USERID,$USERNAME);
 my $INTAKE = 0;
 my $Session;
 # General
-my ($Completed,$Cycle_time,$Errored,$Error_rate) = ('')x4;
+my ($Capture_per_day,$Completed,$CT_cycle_time,$DC_cycle_time,$Errored,
+    $Error_rate,$Intake_per_day) = ('')x7;
+my($Total_queued,$Total_on_cluster) = (0)x2;
 my @Unavailable_hosts = ();
+my %status_count;
 
 # ****************************************************************************
 $INTAKE = param('intake');
@@ -102,6 +105,7 @@ sub displayDashboard
   %PARMS = (text_color => '#fff', width => $width.'px',
             height => (sprintf '%d',$width*.6).'px');
   &printHeader();
+  my $pipeline = ($INTAKE) ? '' : &reportStatus();
   # Intake
   my(%captured,%count,%sum);
   my $ar;
@@ -116,11 +120,16 @@ sub displayDashboard
   $count{all} = scalar @$ar;
   my (%bin1,%bin2);
   my %cbin = map {(sprintf '%02d',$_) => 0} (0..23);
-  my %max = (all => 0,20 => 0,40 => 0,63 => 0);
+  my %max = map {$_ => 0} qw(all 20 40 63);
+  my %min = map {$_ => 1e9} qw(all 20 40 63);
   my %max_capture = map { $_ => 0 } qw(all 20 40 63);
   my %max_create = map { $_ => 0 } qw(all 20 40 63);
-  my ($ct_acc,$ct_cnt,$max_ct,$min_ct) = ((0)x3,1e9);
+  my (%ct_acc,%ct_cnt);
+  my %max_ct = map {$_ => 0} qw(all 20 40 63);
+  my %min_ct = map {$_ => 1e9} qw(all 20 40 63);
+  my $img_acc = 0;
   foreach (@$ar) {
+    $_->[4] ||= '';
     my $objective = '';
     $objective = '20' if ($_->[4] =~ /20[Xx]/);
     $objective = '40' if ($_->[4] =~ /40[Xx]/);
@@ -136,6 +145,7 @@ sub displayDashboard
       $max_capture{all}++;
       $max_capture{$objective}++;
     }
+    $img_acc++;
     # Create date
     $cbin{(split(/[ :]/,$_->[1]))[1]}++ unless (index($_->[1],$today));
     $_->[1] =~ s/ .+//;
@@ -144,20 +154,30 @@ sub displayDashboard
       $max_create{all}++;
       $max_create{$objective}++;
     }
+    $_->[2] ||= 0;
+    $_->[3] ||= 0;
+    $_->[2] = 0 if ($_->[2] < 0);
+    $_->[3] = 0 if ($_->[3] < 0);
+    $min{all} = $_->[3] if ($_->[3] < $min{all});
+    $min{$objective} = $_->[3] if (defined($min{$objective}) && $_->[3] < $min{$objective});
     $max{all} = $_->[2] if ($_->[2] > $max{all});
-    $max{$objective} = $_->[2] if ($_->[2] > $max{$objective});
+    $max{$objective} = $_->[2] if (defined($max{$objective}) && $_->[2] > $max{$objective});
     $sum{all} += $_->[2];
     $sum{$objective} += $_->[2];
     # Images created today
     if (!index($_->[1],$today) && ($_->[2] >= 0) && $_->[3]) {
-      $ct_acc += $_->[3];
-      $ct_cnt++;
-      $max_ct = $_->[3] if ($_->[3] > $max_ct);
-      $min_ct = $_->[3] if ($_->[3] < $min_ct);
+      foreach my $o ('all',$objective) {
+        $ct_acc{$o} += $_->[3];
+        $ct_cnt{$o}++;
+        $max_ct{$o} = $_->[3] if ($_->[3] > $max_ct{$o});
+        $min_ct{$o} = $_->[3] if (($_->[3] > 0) && ($_->[3] < $min_ct{$o}));
+      }
     }
   }
   # Histograms
   &fillDates(\%bin2);
+  $Capture_per_day = $img_acc / scalar(keys %bin1);
+  $Intake_per_day = $img_acc / scalar(keys %bin2);
   my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
   my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
   my $histogram1 = &generateHistogram(arrayref => \@bin1,
@@ -184,17 +204,17 @@ sub displayDashboard
     next if (($_ ne 'all') && (!$max_capture{$_} && !$max_create{$_}));
     $today{$_} .= "Images captured: $max_capture{$_}<br>";
     $today{$_} .= "Images ingested: $max_create{$_}";
-    if ($ct_cnt) {
+    if ($ct_cnt{$_}) {
       $today{$_} .= '<br>Capture &rarr; TMOG cycle time<br>';
-      $today{$_} .= '&nbsp;&nbsp;Minimum: ' . &displayElapsed($min_ct/3600) . br;
-      $today{$_} .= '&nbsp;&nbsp;Maximum: ' . &displayElapsed($max_ct/3600) . br;
-      $today{$_} .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc/$ct_cnt)/3600) . br;
+      $today{$_} .= '&nbsp;&nbsp;' . &displayElapsed($min_ct{$_}/3600) . ' - '
+                    . &displayElapsed($max_ct{$_}/3600) . br;
+      $today{$_} .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc{$_}/$ct_cnt{$_})/3600) . br;
     }
   }
   # Check for images awaiting indexing
-  my $rvar = &getREST($REST{sage}{url}."/unindexed_images");
+  $rvar = &getREST($REST{sage}{url}."/unindexed_images");
   my $icount = scalar(@{$rvar->{images}}) || 0;
-  $today{all} .= "<span style='color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
+  $today{all} .= "<span style='color: #fff; background-color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
   $today{all} .= $clock;
   foreach (qw(all 20 40 63)) {
     $today{$_} = h3({style => 'text-align: center'},'Today').$today{$_} if ($today{$_});
@@ -210,15 +230,17 @@ sub displayDashboard
                              
     }
     $last{$_} = '';
+    $CT_cycle_time = &displayElapsed($sum{$_}/$count{$_},'d')
+      unless ($CT_cycle_time);
     $last{$_} = h3({style => 'text-align: center'},$title,
                    "Last $MEASUREMENT_DAYS days ($ago)")
                 . "Images captured: $captured{$_}" . br
                 . "Images ingested: $count{$_}" . br
                 . "Capture &rarr; TMOG cycle time<br>"
+                . "&nbsp;&nbsp;" . &displayElapsed($min{$_}/3600) . ' - '
+                . &displayElapsed($max{$_},'d') . br
                 . "&nbsp;&nbsp;Average: "
-                . &displayElapsed($sum{$_}/$count{$_},'d') . br
-                . '&nbsp;&nbsp;Maximum: '
-                . &displayElapsed($max{$_},'d')
+                . &displayElapsed($sum{$_}/$count{$_},'d')
       if ($count{$_});
   }
   my $objective_boxes = '';
@@ -237,7 +259,6 @@ sub displayDashboard
                            div({class => 'left10'},$histogram1,br,$histogram2),
                            div({style => 'float: left;'},$objective_boxes))))
                . div({style => 'clear: both;'},NBSP);
-  my $pipeline = ($INTAKE) ? '' : &reportStatus();
   &printCurrentStatus();
   print $intake,$pipeline;
   if ($INTAKE) {
@@ -276,7 +297,7 @@ sub reportStatus
     push @$ar,[@{$_}{qw(_id count)}];
   }
   foreach (@$ar) {
-    $count{$_->[0]} = $_->[1];
+    $status_count{$_->[0]} = $_->[1];
     $total += $_->[1];
     next if ($_->[0] eq 'Null');
     ($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? $piec{$_->[0]} = $_->[1]
@@ -284,7 +305,7 @@ sub reportStatus
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  my $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{PipelineStatus}
+  $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{PipelineStatus}
                       . '?hours=' . $MEASUREMENT_HOURS);
   my ($pipeline_acc,$samples,$successful) = (0)x3;
   foreach (@$rvar) {
@@ -299,7 +320,7 @@ sub reportStatus
       $pipeline_acc += $_->{pipelineTime};
     }
   }
-  $Cycle_time = sprintf '%.2f',$pipeline_acc/$successful/24 if ($successful);
+  $DC_cycle_time = sprintf '%.2f',$pipeline_acc/$successful/24 if ($successful);
   my @bin3 = map { [$_,$bin3{$_}] } sort keys %bin3;
   my @bin4 = map { [$_,$bin4{$_}] } sort keys %bin4;
   my %bin_days = map { $_ => 1 } keys(%bin3);
@@ -379,7 +400,6 @@ sub reportStatus
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")
     unless (length($response));
-  my $rvar;
   eval {$rvar = decode_json($response)};
   &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                     . "Response: $response<br>Error: $@") if ($@);
@@ -430,9 +450,9 @@ sub reportStatus
                      div({style => 'float: left'},
                          table({id => 'stats',class => 'tablesorter standard'},
                                thead(Tr(th(['Disposition','Status','Count','%']))),
-                               tbody(map {Tr(td([$disposition{$_},$_,&commify($count{$_}),
-                                                 sprintf '%.2f%%',$count{$_}/$total*100]))}
-                                    sort keys %count)),
+                               tbody(map {Tr(td([$disposition{$_},$_,&commify($status_count{$_}),
+                                                 sprintf '%.2f%%',$status_count{$_}/$total*100]))}
+                                    sort keys %status_count)),
                          $donut1),
                      div({style => 'float: left',align => 'center'},$line1),br,
                      div({style => 'clear: both;'},NBSP),
@@ -476,37 +496,71 @@ sub printCurrentStatus
   $srv_style = 'red' unless ($active_hosts == $total_hosts);
   $srv_style = "color: $srv_style";
   my $ct = '';
-  if ($Cycle_time) {
-    my $ct_style = 'lime';
-    if ($Cycle_time > 2) {
-      $ct_style = 'red';
-    }
-    elsif ($Cycle_time > 1) {
-      $ct_style = 'orange';
-    }
-    $ct = 'Avg. cycle time: '
-          . span({style => "color: $ct_style"},
-                 $Cycle_time) . ' days'
-          . span({style => 'font-size: 10pt'},
-                 " (Discovery &rarr; Completion over $MEASUREMENT_DAYS days)"),
+  $ct = 'Average cycle time:' . br if ($CT_cycle_time || $DC_cycle_time);
+  $ct .= span({style => "color: ".&getColor($CT_cycle_time)},
+              $CT_cycle_time) . ' days'
+         . span({style => 'font-size: 10pt'},
+                " (Capture &rarr; TMOG over $MEASUREMENT_DAYS days)") . br;
+  if ($DC_cycle_time) {
+    $ct .= span({style => "color: ".&getColor($DC_cycle_time)},
+                $DC_cycle_time) . ' days'
+           . span({style => 'font-size: 10pt'},
+                  " (Discovery &rarr; Completion over $MEASUREMENT_DAYS days)");
   }
-  print div({class => 'panel panel-primary'},
-            div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},'Current status')),
+  my $it = '';
+  $it .= sprintf "Capture: %d<br>",$Capture_per_day if ($Capture_per_day);
+  $it .= sprintf "Intake: %d<br>",$Intake_per_day if ($Intake_per_day);
+  if ($it) {
+    $it = 'Average LSMs per day:' . br
+          . div({style => 'font-size: 16pt; padding-left: 10px;'},$it);
+  }
+  my $scheduled = '';
+  if ($a = $status_count{Scheduled}) {
+    $scheduled = sprintf "%d sample%s scheduled but not queued<br>to a JACS server",$a,($a == 1) ? '' : 's';
+    $scheduled = div({class => "panel panel-danger"},
+                     div({class => "panel-body"},
+                         span({style => 'font-size: 10pt;color: #f33;'},$scheduled)));
+  }
+  my $processing_stats = &getProcessingStats();
+  my $panel = 'primary';
+  my $current = 'Current status';
+  if ($scheduled && !$Total_queued && !$Total_on_cluster) {
+    $panel = 'danger';
+    $current = span({style => 'font-size: 20pt;color: #f33;'},'Pipeline is shut down');
+  }
+  print div({class => "panel panel-$panel"},
+             div({class => 'panel-heading'},
+                span({class => 'panel-heading;'},$current)),
             div({class => 'panel-body',style => 'font-size: 18pt'},
                 div({style => 'float: left'},
                     div({class=> 'left30'},
                         'Error rate: ',
                         span({style => $err_style},$Error_rate.'%'),
-                        span({style => 'font-size: 10pt'},"($Errored/$Completed samples)")),
+                        span({style => 'font-size: 11pt'},"($Errored/$Completed samples)")),
                 div({class=> 'left30'},
-                    'Available servers: ',
+                    $scheduled,
+                    'Available JACS servers: ',
                     span({style => $srv_style},
                          (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg),
-                    &getProcessingStats()),
-                div({class=> 'left30'},$ct)
+                    $processing_stats),
+                div({class=> 'left30'},$ct,br,$it)
                ))),
            div({style => 'clear: both;'},NBSP);
+}
+
+
+sub getColor
+{
+  my($num) = shift;
+  $num =~ s/ .+//;
+  my $ct_style = 'lime';
+  if ($num > 2) {
+    $ct_style = 'red';
+  }
+  elsif ($num > 1) {
+    $ct_style = 'orange';
+  }
+  return($ct_style);
 }
 
 
@@ -575,6 +629,7 @@ sub getProcessingStats
     $sum[1] += $queued;
     $sum[2] += $on_queue;
   }
+  ($Total_queued,$Total_on_cluster) = @sum[1..2];
   table({id => 'proc', class => 'tablesorter standard'},
         thead(Tr(th([qw(Server Queued),'On cluster']))),
         tbody(map {Tr(td(a({href => 'http://' . $_->[0] . $suffix,
@@ -633,7 +688,7 @@ sub printHeader {
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
                     ('highcharts-4.0.1/highcharts',
                      'highcharts-4.0.1/highcharts-more',
-                     'jquery/jquery.tablesorter','tablesorter');
+                     'jquery/jquery.tablesorter','tablesorter',$PROGRAM);
   my @styles = map { Link({-rel=>'stylesheet',
                            -type=>'text/css',-href=>"/css/$_.css"}) }
                    qw(tablesorter-jrc1);

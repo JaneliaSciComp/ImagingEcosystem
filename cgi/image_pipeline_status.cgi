@@ -427,7 +427,7 @@ sub getMONGO
   }
   my $t0 = [gettimeofday];
   my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
-  my $response = get $rest;
+  my $response = (get $rest) || '';
   if ($selector eq 'Entity') {
     return((length($response)) ? 1 : 0);
   }

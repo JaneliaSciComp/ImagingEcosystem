@@ -259,7 +259,6 @@ sub getSingleMIP
     eval {$rvar = decode_json($response)};
     &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                       . "Response: $response<br>Error: $@") if ($@);
-use Data::Dumper; print STDERR Dumper($rvar)."\n";
     return($rvar->{files}{$PRIMARY_MIP}||$rvar->{files}{$SECONDARY_MIP}||'',$rvar->{brightnessCompensation}||0);
   }
   else {

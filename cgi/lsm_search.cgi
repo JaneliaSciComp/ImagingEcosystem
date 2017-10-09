@@ -77,7 +77,7 @@ sub initializeProgram
 sub showQuery
 {
   &printHeader('initial');
-  my $url = $REST{workstation}{url} . "info/dataset/sageimagery";
+  my $url = $REST{jacs}{url} . "info/dataset/sageimagery";
   my $rvar = &getREST($url);
   my @ds_list;
   ($_->{identifier}) && push @ds_list,$_->{identifier} foreach (@$rvar);

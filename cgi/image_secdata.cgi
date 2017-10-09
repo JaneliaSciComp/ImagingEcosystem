@@ -263,7 +263,7 @@ sub renderSingleLSM
       my $url = '';
       my @f = split ('/',$rvar->{files}{$_});
       my $name = join('/',$f[-2],$f[-1]);
-      $rest = 'http://informatics-flask:83/sage_responder/images?name=' . $name;
+      $rest = "$CONFIG{sage}{url}images?name=$name";
       $rest =~ s/\.bz2$//;
       $response = get $rest;
       my $rvar2;

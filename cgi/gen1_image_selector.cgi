@@ -81,7 +81,6 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $CONFIG{sage}{url} =~ s/flask/flask-dev/; #PLUG
 }
 
 
@@ -175,9 +174,11 @@ sub displayInput
     $ttw += $tw;
     my $perc = sprintf '%.2f',$fw/$tw*100;
     my $pround = sprintf '%d',$perc;
-    my $color =  $COLOR{&roundup($pround,10)};
+    my $rounded = &roundup($pround,10);
+    my $text_color = ($rounded >= 90) ? 'black' : 'white';
+    my $color =  $COLOR{$rounded};
     my $plate = div({class => 'plate',
-                    style => "background-color: $color"},$p,br,
+                    style => "background-color: $color; color: $text_color"},$p,br,
                     (sprintf "%d/%d (%s%%) wells complete",$fw,$tw,$perc));
     print a({href => "?plate=$p"},$plate);
   }
