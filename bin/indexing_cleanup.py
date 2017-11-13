@@ -15,9 +15,11 @@ INDEX_ONLY = False
 VERBOSE = False
 DEBUG = False
 TEST = False
+ALL = False
 # SQL statements
 SQL = {
-  'ALL': "SELECT i.family,ipd.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample') AND TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
+  'OVERDUE': "SELECT i.family,ipd.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample') AND TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
+  'ALL': "SELECT i.family,ipd.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
 }
 # Counters
 count = {'failure': 0, 'found': 0, 'success': 0}
@@ -56,8 +58,9 @@ def dbConnect():
         sqlError(e)
 
 def processImages(cursor):
+    mode = 'ALL' if ALL else 'OVERDUE'
     try:
-        cursor.execute(SQL['ALL'])
+        cursor.execute(SQL[mode])
     except MySQLdb.Error as e:
         sqlError(e)
 
@@ -156,11 +159,13 @@ if __name__ == '__main__':
     parser.add_argument('-verbose',action='store_true',dest='verbose',default=False,help='Turn on verbose output')
     parser.add_argument('-debug',action='store_true',dest='debug',default=False,help='Turn on debug output')
     parser.add_argument('-test',action='store_true',dest='test',default=False,help='Test mode - does not actually run the indexer or discovery service')
+    parser.add_argument('-all',action='store_true',dest='all',default=False,help='Selects all images, not just overdue ones')
     args = parser.parse_args()
     INDEX_ONLY = args.index
     VERBOSE = args.verbose
     DEBUG = args.debug
     TEST = args.test
+    ALL = args.all
     if DEBUG:
         VERBOSE = True
     (cursor) = dbConnect()
