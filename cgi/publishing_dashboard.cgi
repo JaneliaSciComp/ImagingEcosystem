@@ -28,6 +28,9 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my %CONFIG;
 use constant NBSP => '&nbsp;';
+my %BG = ('Pre-staged' => '#bb0',
+          Staged => '#c90',
+          Production => '#696');
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -58,6 +61,8 @@ my %sths = (
              . "AND to_publish='Y' GROUP BY 1,2,3,4",
   SPLIT_GAL4 => "SELECT COUNT(DISTINCT line) FROM image_data_mv WHERE "
                . "published='Y' AND published_to='Split GAL4'",
+  SUMMARY => "SELECT line,COUNT(1) FROM image_data_mv WHERE "
+             . "alps_release=? group by 1",
 );
 my %FLEW = (
   PUBLISHED => "SELECT COUNT(DISTINCT line),COUNT(1) FROM image_data_mv "
@@ -70,6 +75,13 @@ my %MBEW = (
   HALVES => "SELECT value,COUNT(1) FROM line l JOIN line_property_vw lp ON "
             . "(l.id=lp.line_id AND lp.type='flycore_project') WHERE "
             . "l.name NOT IN (SELECT line FROM image_data_mv) GROUP BY 1",
+  SUMMARY => "SELECT line,COUNT(1) FROM image_data_mv WHERE "
+             . "alps_release=? group by 1",
+  DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
+            . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
+            . "AS Proj FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
+            . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
+            . "WHERE alps_release=? GROUP BY 2 ORDER BY 1,4,5",
 );
 
 
@@ -77,7 +89,12 @@ my %MBEW = (
 # * Main                                                                     *
 # ****************************************************************************
 &initializeProgram();
-&displayDashboard();
+if (param('release')) {
+  &displayRelease(param('release'),param('instance'));
+}
+else {
+  &displayDashboard();
+}
 # We're done!
 if ($dbh) {
   ref($sths{$_}) && $sths{$_}->finish foreach (keys %sths);
@@ -115,11 +132,43 @@ sub initializeProgram
 }
 
 
+sub displayRelease
+{
+  my($release,$instance) = @_;
+  $instance = 'mbew-dev';
+  &printHeader();
+  my ($ar,$display);
+  my %header = (SUMMARY => ['Line','Images'],
+                DETAIL => ['Line','Image ID','Name','Area','Tile','Slide code','LSMs','Projections']);
+  foreach my $cursor('SUMMARY','DETAIL') {
+    if ($instance) {
+      $sth{$instance}{$cursor}->execute($release);
+      $ar = $sth{$instance}{$cursor}->fetchall_arrayref();
+    }
+    else {
+      $sths{$cursor}->execute($release);
+      $ar = $sths{$cursor}->fetchall_arrayref();
+    }
+    my $image_count;
+    $image_count += $_->[1] foreach (@$ar);
+    $display .= table({id => '$cursor',class => 'tablesorter standard'},
+                      thead(Tr(th($header{$cursor}))),
+                      tbody(map {Tr(td($_))} @$ar),
+                      ($cursor eq 'SUMMARY') ? tfoot(Tr(td(['',$image_count]))) : '') . br;
+  }
+  my $title = "Release $release";
+  my $t = param('title');
+  if ($t) {
+    $title .= " ($t)";
+    $title = span({style => "background: $BG{$t}"},$title);
+  }
+  print h1($title),$display,
+        end_form,&sessionFooter($Session),end_html;
+}
+
+
 sub displayDashboard
 {
-  my %BG = ('Pre-staged' => '#bb0',
-            Staged => '#c90',
-            Production => '#696');
   &printHeader();
   my $waiting = '';
   my %published;
@@ -200,6 +249,10 @@ sub getPrestagedData
       $group{$_->[0]}{images} += $_->[3];
       $line_check{'Pre-staged'}{$_->[1]} = $_->[2];
       $image_check{'Pre-staged'}{$_->[1]} = $_->[3];
+      unless ($_->[0] =~ /FLEW/) {
+        $_->[1] = a({href => "?release=$_->[1]&title=Pre-staged",
+                     target => '_blank'},$_->[1]);
+      }
     }
     $sths{SPLIT_GAL4}->execute();
     foreach (keys %group) {
@@ -237,6 +290,8 @@ sub getStagedData
         if ($line_check{$previous}{$_->[0]} != $_->[1]);
       $_->[2] = span({style => 'color: red'},$_->[2])
         if ($image_check{$previous}{$_->[0]} != $_->[2]);
+      $_->[0] = a({href => "?release=$_->[0]&instance=$instance&title=$current",
+                   target => '_blank'},$_->[0]);
     }
     $published = table({id => 'publishedm',class => 'tablesorter standard'},
                        thead(Tr(th(['ALPS release','Lines','Images']))),
