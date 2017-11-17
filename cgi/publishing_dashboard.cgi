@@ -63,6 +63,11 @@ my %sths = (
                . "published='Y' AND published_to='Split GAL4'",
   SUMMARY => "SELECT line,COUNT(1) FROM image_data_mv WHERE "
              . "alps_release=? group by 1",
+  DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
+            . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
+            . "AS Proj FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
+            . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
+            . "WHERE alps_release=? GROUP BY 2 ORDER BY 1,4,5",
 );
 my %FLEW = (
   PUBLISHED => "SELECT COUNT(DISTINCT line),COUNT(1) FROM image_data_mv "
@@ -135,12 +140,12 @@ sub initializeProgram
 sub displayRelease
 {
   my($release,$instance) = @_;
-  $instance = 'mbew-dev';
   &printHeader();
-  my ($ar,$display);
+  my $display;
   my %header = (SUMMARY => ['Line','Images'],
                 DETAIL => ['Line','Image ID','Name','Area','Tile','Slide code','LSMs','Projections']);
   foreach my $cursor('SUMMARY','DETAIL') {
+    my $ar;
     if ($instance) {
       $sth{$instance}{$cursor}->execute($release);
       $ar = $sth{$instance}{$cursor}->fetchall_arrayref();
