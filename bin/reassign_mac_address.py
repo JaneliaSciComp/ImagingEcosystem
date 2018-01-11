@@ -5,6 +5,7 @@ import json
 import logging
 import MySQLdb
 import sys
+import urllib
 import urllib2
 
 # Command line parms
@@ -52,7 +53,7 @@ def callREST(mode, server='jacs', post=False):
     req.add_header('Content-Type', 'application/json')
     try:
         if post:
-            response = urllib2.urlopen(req, urlencode({}))
+            response = urllib2.urlopen(req, urllib.urlencode({}))
         else:
             response = urllib2.urlopen(req)
     except urllib2.HTTPError, e:
@@ -87,14 +88,17 @@ def processScopes():
                 sqlError(e)
             row = cursor[db].fetchone()
             if row[0]:
-                logging.info("MAC address %s maps to microscope %s" % (r[0], row[0]))
+                logging.info("MAC address %s maps to microscope %s"
+                             % (r[0], row[0]))
                 try:
                     logging.debug(SQL['UPDATE1'] % (row[0], r[0]))
                     cursor[db].execute(SQL['UPDATE1'], (row[0], r[0]))
-                    logging.info("Rows updated for %s in image_property: %d" % (r[0], cursor[db].rowcount))
+                    logging.info("Rows updated for %s in image_property: %d"
+                                 % (r[0], cursor[db].rowcount))
                     logging.debug(SQL['UPDATE2'] % (row[0], r[0]))
                     cursor[db].execute(SQL['UPDATE2'], (row[0], r[0]))
-                    logging.info("Rows updated for %s in image_data_mv: %d" % (r[0], cursor[db].rowcount))
+                    logging.info("Rows updated for %s in image_data_mv: %d"
+                                 % (r[0], cursor[db].rowcount))
                 except MySQLdb.Error as e:
                     sqlError(e)
             else:
