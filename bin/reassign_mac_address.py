@@ -24,11 +24,11 @@ CONFIG = {}
 
 
 # -----------------------------------------------------------------------------
-def sqlError (e):
+def sqlError(e):
     try:
-      print 'MySQL error [%d]: %s' % (e.args[0],e.args[1])
+        print 'MySQL error [%d]: %s' % (e.args[0], e.args[1])
     except IndexError:
-      print 'MySQL error: %s' % e
+        print 'MySQL error: %s' % e
     sys.exit(-1)
 
 
@@ -52,7 +52,7 @@ def callREST(mode, server='jacs', post=False):
     req.add_header('Content-Type', 'application/json')
     try:
         if post:
-            response = urllib2.urlopen(req, urllib.urlencode({}))
+            response = urllib2.urlopen(req, urlencode({}))
         else:
             response = urllib2.urlopen(req)
     except urllib2.HTTPError, e:
