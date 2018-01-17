@@ -1,8 +1,8 @@
 #!/opt/python/bin/python2.7
 
 import argparse
+import colorlog
 import json
-import logging
 import MySQLdb
 import sys
 import urllib
@@ -12,7 +12,7 @@ import urllib2
 write = 0
 # Database
 SQL = {
-  'MAC': "SELECT microscope,COUNT(1) FROM image_data_mv WHERE microscope IS NOT NULL AND microscope LIKE '%-%-%-%-%-%' GROUP BY 1",
+  'MAC': "SELECT microscope,MIN(create_date),MAX(create_date),COUNT(1) FROM image_data_mv WHERE microscope IS NOT NULL AND microscope LIKE '%-%-%-%-%-%' GROUP BY 1",
   'SCOPE': "SELECT display_name FROM cv_term_vw WHERE cv='microscope' AND cv_term=%s",
   'UPDATE1': "UPDATE image_property SET value=%s WHERE type_id=getCVTermID('light_imagery','microscope',NULL) AND value=%s",
   'UPDATE2': "UPDATE image_data_mv SET microscope=%s WHERE mac_address=%s",
@@ -27,14 +27,14 @@ CONFIG = {}
 # -----------------------------------------------------------------------------
 def sqlError(e):
     try:
-        print 'MySQL error [%d]: %s' % (e.args[0], e.args[1])
+        logger.critical('MySQL error [%d]: %s' % (e.args[0], e.args[1]))
     except IndexError:
-        print 'MySQL error: %s' % e
+        logger.critical('MySQL error: %s' % e)
     sys.exit(-1)
 
 
 def dbConnect(db):
-    logging.info("Connecting to %s on %s" % (db['name'], db['host']))
+    logger.info("Connecting to %s on %s" % (db['name'], db['host']))
     try:
         conn = MySQLdb.connect(host=db['host'], user=db['user'],
                                passwd=db['password'], db=db['name'])
@@ -81,28 +81,28 @@ def processScopes():
     rows = cursor[db].fetchall()
     if cursor[db].rowcount:
         for r in rows:
-            logging.debug('%s: %d' % (r))
+            logger.debug('%s: date range %s - %s, %d image(s)' % (r))
             try:
                 cursor[db].execute(SQL['SCOPE'], [r[0]])
             except MySQLdb.Error as e:
                 sqlError(e)
             row = cursor[db].fetchone()
-            if row[0]:
-                logging.info("MAC address %s maps to microscope %s"
+            if row:
+                logger.info("MAC address %s maps to microscope %s"
                              % (r[0], row[0]))
                 try:
-                    logging.debug(SQL['UPDATE1'] % (row[0], r[0]))
+                    logger.debug(SQL['UPDATE1'] % (row[0], r[0]))
                     cursor[db].execute(SQL['UPDATE1'], (row[0], r[0]))
-                    logging.info("Rows updated for %s in image_property: %d"
+                    logger.info("Rows updated for %s in image_property: %d"
                                  % (r[0], cursor[db].rowcount))
-                    logging.debug(SQL['UPDATE2'] % (row[0], r[0]))
+                    logger.debug(SQL['UPDATE2'] % (row[0], r[0]))
                     cursor[db].execute(SQL['UPDATE2'], (row[0], r[0]))
-                    logging.info("Rows updated for %s in image_data_mv: %d"
+                    logger.info("Rows updated for %s in image_data_mv: %d"
                                  % (r[0], cursor[db].rowcount))
                 except MySQLdb.Error as e:
                     sqlError(e)
             else:
-                print "Could not find microscope name for %s" % (r[0])
+                logger.warning("Could not find microscope name for %s" % (r[0]))
         if write:
             conn[db].commit()
     else:
@@ -118,12 +118,17 @@ if __name__ == '__main__':
     parser.add_argument('--write',action='store_true',dest='WRITE',default=False,help='Actually write changes to database')
     arg = parser.parse_args()
 
+    logger = colorlog.getLogger()
     if arg.DEBUG:
-        logging.basicConfig(level=logging.DEBUG)
+        logger.setLevel(colorlog.colorlog.logging.DEBUG)
     elif arg.VERBOSE:
-        logging.basicConfig(level=logging.INFO)
+        logger.setLevel(colorlog.colorlog.logging.INFO)
     else:
-        logging.basicConfig(level=logging.WARNING)
+        logger.setLevel(colorlog.colorlog.logging.WARNING)
+    handler = colorlog.StreamHandler()
+    handler.setFormatter(colorlog.ColoredFormatter())
+    logger.addHandler(handler)
+
     if arg.WRITE:
         write = 1
 
