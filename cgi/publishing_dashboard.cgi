@@ -43,6 +43,7 @@ our (%pdbh,%sth);
 our $dbh;
 # Counters
 my (%image_check,%line_check);
+my $release_count;
 
 # ****************************************************************************
 # Session authentication
@@ -57,7 +58,10 @@ my %sths = (
                . "COUNT(1) FROM image_data_mv WHERE published='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
   WAITING => "SELECT line,published_to,alps_release,publishing_user,"
-             . "COUNT(name) FROM image_data_mv WHERE published IS NULL "
+             . "GROUP_CONCAT(DISTINCT IFNULL(tile,'NULL') ORDER BY tile SEPARATOR ', '),"
+             . "GROUP_CONCAT(DISTINCT objective SEPARATOR ', '),"
+             . "GROUP_CONCAT(DISTINCT effector SEPARATOR ', '),COUNT(1) FROM "
+             . "image_data_mv WHERE published IS NULL "
              . "AND to_publish='Y' GROUP BY 1,2,3,4",
   SPLIT_GAL4 => "SELECT COUNT(DISTINCT line) FROM image_data_mv WHERE "
                . "published='Y' AND published_to='Split GAL4'",
@@ -192,9 +196,10 @@ sub displayDashboard
           . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
+  my $h = sprintf '%dpx',300 + 30 * $release_count;
   foreach ('Pre-staged','Staged','Production') {
     $render .= div({class => 'boxed',
-                    style => "float: left; width: 350px; height: 520px;background-color: $BG{$_};"},
+                    style => "float: left; width: 350px; height: $h;background-color: $BG{$_};"},
                    h1({style => 'color: #fff'},$_),$published{$_});
   }
   print div({class => 'panel panel-success'},
@@ -214,7 +219,10 @@ sub getPrestagedData
   $sths{WAITING}->execute();
   $ar = $sths{WAITING}->fetchall_arrayref();
   if (scalar @$ar) {
+    my (%hist,%line);
+    my $images = 0;
     foreach (@$ar) {
+      $line{$_->[0]}++;
       unless ($_->[1]) {
         $_->[1] = 'FLEW';
         $_->[2] = '(FLEW)';
@@ -224,15 +232,29 @@ sub getPrestagedData
         $annotator = join(' ',$u->{givenName},$u->{sn});
       }
       $_->[3] = ($annotator ne ' ') ? $annotator : $_->[3];
+      my @o;
+      foreach my $o (split(', ',$_->[5])) {
+        $o =~ s/\D+(\d+[Xx]).+/$1/;
+        push @o,$o;
+      }
+      $_->[5] = join(', ',@o);
+      $hist{$_->[-1]}++;
+      $images += $_->[-1];
     }
     $waiting = table({id => 'waiting',class => 'tablesorter standard'},
                      thead(Tr(th(['Line','Website','ALPS release','Annotator',
-                                  'Images']))),
-                     tbody(map {Tr(td($_))} @$ar));
+                                  'Tiles','Objectives','Reporters','Images']))),
+                     tbody(map {Tr(td($_))} @$ar),
+                     tfoot(Tr(td([scalar keys(%line),('')x6,$images]))));
+    $waiting .= h3('Number of images per line')
+                . table({id => 'ipl',class => 'tablesorter standard'},
+                        thead(Tr(th(['Lines','Images']))),
+                        tbody(map {Tr(td($_),td($hist{$_}))} sort keys %hist));
   }
   # Published
   $sths{PUBLISHED}->execute();
   $ar = $sths{PUBLISHED}->fetchall_arrayref();
+  $release_count = scalar(@$ar);
   my $published;
   if (scalar @$ar) {
     $sths{LINES}->execute();
