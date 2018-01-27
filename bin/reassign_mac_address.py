@@ -53,14 +53,15 @@ def db_connect(db):
         sql_error(e)
 
 
-def call_rest(endpoint, server='jacs'):
+def call_rest(endpoint, server='jacs', type='get'):
     """ Call a REST server with GET/POST
         Keyword arguments:
         endpoint: REST endpoint
         server: REST server
+        type: get
     """
     url = CONFIG[server]['url'] + endpoint
-    logger.debug(type + ' call to ' + url)
+    logger.debug(type.upper() + ' call to ' + url)
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as e:
