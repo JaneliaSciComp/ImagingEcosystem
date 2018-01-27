@@ -27,29 +27,35 @@ CONFIG = {}
 
 
 # -----------------------------------------------------------------------------
-def sqlError(e):
+def sql_error(err):
+    """ Log a critical SQL error and exit """
     try:
-        logger.critical('MySQL error [%d]: %s' % (e.args[0], e.args[1]))
+        logger.critical('MySQL error [%d]: %s' % (err.args[0], err.args[1]))
     except IndexError:
-        logger.critical('MySQL error: %s' % e)
+        logger.critical('MySQL error: %s' % err)
     sys.exit(-1)
 
 
-def dbConnect(db):
+def db_connect(db):
+    """ Connect to a database
+        Keyword arguments:
+        db: database tuple
+    """
+    print type(db)
     logger.info("Connecting to %s on %s" % (db['name'], db['host']))
     try:
         conn = MySQLdb.connect(host=db['host'], user=db['user'],
                                passwd=db['password'], db=db['name'])
     except MySQLdb.Error as e:
-        sqlError(e)
+        sql_error(e)
     try:
         cursor = conn.cursor()
         return(conn, cursor)
     except MySQLdb.Error as e:
-        sqlError(e)
+        sql_error(e)
 
 
-def callREST(mode, server='jacs', post=False):
+def call_rest(mode, server='jacs', post=False):
     url = CONFIG[server]['url'] + mode
     req = urllib2.Request(url)
     req.add_header('Content-Type', 'application/json')
@@ -65,21 +71,21 @@ def callREST(mode, server='jacs', post=False):
         return json.load(response)
 
 
-def initializeProgram():
+def initialize_program():
     global CONFIG
     json_data = open(CONFIG_FILE).read()
     CONFIG = json.loads(json_data)
-    dc = callREST('database_configuration', 'sage')
+    dc = call_rest('database_configuration', 'sage')
     data = dc['config']
-    (CONN['sage'], CURSOR['sage']) = dbConnect(data['sage']['prod'])
+    (CONN['sage'], CURSOR['sage']) = db_connect(data['sage']['prod'])
 
 
-def processScopes():
+def process_scopes():
     db = 'sage'
     try:
         CURSOR[db].execute(SQL['MAC'],)
     except MySQLdb.Error as e:
-        sqlError(e)
+        sql_error(e)
     rows = CURSOR[db].fetchall()
     if CURSOR[db].rowcount:
         for r in rows:
@@ -87,7 +93,7 @@ def processScopes():
             try:
                 CURSOR[db].execute(SQL['SCOPE'], [r[0]])
             except MySQLdb.Error as e:
-                sqlError(e)
+                sql_error(e)
             row = CURSOR[db].fetchone()
             if row:
                 logger.info("MAC address %s maps to microscope %s"
@@ -102,7 +108,7 @@ def processScopes():
                     logger.info("Rows updated for %s in image_data_mv: %d"
                                 % (r[0], CURSOR[db].rowcount))
                 except MySQLdb.Error as e:
-                    sqlError(e)
+                    sql_error(e)
             else:
                 logger.warning(
                     "Could not find microscope name for %s" % (r[0]))
@@ -115,18 +121,18 @@ def processScopes():
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
+    PARSER = argparse.ArgumentParser(
         description='Find and index/discover newly tmogged imagery')
-    parser.add_argument('--verbose', action='store_true',
+    PARSER.add_argument('--verbose', action='store_true',
                         dest='VERBOSE', default=False,
                         help='Turn on verbose output')
-    parser.add_argument('--debug', action='store_true',
+    PARSER.add_argument('--debug', action='store_true',
                         dest='DEBUG', default=False,
                         help='Turn on debug output')
-    parser.add_argument('--write', action='store_true', dest='WRITE',
+    PARSER.add_argument('--write', action='store_true', dest='WRITE',
                         default=False,
                         help='Actually write changes to database')
-    arg = parser.parse_args()
+    arg = PARSER.parse_args()
 
     logger = colorlog.getLogger()
     if arg.DEBUG:
@@ -139,6 +145,6 @@ if __name__ == '__main__':
     handler.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(handler)
 
-    initializeProgram()
-    processScopes()
+    initialize_program()
+    process_scopes()
     sys.exit(0)
