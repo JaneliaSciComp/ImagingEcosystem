@@ -1,24 +1,26 @@
 #!/opt/python/bin/python2.7
 
 import argparse
-import colorlog
 import json
-import MySQLdb
 import sys
 import urllib
 import urllib2
+import colorlog
+import MySQLdb
 
-# Command line parms
-write = 0
 # Database
 SQL = {
-  'MAC': "SELECT microscope,MIN(create_date),MAX(create_date),COUNT(1) FROM image_data_mv WHERE microscope IS NOT NULL AND microscope LIKE '%-%-%-%-%-%' GROUP BY 1",
-  'SCOPE': "SELECT display_name FROM cv_term_vw WHERE cv='microscope' AND cv_term=%s",
-  'UPDATE1': "UPDATE image_property SET value=%s WHERE type_id=getCVTermID('light_imagery','microscope',NULL) AND value=%s",
-  'UPDATE2': "UPDATE image_data_mv SET microscope=%s WHERE mac_address=%s",
+    'MAC': "SELECT microscope,MIN(create_date),MAX(create_date),COUNT(1) " +
+           "FROM image_data_mv WHERE microscope IS NOT NULL AND microscope " +
+           "LIKE '%-%-%-%-%-%' GROUP BY 1",
+    'SCOPE': "SELECT display_name FROM cv_term_vw WHERE cv='microscope' " +
+             "AND cv_term=%s",
+    'UPDATE1': "UPDATE image_property SET value=%s WHERE type_id=" +
+               "getCVTermID('light_imagery','microscope',NULL) AND value=%s",
+    'UPDATE2': "UPDATE image_data_mv SET microscope=%s WHERE mac_address=%s",
 }
-conn = dict()
-cursor = dict()
+CONN = dict()
+CURSOR = dict()
 # Configuration
 CONFIG_FILE = '/groups/scicomp/informatics/data/rest_services.json'
 CONFIG = {}
@@ -69,42 +71,43 @@ def initializeProgram():
     CONFIG = json.loads(json_data)
     dc = callREST('database_configuration', 'sage')
     data = dc['config']
-    (conn['sage'], cursor['sage']) = dbConnect(data['sage']['prod'])
+    (CONN['sage'], CURSOR['sage']) = dbConnect(data['sage']['prod'])
 
 
 def processScopes():
     db = 'sage'
     try:
-        cursor[db].execute(SQL['MAC'],)
+        CURSOR[db].execute(SQL['MAC'],)
     except MySQLdb.Error as e:
         sqlError(e)
-    rows = cursor[db].fetchall()
-    if cursor[db].rowcount:
+    rows = CURSOR[db].fetchall()
+    if CURSOR[db].rowcount:
         for r in rows:
             logger.debug('%s: date range %s - %s, %d image(s)' % (r))
             try:
-                cursor[db].execute(SQL['SCOPE'], [r[0]])
+                CURSOR[db].execute(SQL['SCOPE'], [r[0]])
             except MySQLdb.Error as e:
                 sqlError(e)
-            row = cursor[db].fetchone()
+            row = CURSOR[db].fetchone()
             if row:
                 logger.info("MAC address %s maps to microscope %s"
-                             % (r[0], row[0]))
+                            % (r[0], row[0]))
                 try:
                     logger.debug(SQL['UPDATE1'] % (row[0], r[0]))
-                    cursor[db].execute(SQL['UPDATE1'], (row[0], r[0]))
+                    CURSOR[db].execute(SQL['UPDATE1'], (row[0], r[0]))
                     logger.info("Rows updated for %s in image_property: %d"
-                                 % (r[0], cursor[db].rowcount))
+                                % (r[0], CURSOR[db].rowcount))
                     logger.debug(SQL['UPDATE2'] % (row[0], r[0]))
-                    cursor[db].execute(SQL['UPDATE2'], (row[0], r[0]))
+                    CURSOR[db].execute(SQL['UPDATE2'], (row[0], r[0]))
                     logger.info("Rows updated for %s in image_data_mv: %d"
-                                 % (r[0], cursor[db].rowcount))
+                                % (r[0], CURSOR[db].rowcount))
                 except MySQLdb.Error as e:
                     sqlError(e)
             else:
-                logger.warning("Could not find microscope name for %s" % (r[0]))
-        if write:
-            conn[db].commit()
+                logger.warning(
+                    "Could not find microscope name for %s" % (r[0]))
+        if arg.WRITE:
+            CONN[db].commit()
     else:
         print "All MAC addresses are mapped to microscope names"
 
@@ -112,10 +115,17 @@ def processScopes():
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Find and index/discover newly tmogged imagery')
-    parser.add_argument('--verbose',action='store_true',dest='VERBOSE',default=False,help='Turn on verbose output')
-    parser.add_argument('--debug',action='store_true',dest='DEBUG',default=False,help='Turn on debug output')
-    parser.add_argument('--write',action='store_true',dest='WRITE',default=False,help='Actually write changes to database')
+    parser = argparse.ArgumentParser(
+        description='Find and index/discover newly tmogged imagery')
+    parser.add_argument('--verbose', action='store_true',
+                        dest='VERBOSE', default=False,
+                        help='Turn on verbose output')
+    parser.add_argument('--debug', action='store_true',
+                        dest='DEBUG', default=False,
+                        help='Turn on debug output')
+    parser.add_argument('--write', action='store_true', dest='WRITE',
+                        default=False,
+                        help='Actually write changes to database')
     arg = parser.parse_args()
 
     logger = colorlog.getLogger()
@@ -128,9 +138,6 @@ if __name__ == '__main__':
     handler = colorlog.StreamHandler()
     handler.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(handler)
-
-    if arg.WRITE:
-        write = 1
 
     initializeProgram()
     processScopes()
