@@ -30,9 +30,9 @@ CONFIG = {}
 def sql_error(err):
     """ Log a critical SQL error and exit """
     try:
-        logger.critical('MySQL error [%d]: %s' % (err.args[0], err.args[1]))
+        logger.critical('MySQL error [%d]: %s', err.args[0], err.args[1])
     except IndexError:
-        logger.critical('MySQL error: %s' % err)
+        logger.critical('MySQL error: %s', err)
     sys.exit(-1)
 
 
@@ -41,7 +41,7 @@ def db_connect(db):
         Keyword arguments:
         db: database dictionary
     """
-    logger.info("Connecting to %s on %s" % (db['name'], db['host']))
+    logger.info("Connecting to %s on %s", db['name'], db['host'])
     try:
         conn = MySQLdb.connect(host=db['host'], user=db['user'],
                                passwd=db['password'], db=db['name'])
@@ -69,8 +69,8 @@ def call_rest(endpoint, server='jacs', post=False):
             response = urllib2.urlopen(req, urllib.urlencode({}))
         else:
             response = urllib2.urlopen(req)
-    except urllib2.HTTPError, e:
-        print 'Call to %s failed: %s.' % (url, e.code)
+    except urllib2.HTTPError, err:
+        print 'Call to %s failed: %s.' % (url, err.code)
         sys.exit(-1)
     else:
         return json.load(response)
@@ -81,8 +81,8 @@ def initialize_program():
     json_data = open(CONFIG_FILE).read()
     global CONFIG
     CONFIG = json.loads(json_data)
-    dc = call_rest('database_configuration', 'sage')
-    data = dc['config']
+    dbc = call_rest('database_configuration', 'sage')
+    data = dbc['config']
     (CONN['sage'], CURSOR['sage']) = db_connect(data['sage']['prod'])
 
 
@@ -105,22 +105,22 @@ def process_scopes():
                 sql_error(e)
             row = CURSOR[db].fetchone()
             if row:
-                logger.info("MAC address %s maps to microscope %s"
-                            % (r[0], row[0]))
+                logger.info("MAC address %s maps to microscope %s",
+                            r[0], row[0])
                 try:
-                    logger.debug(SQL['UPDATE1'] % (row[0], r[0]))
+                    logger.debug(SQL['UPDATE1'], row[0], r[0])
                     CURSOR[db].execute(SQL['UPDATE1'], (row[0], r[0]))
-                    logger.info("Rows updated for %s in image_property: %d"
-                                % (r[0], CURSOR[db].rowcount))
-                    logger.debug(SQL['UPDATE2'] % (row[0], r[0]))
+                    logger.info("Rows updated for %s in image_property: %d",
+                                r[0], CURSOR[db].rowcount)
+                    logger.debug(SQL['UPDATE2'], row[0], r[0])
                     CURSOR[db].execute(SQL['UPDATE2'], (row[0], r[0]))
-                    logger.info("Rows updated for %s in image_data_mv: %d"
-                                % (r[0], CURSOR[db].rowcount))
+                    logger.info("Rows updated for %s in image_data_mv: %d",
+                                r[0], CURSOR[db].rowcount)
                 except MySQLdb.Error as e:
                     sql_error(e)
             else:
                 logger.warning(
-                    "Could not find microscope name for %s" % (r[0]))
+                    "Could not find microscope name for %s", r[0])
         if ARG.WRITE:
             CONN[db].commit()
     else:
