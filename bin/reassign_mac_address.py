@@ -41,7 +41,6 @@ def db_connect(db):
         Keyword arguments:
         db: database dictionary
     """
-    print type(db)
     logger.info("Connecting to %s on %s" % (db['name'], db['host']))
     try:
         conn = MySQLdb.connect(host=db['host'], user=db['user'],
