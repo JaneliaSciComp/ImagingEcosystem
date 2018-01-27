@@ -39,7 +39,7 @@ def sql_error(err):
 def db_connect(db):
     """ Connect to a database
         Keyword arguments:
-        db: database tuple
+        db: database dictionary
     """
     print type(db)
     logger.info("Connecting to %s on %s" % (db['name'], db['host']))
@@ -55,8 +55,14 @@ def db_connect(db):
         sql_error(e)
 
 
-def call_rest(mode, server='jacs', post=False):
-    url = CONFIG[server]['url'] + mode
+def call_rest(endpoint, server='jacs', post=False):
+    """ Call a REST server with GET/POST
+        Keyword arguments:
+        endpoint: REST endpoint
+        server: REST server
+        post: True/False for GET/POST
+    """
+    url = CONFIG[server]['url'] + endpoint
     req = urllib2.Request(url)
     req.add_header('Content-Type', 'application/json')
     try:
@@ -72,8 +78,9 @@ def call_rest(mode, server='jacs', post=False):
 
 
 def initialize_program():
-    global CONFIG
+    """ Initialize database """
     json_data = open(CONFIG_FILE).read()
+    global CONFIG
     CONFIG = json.loads(json_data)
     dc = call_rest('database_configuration', 'sage')
     data = dc['config']
@@ -81,6 +88,9 @@ def initialize_program():
 
 
 def process_scopes():
+    """ Find image entries without microscope names
+        and repair if possible.
+    """
     db = 'sage'
     try:
         CURSOR[db].execute(SQL['MAC'],)
@@ -112,7 +122,7 @@ def process_scopes():
             else:
                 logger.warning(
                     "Could not find microscope name for %s" % (r[0]))
-        if arg.WRITE:
+        if ARG.WRITE:
             CONN[db].commit()
     else:
         print "All MAC addresses are mapped to microscope names"
@@ -132,18 +142,18 @@ if __name__ == '__main__':
     PARSER.add_argument('--write', action='store_true', dest='WRITE',
                         default=False,
                         help='Actually write changes to database')
-    arg = PARSER.parse_args()
+    ARG = PARSER.parse_args()
 
     logger = colorlog.getLogger()
-    if arg.DEBUG:
+    if ARG.DEBUG:
         logger.setLevel(colorlog.colorlog.logging.DEBUG)
-    elif arg.VERBOSE:
+    elif ARG.VERBOSE:
         logger.setLevel(colorlog.colorlog.logging.INFO)
     else:
         logger.setLevel(colorlog.colorlog.logging.WARNING)
-    handler = colorlog.StreamHandler()
-    handler.setFormatter(colorlog.ColoredFormatter())
-    logger.addHandler(handler)
+    HANDLER = colorlog.StreamHandler()
+    HANDLER.setFormatter(colorlog.ColoredFormatter())
+    logger.addHandler(HANDLER)
 
     initialize_program()
     process_scopes()
