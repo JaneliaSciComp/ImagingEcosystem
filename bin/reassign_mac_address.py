@@ -53,7 +53,7 @@ def db_connect(db):
         sql_error(e)
 
 
-def call_rest(endpoint, server='jacs', type='get'):
+def call_rest(endpoint, server='sage', type='get'):
     """ Call a REST server with GET/POST
         Keyword arguments:
         endpoint: REST endpoint
@@ -61,7 +61,6 @@ def call_rest(endpoint, server='jacs', type='get'):
         type: get
     """
     url = CONFIG[server]['url'] + endpoint
-    logger.debug(type.upper() + ' call to ' + url)
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as e:
@@ -81,7 +80,7 @@ def initialize_program():
     json_data = open(CONFIG_FILE).read()
     global CONFIG
     CONFIG = json.loads(json_data)
-    dbc = call_rest('database_configuration', 'sage')
+    dbc = call_rest('database_configuration')
     data = dbc['config']
     (CONN['sage'], CURSOR['sage']) = db_connect(data['sage']['prod'])
 
