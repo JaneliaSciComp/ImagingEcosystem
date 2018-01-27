@@ -3,9 +3,8 @@
 import argparse
 import json
 import sys
-import urllib
-import urllib2
 import colorlog
+import requests
 import MySQLdb
 
 # Database
@@ -54,26 +53,26 @@ def db_connect(db):
         sql_error(e)
 
 
-def call_rest(endpoint, server='jacs', post=False):
+def call_rest(endpoint, server='jacs'):
     """ Call a REST server with GET/POST
         Keyword arguments:
         endpoint: REST endpoint
         server: REST server
-        post: True/False for GET/POST
     """
     url = CONFIG[server]['url'] + endpoint
-    req = urllib2.Request(url)
-    req.add_header('Content-Type', 'application/json')
+    logger.debug(type + ' call to ' + url)
     try:
-        if post:
-            response = urllib2.urlopen(req, urllib.urlencode({}))
-        else:
-            response = urllib2.urlopen(req)
-    except urllib2.HTTPError, err:
-        print 'Call to %s failed: %s.' % (url, err.code)
+        req = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        logger.critical(e)
         sys.exit(-1)
+    if req.status_code == 200:
+        j = req.json()
+        return(j)
     else:
-        return json.load(response)
+        logger.critical('Status: ' + str(req.status_code))
+        sys.exit(-1)
+
 
 
 def initialize_program():
