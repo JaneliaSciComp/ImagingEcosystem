@@ -3,7 +3,10 @@ from datetime import datetime
 import json
 import pprint
 import re
+import sys
 import urllib2
+import colorlog
+import requests
 
 SAGE_RESPONDER = 'http://informatics-flask.int.janelia.org:83/' + \
     'sage_responder/'
@@ -15,85 +18,24 @@ SUFFIX_SCORE = {'AV_01': 1,
                 'BB_21': 1,
                 'XA_21': 1,
                 'XD_01': 1}
+CONFIG = {'sage': 'http://informatics-flask.int.janelia.org:83/sage_responder/',
+          'flycore': 'http://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?'}
 fcdict = dict()
 
 
-def processInput():
-    if (VERBOSE):
-        print "Fetching split halves"
-    start_time = datetime.now()
-    url = SAGE_RESPONDER + "split_halves"
-    req = urllib2.Request(url)
-    req.add_header('Content-Type', 'application/json')
+
+def call_rest(server, endpoint):
+    url = CONFIG[server] + endpoint
     try:
-        response = urllib2.urlopen(req,)
-    except urllib2.HTTPError, e:
-        print 'Call to %s failed: %s.' % (url, e.code)
-        pp.pprint(e.read())
+        req = requests.get(url)
+    except requests.exceptions.RequestException as err:
+        logger.critical(err)
+        sys.exit(-1)
+    if req.status_code == 200:
+        return req.json()
     else:
-        fd = json.load(response)
-        fragdict = fd['split_halves']
-    if (VERBOSE):
-        print "Found %d fragments with AD/DBDs" % (len(fragdict))
-        print "Processing line fragment list"
-    fraglist = readLines(fragdict)
-    if (VERBOSE):
-        print "Generating crosses"
-    crosses = 0
-    for idx, frag1 in enumerate(fraglist):
-        for frag2 in fraglist[idx:]:
-            if (frag1 == frag2):
-                continue
-            (ad, dbd) = generateCross(fragdict, frag1, frag2)
-            if (ad and dbd):
-                crosses += 1
-                goodCross(ad, dbd)
-            elif ((not ad) or (not dbd)):
-                NO_CROSSES.write("Missing AD/DBD for %s-x-%s\n" % (frag1,
-                                                                   frag2))
-    stop_time = datetime.now()
-    if (VERBOSE):
-        print "  Crosses found: %d" % (crosses)
-        print "Elapsed time: ", stop_time - start_time
-
-
-def generateCross(fragdict, frag1, frag2):
-    if (DEBUG):
-        print "%s-x-%s" % (frag1, frag2)
-    max_score = {'score': 0, 'ad': '', 'dbd': ''}
-    for f1 in fragdict[frag1]:
-        # frag1 = AD, frag2 = DBD
-        if (f1['type'] == 'DBD'):
-            continue
-        score = generateScore(f1['line'])
-        for f2 in fragdict[frag2]:
-            if (f2['type'] == 'AD'):
-                continue
-            final_score = score + generateScore(f2['line'])
-            if (DEBUG):
-                print "  Score %s-x-%s = %f" % (f1['line'], f2['line'],
-                                                final_score)
-            if (final_score > max_score['score']):
-                max_score['score'] = final_score
-                max_score['ad'] = f1['line']
-                max_score['dbd'] = f2['line']
-    for f1 in fragdict[frag1]:
-        # frag1 = DBD, frag2 = AD
-        if (f1['type'] == 'AD'):
-            continue
-        score = generateScore(f1['line'])
-        for f2 in fragdict[frag2]:
-            if (f2['type'] == 'DBD'):
-                continue
-            final_score = score + generateScore(f2['line'])
-            if (DEBUG):
-                print "  Score %s-x-%s = %f" % (f1['line'], f2['line'],
-                                                final_score)
-            if (final_score > max_score['score']):
-                max_score['score'] = final_score
-                max_score['dbd'] = f1['line']
-                max_score['ad'] = f2['line']
-    return(max_score['ad'], max_score['dbd'])
+        logger.error('Status: %s', str(req.status_code))
+        sys.exit(-1)
 
 
 def generateScore(line):
@@ -105,9 +47,49 @@ def generateScore(line):
         return(0)
 
 
-def goodCross(ad, dbd):
-    if (DEBUG):
-        print "  Found cross %s-x-%s" % (ad, dbd)
+def generateCross(fragdict, frag1, frag2):
+    logger.debug("%s-x-%s", frag1, frag2)
+    max_score = {'score': 0, 'ad': '', 'dbd': ''}
+    for f1 in fragdict[frag1]:
+        # frag1 = AD, frag2 = DBD
+        if f1['type'] == 'DBD':
+            continue
+        score = generateScore(f1['line'])
+        for f2 in fragdict[frag2]:
+            if f2['type'] == 'AD':
+                continue
+            final_score = score + generateScore(f2['line'])
+            logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
+                         final_score)
+            if final_score > max_score['score']:
+                max_score['score'] = final_score
+                max_score['ad'] = f1['line']
+                max_score['dbd'] = f2['line']
+    for f1 in fragdict[frag1]:
+        # frag1 = DBD, frag2 = AD
+        if f1['type'] == 'AD':
+            continue
+        score = generateScore(f1['line'])
+        for f2 in fragdict[frag2]:
+            if f2['type'] == 'DBD':
+                continue
+            final_score = score + generateScore(f2['line'])
+            logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
+                         final_score)
+            if (final_score > max_score['score']):
+                max_score['score'] = final_score
+                max_score['dbd'] = f1['line']
+                max_score['ad'] = f2['line']
+    return(max_score['ad'], max_score['dbd'])
+
+
+def flycoreData(line):
+    response = call_rest('flycore', "request=linedata&line=" + line)
+    fcdict[line] = response['linedata']
+
+
+def good_cross(ad, dbd):
+    logger.info("Found cross %s-x-%s", ad, dbd)
     CROSSES.write("%s-x-%s\n" % (ad, dbd))
     if (ad not in fcdict):
         flycoreData(ad)
@@ -116,49 +98,30 @@ def goodCross(ad, dbd):
     alias = ad + '-x-' + dbd
     pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
     FLYCORE.write("%s\t%s\t%s\t%s\t%s" % ('Tanya Wolff', '', alias, pfrag, ''))
-    for w in (ad, dbd):
+    for half in (ad, dbd):
         FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
-                      % (fcdict[w]['location']['RACK_LOCATION'],
-                         fcdict[w]['__kp_UniqueID'], fcdict[w]['RobotID'],
-                         fcdict[w]['Genotype_GSI_Name_PlateWell'],
-                         fcdict[w]['Chromosome'], w, fcdict[w]['fragment'],
-                         fcdict[w]['Production_Info'],
-                         fcdict[w]['Quality_Control']))
+                      % (fcdict[half]['A_Concat_Loc'],
+                         fcdict[half]['__kp_UniqueID'], fcdict[half]['RobotID'],
+                         fcdict[half]['Genotype_GSI_Name_PlateWell'],
+                         fcdict[half]['Chromosome'], half, fcdict[half]['fragment'],
+                         fcdict[half]['Production_Info'],
+                         fcdict[half]['Quality_Control']))
     FLYCORE.write("\n")
 
 
-def flycoreData(line):
-    url = FLYCORE_RESPONDER + "?request=linedata&line=" + line
-    req = urllib2.Request(url)
-    req.add_header('Content-Type', 'application/json')
-    try:
-        response = urllib2.urlopen(req,)
-    except urllib2.HTTPError, e:
-        print 'Call to %s failed: %s.' % (url, e.code)
-        pp.pprint(e.read())
-        return
+def convertVT(vt):
+    response = call_rest('sage', "translatevt/" + vt)
+    if ('line_data' in response and len(response['line_data'])):
+        return(response['line_data'][0]['line'])
     else:
-        fd = json.load(response)
-        fcdict[line] = fd['linedata']
-    url = FLYCORE_RESPONDER + "?request=location&robot_id=" + \
-        fcdict[line]['RobotID']
-    req = urllib2.Request(url)
-    req.add_header('Content-Type', 'application/json')
-    try:
-        response = urllib2.urlopen(req,)
-    except urllib2.HTTPError, e:
-        print 'Call to %s failed: %s.' % (url, e.code)
-        pp.pprint(e.read())
-    else:
-        fd = json.load(response)
-        fcdict[line]['location'] = fd['location']
+        return('')
 
 
-def readLines(fragdict):
+def read_lines(fragdict):
     linelist = []
     fragsFound = dict()
     frags_read = 0
-    F = open(INPUT_FILE, 'r')
+    F = open(ARG.INPUT, 'r')
     for input_line in F:
         frags_read = frags_read + 1
         search_term = input_line.rstrip()
@@ -167,11 +130,10 @@ def readLines(fragdict):
             vt = 'VT' + search_term.zfill(6)
             st = convertVT(vt)
             if (not st):
-                print "Could not convert %s to line" % (vt)
+                logger.warning("Could not convert %s to line", vt)
                 NO_CROSSES.write("Could not convert %s to line" % (vt))
                 continue
-            if (DEBUG):
-                print "(Converted %s to %s)" % (search_term, st)
+            logger.debug("Converted %s to %s)", search_term, st)
             search_term = st.split('_')[1]
         search_term = search_term.upper()
         new_term = '*\_' + search_term + '*'
@@ -180,78 +142,87 @@ def readLines(fragdict):
             continue
         else:
             fragsFound[search_term] = 1
-        if (DEBUG):
-            print search_term + ' (' + new_term + ')'
-        url = SAGE_RESPONDER + "lines?name=" + new_term + '&_columns=name'
-        req = urllib2.Request(url)
-        req.add_header('Content-Type', 'application/json')
-        try:
-            response = urllib2.urlopen(req,)
-        except urllib2.HTTPError, e:
-            print 'Call to %s failed: %s.' % (url, e.code)
-            pp.pprint(e.read())
-        else:
-            ld = json.load(response)
-            ld = ld['line_data']
+        logger.debug(search_term + ' (' + new_term + ')')
+        response = call_rest('sage', "lines?name=" + new_term + '&_columns=name')
+        ld = response['line_data']
+        if ld:
             for l in ld:
                 if (('_' + search_term) not in l['name']):
                     continue
                 fragment = re.sub('_[A-Z][A-Z]_[0-9][0-9]', '', l['name'])
-                if (DEBUG):
-                    print '  ' + l['name'] + ' -> ' + fragment
+                if (ARG.DEBUG):
+                    logger.info(l['name'] + ' -> ' + fragment)
                 if (fragment not in fragdict):
-                    print "  No AD or DBD found for fragment %s" % (fragment)
+                    logger.warning("No AD or DBD found for fragment %s", fragment)
                     continue
                 linelist.append(fragment)
                 break
     F.close()
     linelist.sort()
-    if (VERBOSE):
-        print "  Fragments read: %d" % (frags_read)
-        n = len(linelist)
-        print "  Eligible line fragments: %d" % n
-        combos = (n * (n - 1)) / 2
-        print "  Theoretical crosses: %d" % (combos)
+    print "Fragments read: %d" % (frags_read)
+    n = len(linelist)
+    print "Eligible line fragments: %d" % n
+    combos = (n * (n - 1)) / 2
+    print "Theoretical crosses: %d" % (combos)
     return(linelist)
 
 
-def convertVT(vt):
-    url = SAGE_RESPONDER + "translatevt/" + vt
-    req = urllib2.Request(url)
-    req.add_header('Content-Type', 'application/json')
-    try:
-        response = urllib2.urlopen(req,)
-    except urllib2.HTTPError, e:
-        print 'Call to %s failed: %s.' % (url, e.code)
-        pp.pprint(e.read())
-    else:
-        ld = json.load(response)
-        if ('line_data' in ld and len(ld['line_data'])):
-            return(ld['line_data'][0]['line'])
-        else:
-            return('')
+def process_input():
+    logger.info("Fetching split halves")
+    start_time = datetime.now()
+    response = call_rest('sage', 'split_halves')
+    fragdict = response['split_halves']
+    logger.info("Found %d fragments with AD/DBDs", len(fragdict))
+    logger.info("Processing line fragment list")
+    fraglist = read_lines(fragdict)
+    logger.info("Generating crosses")
+    crosses = 0
+    for idx, frag1 in enumerate(fraglist):
+        for frag2 in fraglist[idx:]:
+            if (frag1 == frag2):
+                continue
+            (ad, dbd) = generateCross(fragdict, frag1, frag2)
+            if (ad and dbd):
+                crosses += 1
+                good_cross(ad, dbd)
+            elif ((not ad) or (not dbd)):
+                logger.warning("Missing AD/DBD for %s-x-%s", frag1, frag2)
+                NO_CROSSES.write("Missing AD/DBD for %s-x-%s\n" % (frag1,
+                                                                   frag2))
+    stop_time = datetime.now()
+    print "Crosses found: %d" % crosses
+    logger.info("Elapsed time: %s", (stop_time - start_time))
 
 
 # -----------------------------------------------------------------------------
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
+    PARSER = argparse.ArgumentParser(
         description='Generate Gen1 initial splits')
-    parser.add_argument('-file', dest='file', default='', help='Input file')
-    parser.add_argument('-verbose', action='store_true', dest='verbose',
+    PARSER.add_argument('-file', dest='INPUT', default='', help='Input file')
+    PARSER.add_argument('-flycore', action='store_true', dest='FLYCORE',
+                        default=False, help='Generate FlyCore order file')
+    PARSER.add_argument('-verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
-    parser.add_argument('-debug', action='store_true', dest='debug',
+    PARSER.add_argument('-debug', action='store_true', dest='DEBUG',
                         default=False, help='Turn on debug output')
-    args = parser.parse_args()
-    INPUT_FILE = args.file
-    VERBOSE = args.verbose
-    DEBUG = args.debug
-    if DEBUG:
-        VERBOSE = True
+    ARG = PARSER.parse_args()
+
+    logger = colorlog.getLogger()
+    if ARG.DEBUG:
+        logger.setLevel(colorlog.colorlog.logging.DEBUG)
+    elif ARG.VERBOSE:
+        logger.setLevel(colorlog.colorlog.logging.INFO)
+    else:
+        logger.setLevel(colorlog.colorlog.logging.WARNING)
+    HANDLER = colorlog.StreamHandler()
+    HANDLER.setFormatter(colorlog.ColoredFormatter())
+    logger.addHandler(HANDLER)
+
     pp = pprint.PrettyPrinter(indent=4)
-    CROSSES = open(INPUT_FILE + '.crosses.txt', 'w')
-    FLYCORE = open(INPUT_FILE + '.flycore.xls', 'w')
+    CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
+    FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
     FLYCORE.write('IS')
@@ -264,8 +235,8 @@ if __name__ == '__main__':
                   'StockFinder::Quality_Control'):
             FLYCORE.write("\t%s" % (h))
     FLYCORE.write("\n")
-    NO_CROSSES = open(INPUT_FILE + '.no_crosses.txt', 'w')
-    processInput()
+    NO_CROSSES = open(ARG.INPUT + '.no_crosses.txt', 'w')
+    process_input()
     CROSSES.close()
     FLYCORE.close()
     NO_CROSSES.close()
