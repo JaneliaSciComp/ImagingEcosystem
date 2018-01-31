@@ -20,6 +20,7 @@ SUFFIX_SCORE = {'AV_01': 1,
                 'XD_01': 1}
 CONFIG = {'sage': 'http://informatics-flask.int.janelia.org:83/sage_responder/',
           'flycore': 'http://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?'}
+WARNED = {}
 fcdict = dict()
 
 
@@ -44,6 +45,9 @@ def generateScore(line):
     if (last in SUFFIX_SCORE):
         return(SUFFIX_SCORE[last])
     else:
+        if last not in WARNED:
+            logger.error("No score found for suffix %s", last)
+            WARNED[last] = 1
         return(0)
 
 
@@ -201,8 +205,6 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description='Generate Gen1 initial splits')
     PARSER.add_argument('-file', dest='INPUT', default='', help='Input file')
-    PARSER.add_argument('-flycore', action='store_true', dest='FLYCORE',
-                        default=False, help='Generate FlyCore order file')
     PARSER.add_argument('-verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('-debug', action='store_true', dest='DEBUG',
