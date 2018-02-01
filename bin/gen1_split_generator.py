@@ -190,8 +190,13 @@ def process_input():
                 crosses += 1
                 good_cross(ad, dbd)
             elif ((not ad) or (not dbd)):
-                logger.warning("Missing AD/DBD for %s-x-%s", frag1, frag2)
-                NO_CROSSES.write("Missing AD/DBD for %s-x-%s\n" % (frag1,
+                what = "AD and DBD"
+                if ad:
+                    what = "AD"
+                elif dbd:
+                    what = "DBD"
+                logger.warning("Missing %s for %s-x-%s", what, frag1, frag2)
+                NO_CROSSES.write("Missing %s for %s-x-%s\n" % (what, frag1,
                                                                    frag2))
     stop_time = datetime.now()
     print "Crosses found: %d" % crosses
