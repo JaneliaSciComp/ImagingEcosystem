@@ -41,7 +41,7 @@ my %CONFIG;
 my $handle;
 # Web
 our ($USERID,$USERNAME);
-my $MONGO = 0;
+my $MONGO = 1;
 my $Session;
 # Database
 our $dbh;
@@ -81,13 +81,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   unless ($MONGO) {
     # Connect to databases
@@ -105,7 +104,7 @@ sub displayErrors
   &printHeader() if ($RUNMODE eq 'web');
   my $ar;
   if ($MONGO) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{ProcessingErrors};
+    my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{ProcessingErrors};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")

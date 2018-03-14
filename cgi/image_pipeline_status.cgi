@@ -50,7 +50,7 @@ my %STALE = (Processing => {process => {limit => 48, class => 'danger'}});
 my $handle;
 # Database
 our ($dbh,$dbhf,$dbhw);
-my $MONGO = 0;
+my $MONGO = 1;
 my %sth = (
 FB_tmog => "SELECT event_date,stock_name,cross_stock_name2,cross_effector,"
            . "seh.cross_type,seh.lab_project,cross_barcode,seh.wish_list FROM "
@@ -149,13 +149,12 @@ sub initializeProgram
   @STEPS = map { $_->{name} } @{$p->{step}};
   %STEP = map { $_->{name} => $_ } @{$p->{step}};
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
   $MONGO = 0 if (param('mysql'));
   # Connect to databases
   &dbConnect(\$dbh,'sage');
@@ -416,7 +415,6 @@ sub linkify
 sub getMONGO
 {
   my($selector,$value) = @_;
-  $CONFIG{url} = 'http://jacs-informatics.int.janelia.org:8180/rest-v1/'; #PLUG
   my $suffix = '';
   if ($selector eq 'Queued') {
     $selector = 'PipelineStatus';
@@ -426,7 +424,7 @@ sub getMONGO
     $suffix = "?name=$value";
   }
   my $t0 = [gettimeofday];
-  my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
+  my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{$selector} . $suffix;
   my $response = (get $rest) || '';
   if ($selector eq 'Entity') {
     return((length($response)) ? 1 : 0);
@@ -455,7 +453,7 @@ my %STATUS = (Complete => '090');
   $STATUS{$_} = 'f93' foreach('Desync','Marked for Rerun','New','Processing','Queued','Scheduled');
   my $ar;
   if ($MONGO) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{SampleStatus};
+    my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{SampleStatus};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")

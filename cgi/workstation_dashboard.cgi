@@ -32,7 +32,7 @@ my $BASE = "/var/www/html/output/";
 our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
-my (%REST,%WS_CONFIG);
+my %REST;
 use constant NBSP => '&nbsp;';
 my $MEASUREMENT_DAYS = param('days') || 30;
 my $MEASUREMENT_HOURS = $MEASUREMENT_DAYS * 24;
@@ -89,13 +89,6 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %REST = %$hr;
-  # Get WS REST config
-  $file = DATA_PATH . 'workstation_ng.json';
-  open SLURP,$file or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,$slurp,-s SLURP;
-  close(SLURP);
-  $hr = decode_json $slurp;
-  %WS_CONFIG = %$hr;
 }
 
 
@@ -291,7 +284,7 @@ sub reportStatus
   my (%count,%donut,%piec,%piei);
   my $total = 0;
   my $ar;
-  my $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{SampleStatus});
+  my $rvar = &getREST($REST{'jacs'}{url}.$REST{'jacs'}{query}{SampleStatus});
   foreach (@$rvar) {
     $_->{'_id'} ||= 'Null';
     push @$ar,[@{$_}{qw(_id count)}];
@@ -305,7 +298,7 @@ sub reportStatus
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  $rvar = &getREST($WS_CONFIG{url}.$WS_CONFIG{query}{PipelineStatus}
+  $rvar = &getREST($REST{'jacs'}{url}.$REST{'jacs'}{query}{PipelineStatus}
                       . '?hours=' . $MEASUREMENT_HOURS);
   my ($pipeline_acc,$samples,$successful) = (0)x3;
   foreach (@$rvar) {
@@ -395,7 +388,7 @@ sub reportStatus
                                        );
   # Age of processing samples
   @$ar = ();
-  my $rest = $WS_CONFIG{url}.$WS_CONFIG{query}{SampleAging};
+  my $rest = $REST{'jacs'}{url}.$REST{'jacs'}{query}{SampleAging};
   my $response = get $rest;
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")

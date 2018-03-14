@@ -35,7 +35,7 @@ my @BREADCRUMBS = ('Imagery tools',
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
 my %CONFIG;
-my $MONGO = 0;
+my $MONGO = 1;
 # Highcharts
 my $COLORS = '';
 
@@ -136,13 +136,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Connect to databases
   &dbConnect(\$dbh,'sage');
@@ -391,7 +390,7 @@ sub measureCompletion
     $lookup{$name} = $_;
   }
   if ($MONGO) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{CycleTime};
+    my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{CycleTime};
     if ($START && $STOP) {
       $rest .= "?startDate=$START&endDate=$STOP";
     }

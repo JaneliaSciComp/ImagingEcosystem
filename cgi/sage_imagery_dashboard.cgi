@@ -79,7 +79,7 @@ my @COLOR = qw(000066 006666 660000 666600 006600 660066);
 # * Globals                                                                  *
 # ****************************************************************************
 # Parameters
-my ($DATABASE,$MONGO) = ('',0);
+my ($DATABASE,$MONGO) = ('',1);
 my %sth = (
 ANNOT => "SELECT annotated_by,family,IF(jfs_path IS NULL,'/dm11','Scality'),COUNT(1),SUM(file_size)/(1024*1024*1024*1024) FROM image_data_mv WHERE name LIKE '%lsm' AND (family LIKE ('flylight%') OR family IN ('dickson','rubin_chacrm','rubin_ssplit','split_screen_review')) GROUP BY 1,2,3",
 CAPTURED => "SELECT family,DATE_FORMAT(MAX(capture_date),'%Y-%m-%d'),COUNT(2),"
@@ -176,13 +176,12 @@ unless (param('mode') eq 'capture' || param('mode') eq 'rate') {
 }
 
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
 # Connect to database
 $DATABASE = lc(param('_database') || 'prod');
@@ -253,7 +252,7 @@ sub showStandardDashboard
 
   # Imagery on workstation
   if ($MONGO) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{SageImagery};
+    my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{SageImagery};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
                       . "<br>Request: $rest<br>")

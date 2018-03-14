@@ -76,7 +76,7 @@ __EOT__
 my $handle;
 # Web
 our ($USERID,$USERNAME);
-my $MONGO = 0;
+my $MONGO = 1;
 my $Session;
 # Database
 our ($dbh,$dbhw);
@@ -136,13 +136,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Connect to databases
   &dbConnect(\$dbh,'sage');
@@ -171,13 +170,14 @@ sub displayCompletionStatus
   my @all;
   foreach (@$ar) {
     # Line, slide code, data set, tmog date
+next if ($MONGO && $_->[0] eq 'Not_Applicable');
     $tmog{$_->[2]}++;
     $line{$_->[2]}{$_->[0]}++;
     $tmog{TOTAL}++;
     $line{TOTAL}{$_->[0]}++;
     my $ar2;
     if ($MONGO) {
-      my $rest = $CONFIG{url}.$CONFIG{query}{SampleSearch} . "?line=$_->[0]&slideCode=$_->[1]";
+      my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{SampleImageSearch} . "?line=$_->[0]&slideCode=$_->[1]";
       my $response = get $rest;
       &terminateProgram("<h3>REST GET returned null response</h3>"
                         . "<br>Request: $rest<br>") unless (length($response));

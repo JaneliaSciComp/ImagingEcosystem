@@ -56,7 +56,7 @@ IMAGES => "SELECT i.create_date,annotated_by,microscope,data_set,slide_code,line
 WS_SAMPLES => "SELECT DISTINCT edt.value,eds.value,edd.value,e.name,e.id FROM entity e JOIN entityData edt ON (e.id=edt.parent_entity_id AND edt.entity_att='TMOG Date') LEFT OUTER JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') ORDER BY DATE(edt.value),2",
 );
 
-my $MONGO = 0;
+my $MONGO = 1;
 my %block_color = (unknown => '999999');
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
@@ -109,13 +109,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Modify statements
   if ($START && $STOP) {
@@ -194,7 +193,7 @@ sub showResults
   if ($entity eq 'Samples') {
     if ($MONGO) {
       my $t0 = [gettimeofday];
-      $rest = $CONFIG{url}.$CONFIG{query}{Blockview};
+      $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{Blockview};
       if ($START && $STOP) {
         $rest .= "?startDate=$START&endDate=$STOP";
       }
@@ -208,7 +207,7 @@ sub showResults
       &terminateProgram("<h3>REST GET returned null response</h3>"
                         . "<br>Request: $rest<br>")
         unless (length($response));
-      $performance .= sprintf "REST GET: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
+      $performance .= sprintf "REST GET $rest: %.2fsec<br>",tv_interval($t0,[gettimeofday]);
       $t0 = [gettimeofday];
       my $rvar;
       eval {$rvar = decode_json($response)};
@@ -219,7 +218,7 @@ sub showResults
       my $index = $MSELECTOR{$SELECTOR};
       foreach (sort {$a->{tmogDate} cmp $b->{tmogDate}
                      || $a->{$index} cmp $b->{$index}} @$rvar) {
-        push @$ar,[$_->{tmogDate},$_->{status},$_->{dataSet},$_->{name},$_->{'_id'}];
+        push @$ar,[@{$_}{qw(tmogDate status dataSet name _id)}];
       }
       $performance .= sprintf "Remapping: %.2fsec for %d rows<br>",tv_interval($t0,[gettimeofday]),scalar(@$rvar);
     }

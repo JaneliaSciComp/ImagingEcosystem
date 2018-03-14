@@ -40,7 +40,7 @@ my @BREADCRUMBS = ('Imagery tools',
 # Export
 my $handle;
 # Database
-my $MONGO = 0;
+my $MONGO = 1;
 my $SELECTOR = "SELECT DISTINCT e.name,edl.value,eds.value,ede.value,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Slide Code') JOIN entityData edl ON (e.id=edl.parent_entity_id AND edl.entity_att='Line') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData ede ON (e.id=ede.parent_entity_id AND ede.entity_att='Effector') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') ";
 my %sth = (
 SAMPLES => "SELECT name FROM entity WHERE entity_type='Sample' AND name "
@@ -95,13 +95,20 @@ my $WIDTH = param('width') || 150;
 our ($dbh,$dbhf,$dbhs);
 my $Subject;
 # Get WS REST config
-my $file = DATA_PATH . 'workstation_ng.json';
+my $file = DATA_PATH . 'db_config.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
 sysread SLURP,my $slurp,-s SLURP;
 close(SLURP);
 my $hr = decode_json $slurp;
 %CONFIG = %$hr;
-$MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
+my $mongodb = MongoDB->connect($CONFIG{uri});
+$Subject= $mongodb->ns('jacs.subject');
+$file = DATA_PATH . 'rest_services.json';
+open SLURP,$file or &terminateProgram("Can't open $file: $!");
+sysread SLURP,my $slurp,-s SLURP;
+close(SLURP);
+my $hr = decode_json $slurp;
+%CONFIG = %$hr;
 # Connect to databases
 unless ($MONGO) {
   &dbConnect(\$dbh,'workstation')
@@ -126,8 +133,6 @@ foreach (keys %sth) {
   elsif (!$MONGO) {
     $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
   }
-  my $mongodb = MongoDB->connect($CONFIG{uri});
-  $Subject= $mongodb->ns('jacs.subject');
 }
 
 &showOutput();
@@ -387,7 +392,7 @@ sub getMONGO
     $suffix =~ s/%//g;
     $suffix .= '&wildcard=true';
   }
-  my $rest = $CONFIG{url}.$CONFIG{query}{$selector} . $suffix;
+  my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{$selector} . $suffix;
   my $response = get $rest;
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")
