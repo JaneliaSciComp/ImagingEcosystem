@@ -17,7 +17,7 @@ use constant DATA_PATH => '/opt/informatics/data/';
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-my %CONFIG;
+my (%CONFIG,%SERVER);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -29,12 +29,18 @@ my $HEIGHT = param('height') || 200;
 my $COLOR = param('color') || '#ffffff';
 
 # Get WS REST config
-my $file = DATA_PATH . 'workstation_ng.json';
+my $file = DATA_PATH . 'rest_services.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
 sysread SLURP,my $slurp,-s SLURP;
 close(SLURP);
 my $hr = decode_json $slurp;
 %CONFIG = %$hr;
+$file = DATA_PATH . 'servers.json';
+open SLURP,$file or &terminateProgram("Can't open $file: $!");
+sysread SLURP,my $slurp,-s SLURP;
+close(SLURP);
+$hr = decode_json $slurp;
+%SERVER = %$hr;
 
 my $response;
 switch ($ENTITY) {
@@ -47,7 +53,7 @@ exit(0);
 sub lsmMIP
 {
   (my $name  = param('name')) =~ s/.*\///;
-  my $rest = $CONFIG{url}.$CONFIG{query}{LSMImages} . "?name=$name";
+  my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . "?name=$name";
   my $response = get $rest;
   &returnError("<h3>REST GET returned null response</h3>"
                . "<br>Request: $rest<br>") unless (length($response));
@@ -58,7 +64,7 @@ sub lsmMIP
   $PRODUCT = uri_decode($PRODUCT);
   my $img = $rvar->{files}{$PRODUCT} || '';
   if ($img) {
-    return(img({src => $CONFIG{webdav} . $img,
+    return(img({src => $SERVER{'jacs-webdav'}{address} . $img,
                 height => $HEIGHT}));
   }
   else {
@@ -70,7 +76,7 @@ sub lsmMIP
 sub sampleMIP
 {
   (my $id = param('id')) =~ s/.*\///;
-  my $rest = $CONFIG{url}.$CONFIG{query}{SampleImage} . "?sampleId=$id&image=$PRODUCT";
+  my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{SampleImage} . "?sampleId=$id&image=$PRODUCT";
   my $response = get $rest;
   &returnError("<h3>REST GET returned null response</h3>"
                . "<br>Request: $rest<br>") unless (length($response));
@@ -88,7 +94,7 @@ sub sampleMIP
                       Tr(th('Line'),td($rvar->{line})));
     my $html .= div({style => "float: left; border: 2px solid $COLOR"},
                     div({style => 'float:left'},
-                        img({src => $CONFIG{webdav} . $rvar->{image},
+                        img({src => $SERVER{'jacs-webdav'}{address} . $rvar->{image},
                              height => $HEIGHT})),
                     div({style => 'float:left'},$table))
                 . div({style => 'clear: both;'},'');
