@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/bin/env perl
 
 use strict;
 use warnings;
@@ -77,7 +77,7 @@ my $handle;
 # Web
 our ($USERID,$USERNAME);
 my $Session;
-my $MONGO = 0;
+my $MONGO = 1;
 # Database
 our ($dbh,$dbhw);
 
@@ -132,13 +132,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
 
   # Connect to databases
   &dbConnect(\$dbh,'sage');
@@ -164,7 +163,7 @@ sub displayCompletionStatus
   # Populate status hash (slide code => status)
   my ($ar2,$rest);
   if ($MONGO) {
-    $rest = $CONFIG{url}.$CONFIG{query}{WorkstationStatus};
+    $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{WorkstationStatus};
     if ($BASEDATE && $STOPDATE) {
       $rest .= "?startDate=$BASEDATE&endDate=$STOPDATE";
     }
@@ -174,14 +173,7 @@ sub displayCompletionStatus
     elsif ($STOPDATE) {
       $rest .= "?endDate=$STOPDATE";
     }
-    my $response = get $rest;
-    &terminateProgram("<h3>REST GET returned null response</h3>"
-                      . "<br>Request: $rest<br>")
-      unless (length($response));
-    my $rvar;
-    eval {$rvar = decode_json($response)};
-      &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                        . "Response: $response<br>Error: $@") if ($@);
+    my $rvar = &getREST($rest);
     foreach (@$rvar) {
       push @$ar2,[$_->{name},join('-',@{$_}{qw(line slideCode)}),$_->{status}];
     }
@@ -272,6 +264,22 @@ sub displayCompletionStatus
                                      $complete{TOTAL}])))));
     $html .= div({style => 'clear: both'},'');
     print $html,end_form,&sessionFooter($Session),end_html;
+}
+
+
+
+sub getREST
+{
+  my($rest) = @_;
+  my $response = get $rest;
+  &terminateProgram("<h3>REST GET returned null response</h3>"
+                    . "<br>Request: $rest<br>")
+    unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
 }
 
 
