@@ -30,7 +30,6 @@ my %CONFIG;
 our $APPLICATION = '20x screen review';
 my $BASE = "/var/www/html/output/";
 my $FLYSTORE_HOST = 'http://flystore.int.janelia.org';
-# $FLYSTORE_HOST = 'http://django-dev:4000';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
@@ -45,7 +44,7 @@ my $SECONDARY_MIP = 'Signal MIP ch1';
 # Export
 my $handle;
 # Database
-my $MONGO = 0;
+my $MONGO = 1;
 our ($dbh,$dbhf,$dbhw);
 my %sth = (
 AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
@@ -102,7 +101,7 @@ our $USERNAME = $Session->param('user_name');
 my $HEIGHT = param('height') || 150;
 my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
-my $ALL_STABLE = $Session->param('scicomp') || 0;
+my $ALL_STABLE = $Session->param('scicomp') || 1;
 my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb');
@@ -163,13 +162,12 @@ exit(0);
 sub initializeProgram
 {
   # Get WS REST config
-  my $file = DATA_PATH . 'workstation_ng.json';
+  my $file = DATA_PATH . 'rest_services.json';
   open SLURP,$file or &terminateProgram("Can't open $file: $!");
   sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  $MONGO = (param('mongo')) || ('mongo' eq $CONFIG{data_source});
   # Modify statements
   if ($START && $STOP) {
     $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
@@ -252,7 +250,7 @@ sub getSingleMIP
 {
   my($wname) = shift;
   if ($MONGO) {
-    my $rest = $CONFIG{url}.$CONFIG{query}{LSMImages} . "?name=$wname";
+    my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . "?name=$wname";
     my $response = get $rest;
     return('','') unless (length($response));
     my $rvar;
@@ -350,7 +348,7 @@ sub chooseCrosses
     return;
   }
   my $html = '';
-  my($discarded,$ordered,$tossed) = (0)x3;
+  my($discarded,$ordered,$tossed,$with_ss) = (0)x4;
   &getFlyStoreOrders($ar);
   # Determine brightness
   my (%gain,%power);
@@ -382,8 +380,9 @@ sub chooseCrosses
     $DATA_SET{$line} = $dataset;
     # Line control break
     if ($line ne $last_line) {
-      $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,$sss,$sss_adjusted,$polarity,
-                           $polarity_adjusted,$controls,$class,$tossed) if ($lhtml);
+      $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,
+                           $sss,$sss_adjusted,$polarity,$polarity_adjusted,
+                           $controls,$class,$tossed) if ($lhtml);
       $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$comment);
       $last_line = $line;
       ($class,$imagery,$adjusted,$tossed) = ('unordered','','',0);
@@ -473,9 +472,16 @@ sub chooseCrosses
         }
         $ordered++ if ($bump_ordered);
         if ($ALL_STABLE) {
-#          ($mcfo) = &getStableImagery($stable_line,$DSUSER.'\_mcfo%');
+          # ($mcfo) = &getStableImagery($stable_line,$DSUSER.'\_mcfo%');
           ($sss,$sss_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_split\_screen\_review%');
-          ($polarity,$polarity_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_polarity%') unless ($sss);
+          if ($sss) {
+            $ordered-- if ($bump_ordered);
+            $class = 'stableimg';
+            $with_ss++;
+          }
+          else {
+            ($polarity,$polarity_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_polarity%');
+          }
         }
       }
       else {
@@ -525,7 +531,7 @@ sub chooseCrosses
                              div({class => 'discards'},0)])),
                      )),
             &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded,
-                            $export_button),
+                            $with_ss,$export_button),
             (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
             &submitButton('verify','Next >')),
         div({id => 'scrollarea'},$html),
@@ -585,21 +591,27 @@ sub createLineHeader
 sub getFlyStoreOrders
 {
   my $ar = shift;
+  my (%is_lines,%discards);
   my($is_lines,$discards);
   my $client = REST::Client->new();
   my $json = JSON->new->allow_nonref;
   foreach (@$ar) {
-    push @$is_lines,$_->[0];
+    $is_lines{$_->[0]}++;
     ($a = $_->[0]) =~ s/IS/SS/;
-    push @$discards,$a;
+    $discards{$a}++;
   }
+  @$is_lines = keys %is_lines;
+  @$discards = keys %discards;
   my $post_hash = {is_lines => $is_lines,discards => $discards};
+  my $count = scalar(@$is_lines) + scalar(@$discards);
   $client->POST("$FLYSTORE_HOST/api/orders/batch/",$json->encode($post_hash));
   if ($client->responseCode() != 200) {
-    print &bootstrapPanel('FlyStore could not process IS/discard check',
+    print &bootstrapPanel("FlyStore could not process IS/discard check "
+                          . "on $count lines",,
                           Dumper($post_hash),'danger');
     &terminateProgram('Error response (' . $client->responseCode()
-                      . ') from FlyStore for IS/discard check');
+                      . ') from FlyStore for IS/discard check: '
+                      . $client->responseContent());
   }
   my $struct = $json->decode($client->responseContent());
   # Orders
@@ -631,7 +643,7 @@ sub getFlyStoreOrders
       $DISCARD{$l}++;
     }
   }
-  push @performance,sprintf 'Discard hash build: %.4f sec',tv_interval($t0,[gettimeofday]);
+  push @performance,sprintf 'Discard hash build for %d stocks: %.4f sec',$count,tv_interval($t0,[gettimeofday]);
   # Stable stocks on SAGE
   $t0 = [gettimeofday];
   $sth{SSCROSS}->execute();
@@ -887,7 +899,7 @@ sub renderLine {
 
 sub renderControls
 {
-  my($ordered,$unordered,$discarded,$export) = @_;
+  my($ordered,$unordered,$discarded,$with_ss,$export) = @_;
   my $html = div({style => 'float: left; margin-left: 20px;'},
       button(-value => 'Show all lines',
              -class => 'btn btn-success btn-xs',
@@ -919,7 +931,14 @@ sub renderControls
                           -onclick => 'showByClass("discard");'),
                    button(-value => 'Hide',
                           -class => 'btn btn-warning btn-xs',
-                          -onclick => 'hideByClass("discard");')]))),
+                          -onclick => 'hideByClass("discard");')])),
+            Tr(td(["Lines with 20x stable split imagery ($with_ss):",
+                   button(-value => 'Show',
+                          -class => 'btn btn-success btn-xs',
+                          -onclick => 'showByClass("stableimg");'),
+                   button(-value => 'Hide',
+                          -class => 'btn btn-warning btn-xs',
+                          -onclick => 'hideByClass("stableimg");')]))),
            );
   if (scalar keys %MISSING_MIP) {
     $html .= div({class => 'boxed',
@@ -927,7 +946,9 @@ sub renderControls
                  span({style => 'color: #f60;font-size: 14pt;'},
                       span({class => 'glyphicon glyphicon-warning-sign'},''),
                       'The following lines are missing imagery'),br,
-                 join(br,sort keys %MISSING_MIP));
+                 join(', ',map {a({href => "/cgi-bin/lineman.cgi?line=$_",
+                                   target => '_blank'},$_)}
+                               sort keys %MISSING_MIP));
   }
   $html .= $CLEAR . $export;
 }
