@@ -124,11 +124,17 @@ def convertVT(vt):
 
 
 def read_lines(fragdict):
+    inputlist = []
     linelist = []
     fragsFound = dict()
     frags_read = 0
+    if ARG.ALINE:
+        inputlist.append(ARG.ALINE)
     F = open(ARG.INPUT, 'r')
     for input_line in F:
+        inputlist.append(input_line)
+    F.close()
+    for input_line in inputlist:
         frags_read = frags_read + 1
         search_term = input_line.rstrip()
         new_term = ''
@@ -163,7 +169,6 @@ def read_lines(fragdict):
                     continue
                 linelist.append(fragment)
                 break
-    F.close()
     linelist.sort()
     print "Fragments read: %d" % (frags_read)
     n = len(linelist)
@@ -187,6 +192,10 @@ def process_input():
         for frag2 in fraglist[idx:]:
             if (frag1 == frag2):
                 continue
+            if ARG.ALINE:
+                if ARG.ALINE not in frag1 and ARG.ALINE not in frag2:
+                    logger.warning("AD or DBD is not A line %s", ARG.ALINE)
+                    continue
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
@@ -212,6 +221,7 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description='Generate Gen1 initial splits')
     PARSER.add_argument('--file', dest='INPUT', required=True, default='', help='Input file')
+    PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
