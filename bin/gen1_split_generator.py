@@ -1,32 +1,23 @@
 import argparse
 from datetime import datetime
 import json
-import pprint
+import os
 import re
 import sys
 import urllib2
 import colorlog
 import requests
 
-SAGE_RESPONDER = 'http://informatics-flask.int.janelia.org:83/' + \
-    'sage_responder/'
-FLYCORE_RESPONDER = 'http://informatics-prod.int.janelia.org/' + \
-    'cgi-bin/flycore_responder.cgi'
-SUFFIX_SCORE = {'AV_01': 1,
-                'AV_57': 1,
-                'BB_04': 1,
-                'BB_21': 1,
-                'XA_21': 1,
-                'XD_01': 1}
-CONFIG = {'sage': 'http://informatics-flask.int.janelia.org:83/sage_responder/',
-          'flycore': 'http://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?'}
+
+# Configuration
+SUFFIX_SCORE = {}
+CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 WARNED = {}
 fcdict = dict()
 
 
-
-def call_rest(server, endpoint):
-    url = CONFIG[server] + endpoint
+def call_responder(server, endpoint):
+    url = CONFIG[server]['url'] + endpoint
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as err:
@@ -37,6 +28,17 @@ def call_rest(server, endpoint):
     else:
         logger.error('Status: %s', str(req.status_code))
         sys.exit(-1)
+
+
+def initialize_program():
+    """ Get REST and score configuration
+    """
+    global CONFIG, SUFFIX_SCORE
+    data = call_responder('config', 'config/rest_services')
+    CONFIG = data['config']
+    prog = os.path.basename(__file__).replace('.py', '')
+    data = call_responder('config', 'config/' + prog)
+    SUFFIX_SCORE = data['config']['score']
 
 
 def generateScore(line):
@@ -88,7 +90,7 @@ def generateCross(fragdict, frag1, frag2):
 
 
 def flycoreData(line):
-    response = call_rest('flycore', "request=linedata&line=" + line)
+    response = call_responder('flycore', "?request=linedata&line=" + line)
     fcdict[line] = response['linedata']
 
 
@@ -114,7 +116,7 @@ def good_cross(ad, dbd):
 
 
 def convertVT(vt):
-    response = call_rest('sage', "translatevt/" + vt)
+    response = call_responder('sage', "translatevt/" + vt)
     if ('line_data' in response and len(response['line_data'])):
         return(response['line_data'][0]['line'])
     else:
@@ -147,7 +149,7 @@ def read_lines(fragdict):
         else:
             fragsFound[search_term] = 1
         logger.debug(search_term + ' (' + new_term + ')')
-        response = call_rest('sage', "lines?name=" + new_term + '&_columns=name')
+        response = call_responder('sage', "lines?name=" + new_term + '&_columns=name')
         ld = response['line_data']
         if ld:
             for l in ld:
@@ -174,7 +176,7 @@ def read_lines(fragdict):
 def process_input():
     logger.info("Fetching split halves")
     start_time = datetime.now()
-    response = call_rest('sage', 'split_halves')
+    response = call_responder('sage', 'split_halves')
     fragdict = response['split_halves']
     logger.info("Found %d fragments with AD/DBDs", len(fragdict))
     logger.info("Processing line fragment list")
@@ -209,10 +211,10 @@ def process_input():
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description='Generate Gen1 initial splits')
-    PARSER.add_argument('-file', dest='INPUT', default='', help='Input file')
-    PARSER.add_argument('-verbose', action='store_true', dest='VERBOSE',
+    PARSER.add_argument('--file', dest='INPUT', required=True, default='', help='Input file')
+    PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
-    PARSER.add_argument('-debug', action='store_true', dest='DEBUG',
+    PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
                         default=False, help='Turn on debug output')
     ARG = PARSER.parse_args()
 
@@ -227,7 +229,7 @@ if __name__ == '__main__':
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(HANDLER)
 
-    pp = pprint.PrettyPrinter(indent=4)
+    initialize_program()
     CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
     FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
     for h in ('Who', '#', 'Alias', 'Pfrag'):
