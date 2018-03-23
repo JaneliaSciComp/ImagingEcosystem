@@ -189,13 +189,26 @@ def process_input():
     fraglist = read_lines(fragdict)
     logger.info("Generating crosses")
     crosses = 0
+
+    converted_aline = ARG.ALINE
+    if ARG.ALINE:
+        original = ARG.ALINE.rstrip()
+        if original.isdigit():
+            vt = 'VT' + original.zfill(6)
+            st = convertVT(vt)
+            if (not st):
+                logger.warning("Could not convert aline %s from VT to line", vt)
+                sys.exit()
+            else:
+                converted_aline = st.split('_')[1]
+
     for idx, frag1 in enumerate(fraglist):
         for frag2 in fraglist[idx:]:
             if (frag1 == frag2):
                 continue
-            if ARG.ALINE:
-                if ARG.ALINE not in frag1 and ARG.ALINE not in frag2:
-                    logger.warning("AD or DBD is not A line %s", ARG.ALINE)
+            if converted_aline:
+                if converted_aline not in frag1 and converted_aline not in frag2:
+                    logger.warning("AD or DBD is not A line %s", converted_aline)
                     continue
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
