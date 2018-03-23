@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import argparse
 from datetime import datetime
 import json
@@ -240,8 +241,15 @@ if __name__ == '__main__':
     logger.addHandler(HANDLER)
 
     initialize_program()
-    CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
-    FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
+    if (ARG.ALINE):
+    	CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.crosses.txt', 'w')
+    	FLYCORE = open(ARG.ALINE + '-' + ARG.INPUT + '.flycore.xls', 'w')
+    	NO_CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.no_crosses.txt', 'w')
+    else:
+    	CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
+    	FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
+    	NO_CROSSES = open(ARG.INPUT + '.no_crosses.txt', 'w')
+
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
     FLYCORE.write('IS')
@@ -254,7 +262,6 @@ if __name__ == '__main__':
                   'StockFinder::Quality_Control'):
             FLYCORE.write("\t%s" % (h))
     FLYCORE.write("\n")
-    NO_CROSSES = open(ARG.INPUT + '.no_crosses.txt', 'w')
     process_input()
     CROSSES.close()
     FLYCORE.close()
