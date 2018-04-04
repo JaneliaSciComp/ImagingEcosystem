@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 import argparse
 from datetime import datetime
-import json
 import os
 import re
 import sys
-import urllib2
 import colorlog
 import requests
 
@@ -43,19 +41,22 @@ def initialize_program():
 
 
 def generateScore(line):
+    if not is_Gen1(line):
+        return(1)
     suffix = line.rsplit('_', 2)
     last = "_".join(suffix[-2:])
     if (last in SUFFIX_SCORE):
         return(SUFFIX_SCORE[last])
     else:
         if last not in WARNED:
-            logger.error("No score found for suffix %s", last)
+            logger.warning("Using default score for suffix %s", last)
+            SUFFIX_SCORE[last] = 1
             WARNED[last] = 1
-        return(0)
+        return(1)
 
 
 def generateCross(fragdict, frag1, frag2):
-    logger.debug("%s-x-%s", frag1, frag2)
+    logger.debug("Attempting cross %s-x-%s", frag1, frag2)
     max_score = {'score': 0, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
         # frag1 = AD, frag2 = DBD
@@ -124,6 +125,11 @@ def convertVT(vt):
         return('')
 
 
+def is_Gen1(line):
+    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line)
+    return(1 if m else 0)
+
+
 def read_lines(fragdict):
     inputlist = []
     linelist = []
@@ -150,31 +156,56 @@ def read_lines(fragdict):
             search_term = st.split('_')[1]
         search_term = search_term.upper()
         new_term = '*\_' + search_term + '*'
+        search_option =  '&_columns=name'
+        if not is_Gen1(search_term):
+            new_term = search_term
+            search_option = ''
         if (search_term in fragsFound):
             frags_read = frags_read - 1
             continue
         else:
             fragsFound[search_term] = 1
         logger.debug(search_term + ' (' + new_term + ')')
-        response = call_responder('sage', "lines?name=" + new_term + '&_columns=name')
+        response = call_responder('sage', "lines?name=" + new_term + search_option)
         ld = response['line_data']
         if ld:
             for l in ld:
+                if search_term == l['name']:
+                    if search_term in fragdict:
+                        linelist.append(search_term)
+                        logger.info(l['name'])
+                        break
+                    elif is_Gen1(search_term):
+                        logger.warning("Line %s is not a valid split half", search_term)
+                    else:
+                        dtype = l['flycore_project'].split('-')[-1]
+                        if dtype not in ['AD', 'DBD']:
+                            logger.error("Non-Gen1 line %s is not an AD or DBD (%s)", search_term, l['flycore_project'])
+                            break
+                        fragdict[new_term] = []
+                        fragdict[new_term].append({'line': new_term, 'type': dtype})
+                        linelist.append(search_term)
+                        logger.info("Non-Gen1 %s (%s)", search_term, dtype)
+                        break
                 if (('_' + search_term) not in l['name']):
                     continue
                 fragment = re.sub('_[A-Z][A-Z]_[0-9][0-9]', '', l['name'])
-                if (ARG.DEBUG):
-                    logger.info(l['name'] + ' -> ' + fragment)
+                logger.debug(l['name'] + ' -> ' + fragment)
                 if (fragment not in fragdict):
-                    logger.warning("No AD or DBD found for fragment %s", fragment)
+                    logger.warning("Fragment %s line %s is not an AD/DBD", fragment, l['name'])
                     continue
                 linelist.append(fragment)
+                logger.info(fragment)
                 break
+        else:
+            logger.warning("%s was not found in SAGE", search_term)
     linelist.sort()
     print "Fragments read: %d" % (frags_read)
     n = len(linelist)
     print "Eligible line fragments: %d" % n
     combos = (n * (n - 1)) / 2
+    if ARG.ALINE:
+        combos = n - 1
     print "Theoretical crosses: %d" % (combos)
     return(linelist)
 
@@ -197,8 +228,8 @@ def process_input():
             vt = 'VT' + original.zfill(6)
             st = convertVT(vt)
             if (not st):
-                logger.warning("Could not convert aline %s from VT to line", vt)
-                sys.exit()
+                logger.critical("Could not convert aline %s from VT to line", vt)
+                sys.exit(-1)
             else:
                 converted_aline = st.split('_')[1]
 
@@ -208,7 +239,7 @@ def process_input():
                 continue
             if converted_aline:
                 if converted_aline not in frag1 and converted_aline not in frag2:
-                    logger.warning("AD or DBD is not A line %s", converted_aline)
+                    logger.debug("Cross does not contain A line %s", converted_aline)
                     continue
             (ad, dbd) = generateCross(fragdict, frag1, frag2)
             if (ad and dbd):
@@ -257,11 +288,13 @@ if __name__ == '__main__':
     if (ARG.ALINE):
     	CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.crosses.txt', 'w')
     	FLYCORE = open(ARG.ALINE + '-' + ARG.INPUT + '.flycore.xls', 'w')
-    	NO_CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.no_crosses.txt', 'w')
+        nocross_file = ARG.ALINE + '-' + ARG.INPUT + '.no_crosses.txt'
+    	NO_CROSSES = open(nocross_file, 'w')
     else:
     	CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
     	FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
-    	NO_CROSSES = open(ARG.INPUT + '.no_crosses.txt', 'w')
+        nocross_file = ARG.INPUT + '.no_crosses.txt'
+    	NO_CROSSES = open(nocross_file, 'w')
 
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
@@ -277,5 +310,7 @@ if __name__ == '__main__':
     FLYCORE.write("\n")
     process_input()
     CROSSES.close()
+    if os.path.getsize(nocross_file) < 1:
+        os.remove(nocross_file)
     FLYCORE.close()
     NO_CROSSES.close()
