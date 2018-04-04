@@ -40,8 +40,13 @@ def initialize_program():
     SUFFIX_SCORE = data['config']['score']
 
 
-def generateScore(line):
-    if not is_Gen1(line):
+def is_gen1(line):
+    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line)
+    return(1 if m else 0)
+
+
+def generate_score(line):
+    if not is_gen1(line):
         return(1)
     suffix = line.rsplit('_', 2)
     last = "_".join(suffix[-2:])
@@ -62,11 +67,11 @@ def generateCross(fragdict, frag1, frag2):
         # frag1 = AD, frag2 = DBD
         if f1['type'] == 'DBD':
             continue
-        score = generateScore(f1['line'])
+        score = generate_score(f1['line'])
         for f2 in fragdict[frag2]:
             if f2['type'] == 'AD':
                 continue
-            final_score = score + generateScore(f2['line'])
+            final_score = score + generate_score(f2['line'])
             logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
                          final_score)
             if final_score > max_score['score']:
@@ -77,11 +82,11 @@ def generateCross(fragdict, frag1, frag2):
         # frag1 = DBD, frag2 = AD
         if f1['type'] == 'AD':
             continue
-        score = generateScore(f1['line'])
+        score = generate_score(f1['line'])
         for f2 in fragdict[frag2]:
             if f2['type'] == 'DBD':
                 continue
-            final_score = score + generateScore(f2['line'])
+            final_score = score + generate_score(f2['line'])
             logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
                          final_score)
             if (final_score > max_score['score']):
@@ -125,18 +130,13 @@ def convertVT(vt):
         return('')
 
 
-def is_Gen1(line):
-    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line)
-    return(1 if m else 0)
-
-
-def read_lines(fragdict):
+def read_lines(fragdict, converted_aline):
     inputlist = []
     linelist = []
     fragsFound = dict()
     frags_read = 0
     if ARG.ALINE:
-        inputlist.append(ARG.ALINE)
+        inputlist.append(converted_aline)
     F = open(ARG.INPUT, 'r')
     for input_line in F:
         inputlist.append(input_line)
@@ -157,7 +157,7 @@ def read_lines(fragdict):
         search_term = search_term.upper()
         new_term = '*\_' + search_term + '*'
         search_option =  '&_columns=name'
-        if not is_Gen1(search_term):
+        if not is_gen1(search_term):
             new_term = search_term
             search_option = ''
         if (search_term in fragsFound):
@@ -175,7 +175,7 @@ def read_lines(fragdict):
                         linelist.append(search_term)
                         logger.info(l['name'])
                         break
-                    elif is_Gen1(search_term):
+                    elif is_gen1(search_term):
                         logger.warning("Line %s is not a valid split half", search_term)
                     else:
                         dtype = l['flycore_project'].split('-')[-1]
@@ -192,21 +192,23 @@ def read_lines(fragdict):
                 fragment = re.sub('_[A-Z][A-Z]_[0-9][0-9]', '', l['name'])
                 logger.debug(l['name'] + ' -> ' + fragment)
                 if (fragment not in fragdict):
-                    logger.warning("Fragment %s line %s is not an AD/DBD", fragment, l['name'])
-                    continue
+                    logger.warning("Fragment %s does not have an AD or DBD", fragment)
+                    break
                 linelist.append(fragment)
                 logger.info(fragment)
                 break
         else:
-            logger.warning("%s was not found in SAGE", search_term)
+            logger.error("%s was not found in SAGE", search_term)
+            if ARG.ALINE and (converted_aline == search_term):
+                sys.exit(-1)
     linelist.sort()
-    print "Fragments read: %d" % (frags_read)
+    print("Fragments read: %d" % (frags_read))
     n = len(linelist)
-    print "Eligible line fragments: %d" % n
+    print("Eligible line fragments: %d" % n)
     combos = (n * (n - 1)) / 2
     if ARG.ALINE:
         combos = n - 1
-    print "Theoretical crosses: %d" % (combos)
+    print("Theoretical crosses: %d" % (combos))
     return(linelist)
 
 
@@ -216,11 +218,7 @@ def process_input():
     response = call_responder('sage', 'split_halves')
     fragdict = response['split_halves']
     logger.info("Found %d fragments with AD/DBDs", len(fragdict))
-    logger.info("Processing line fragment list")
-    fraglist = read_lines(fragdict)
-    logger.info("Generating crosses")
-    crosses = 0
-
+    # Convert A line
     converted_aline = ARG.ALINE
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
@@ -232,7 +230,11 @@ def process_input():
                 sys.exit(-1)
             else:
                 converted_aline = st.split('_')[1]
-
+    # Find fragments
+    logger.info("Processing line fragment list")
+    fraglist = read_lines(fragdict, converted_aline)
+    logger.info("Generating crosses")
+    crosses = 0
     for idx, frag1 in enumerate(fraglist):
         for frag2 in fraglist[idx:]:
             if (frag1 == frag2):
@@ -255,7 +257,7 @@ def process_input():
                 NO_CROSSES.write("Missing %s for %s-x-%s\n" % (what, frag1,
                                                                    frag2))
     stop_time = datetime.now()
-    print "Crosses found: %d" % crosses
+    print("Crosses found: %d" % crosses)
     logger.info("Elapsed time: %s", (stop_time - start_time))
 
 
