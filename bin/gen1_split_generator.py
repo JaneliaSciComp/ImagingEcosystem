@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
 from datetime import datetime
+import json
 import os
 import re
 import sys
@@ -9,6 +10,8 @@ import requests
 
 
 # Configuration
+FRAGCACHE_FILE = os.path.basename(__file__).replace('.py', '') + '.frag.cache'
+VTCACHE_FILE = os.path.basename(__file__).replace('.py', '') + '.vt.cache'
 SUFFIX_SCORE = {}
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 WARNED = {}
@@ -112,15 +115,17 @@ def good_cross(ad, dbd):
     for half in (ad, dbd):
         FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
                       % (fcdict[half]['A_Concat_Loc'],
-                         fcdict[half]['__kp_UniqueID'], fcdict[half]['RobotID'],
+                         fcdict[half]['__kp_UniqueID'],
+                         fcdict[half]['RobotID'],
                          fcdict[half]['Genotype_GSI_Name_PlateWell'],
-                         fcdict[half]['Chromosome'], half, fcdict[half]['fragment'],
+                         fcdict[half]['Chromosome'], half,
+                         fcdict[half]['fragment'],
                          fcdict[half]['Production_Info'],
                          fcdict[half]['Quality_Control']))
     FLYCORE.write("\n")
 
 
-def convertVT(vt):
+def translate_vt(vt):
     response = call_responder('sage', "translatevt/" + vt)
     if ('line_data' in response and len(response['line_data'])):
         return(response['line_data'][0]['line'])
@@ -128,43 +133,76 @@ def convertVT(vt):
         return('')
 
 
+def convert_vt(search_term, vtcache):
+    vt = 'VT' + search_term.zfill(6)
+    if search_term in vtcache:
+        return(vtcache[search_term])
+    st = translate_vt(vt)
+    if (not st):
+        logger.warning("Could not convert %s to line", vt)
+        NO_CROSSES.write("Could not convert %s to line" % (vt))
+        return()
+    logger.debug("Converted %s to %s", search_term, st)
+    vtcache[search_term] = st.split('_')[1]
+    return(st.split('_')[1])
+
+
 def read_lines(fragdict, converted_aline):
     inputlist = []
     linelist = []
     fragsFound = dict()
     frags_read = 0
+    fragcache = dict()
+    vtcache = dict()
     if ARG.ALINE:
         inputlist.append(converted_aline)
     F = open(ARG.INPUT, 'r')
     for input_line in F:
         inputlist.append(input_line)
     F.close()
+    # Get cached lines and VT conversions
+    if os.path.isfile(FRAGCACHE_FILE):
+        logger.debug("Retrieving cached lines")
+        with open(FRAGCACHE_FILE) as json_data:
+            fragcache = json.load(json_data)
+        logger.info("Found %s entries in fragment cache", len(fragcache))
+    if os.path.isfile(VTCACHE_FILE):
+        logger.debug("Retrieving cached VT lines")
+        with open(VTCACHE_FILE) as json_data:
+            vtcache = json.load(json_data)
+        logger.info("Found %s entries in VT cache", len(vtcache))
+    # Process input file
     for input_line in inputlist:
         frags_read = frags_read + 1
         search_term = input_line.rstrip()
         new_term = ''
         if search_term.isdigit():
-            vt = 'VT' + search_term.zfill(6)
-            st = convertVT(vt)
-            if (not st):
-                logger.warning("Could not convert %s to line", vt)
-                NO_CROSSES.write("Could not convert %s to line" % (vt))
+            search_term = convert_vt(search_term, vtcache)
+            if not search_term:
                 continue
-            logger.debug("Converted %s to %s)", search_term, st)
-            search_term = st.split('_')[1]
         search_term = search_term.upper()
         new_term = '*\_' + search_term + '*'
-        search_option =  '&_columns=name'
+        search_option = '&_columns=name'
         if not is_gen1(search_term):
             new_term = search_term
             search_option = ''
         if (search_term in fragsFound):
+            logger.warning("Ignoring duplicate %s", search_term)
             frags_read = frags_read - 1
             continue
         else:
             fragsFound[search_term] = 1
+        # Check for cached entry
+        stest = search_term.encode("utf-8")
+        if stest in fragcache:
+            decoded = fragcache[search_term].encode('ascii', 'ignore')
+            linelist.append(decoded)
+            fragsFound[search_term] = decoded
+            logger.info("Retrieved value %s from cache for %s", decoded, search_term)
+            continue
         logger.debug(search_term + ' (' + new_term + ')')
-        response = call_responder('sage', "lines?name=" + new_term + search_option)
+        response = call_responder('sage', "lines?name=" + new_term +
+                                  search_option)
         ld = response['line_data']
         if ld:
             for l in ld:
@@ -174,15 +212,18 @@ def read_lines(fragdict, converted_aline):
                         logger.info(l['name'])
                         break
                     elif is_gen1(search_term):
-                        logger.warning("Line %s is not a valid split half", search_term)
+                        logger.warning("Line %s is not a valid split half",
+                                       search_term)
                     else:
                         dtype = l['flycore_project'].split('-')[-1]
                         if dtype not in ['AD', 'DBD']:
                             logger.error("Non-Gen1 line %s is not an AD or DBD (%s)", search_term, l['flycore_project'])
                             break
-                        fragdict[new_term] = []
-                        fragdict[new_term].append({'line': new_term, 'type': dtype})
+                        # Non Gen-1
+                        fragdict[search_term] = []
+                        fragdict[search_term].append({'line': new_term, 'type': dtype})
                         linelist.append(search_term)
+                        fragsFound[search_term] = search_term
                         logger.info("Non-Gen1 %s (%s)", search_term, dtype)
                         break
                 if (('_' + search_term) not in l['name']):
@@ -192,6 +233,8 @@ def read_lines(fragdict, converted_aline):
                 if (fragment not in fragdict):
                     logger.warning("Fragment %s does not have an AD or DBD", fragment)
                     break
+                fragsFound[search_term] = fragment
+                fragcache[search_term] = fragment
                 linelist.append(fragment)
                 logger.info(fragment)
                 break
@@ -207,6 +250,13 @@ def read_lines(fragdict, converted_aline):
     if ARG.ALINE:
         combos = n - 1
     print("Theoretical crosses: %d" % (combos))
+    # Update caches
+    if len(fragcache):
+        with open(FRAGCACHE_FILE, 'w') as outfile:
+            json.dump(fragcache, outfile)
+    if len(vtcache):
+        with open(VTCACHE_FILE, 'w') as outfile:
+            json.dump(vtcache, outfile)
     return(linelist)
 
 
@@ -221,13 +271,9 @@ def process_input():
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
         if original.isdigit():
-            vt = 'VT' + original.zfill(6)
-            st = convertVT(vt)
-            if (not st):
-                logger.critical("Could not convert aline %s from VT to line", vt)
+            converted_aline = convert_vt(original)
+            if not converted_aline:
                 sys.exit(-1)
-            else:
-                converted_aline = st.split('_')[1]
     # Find fragments
     logger.info("Processing line fragment list")
     fraglist = read_lines(fragdict, converted_aline)
@@ -286,15 +332,15 @@ if __name__ == '__main__':
 
     initialize_program()
     if (ARG.ALINE):
-    	CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.crosses.txt', 'w')
-    	FLYCORE = open(ARG.ALINE + '-' + ARG.INPUT + '.flycore.xls', 'w')
+        CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.crosses.txt', 'w')
+        FLYCORE = open(ARG.ALINE + '-' + ARG.INPUT + '.flycore.xls', 'w')
         nocross_file = ARG.ALINE + '-' + ARG.INPUT + '.no_crosses.txt'
-    	NO_CROSSES = open(nocross_file, 'w')
+        NO_CROSSES = open(nocross_file, 'w')
     else:
-    	CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
-    	FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
+        CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
+        FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
         nocross_file = ARG.INPUT + '.no_crosses.txt'
-    	NO_CROSSES = open(nocross_file, 'w')
+        NO_CROSSES = open(nocross_file, 'w')
 
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
