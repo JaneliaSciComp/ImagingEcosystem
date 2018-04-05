@@ -60,9 +60,17 @@ def generate_score(line):
         return(1)
 
 
+def set_max_score(ad, dbd, final_score, max_score):
+    logger.debug("Score %s-x-%s = %f", ad, dbd, final_score)
+    if final_score > max_score['score']:
+        max_score['score'] = final_score
+        max_score['ad'] = ad
+        max_score['dbd'] = dbd
+
+
 def generateCross(fragdict, frag1, frag2):
     logger.debug("Attempting cross %s-x-%s", frag1, frag2)
-    max_score = {'score': 0, 'ad': '', 'dbd': ''}
+    max_score = {'score': -1, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
         # frag1 = AD, frag2 = DBD
         if f1['type'] == 'DBD':
@@ -72,12 +80,7 @@ def generateCross(fragdict, frag1, frag2):
             if f2['type'] == 'AD':
                 continue
             final_score = score + generate_score(f2['line'])
-            logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
-                         final_score)
-            if final_score > max_score['score']:
-                max_score['score'] = final_score
-                max_score['ad'] = f1['line']
-                max_score['dbd'] = f2['line']
+            set_max_score(f1['line'], f2['line'], final_score, max_score)
     for f1 in fragdict[frag1]:
         # frag1 = DBD, frag2 = AD
         if f1['type'] == 'AD':
@@ -87,12 +90,7 @@ def generateCross(fragdict, frag1, frag2):
             if f2['type'] == 'DBD':
                 continue
             final_score = score + generate_score(f2['line'])
-            logger.debug("Score %s-x-%s = %f", f1['line'], f2['line'],
-                         final_score)
-            if (final_score > max_score['score']):
-                max_score['score'] = final_score
-                max_score['dbd'] = f1['line']
-                max_score['ad'] = f2['line']
+            set_max_score(f2['line'], f1['line'], final_score, max_score)
     return(max_score['ad'], max_score['dbd'])
 
 
