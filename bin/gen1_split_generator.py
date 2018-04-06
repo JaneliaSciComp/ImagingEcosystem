@@ -43,6 +43,11 @@ def initialize_program():
 
 
 def is_gen1(line):
+    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}_[A-Z]{2}_[0-9]{2}$', line, re.IGNORECASE)
+    return(1 if m else 0)
+
+
+def is_gen1_fragment(line):
     m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line, re.IGNORECASE)
     return(1 if m else 0)
 
@@ -149,7 +154,7 @@ def convert_vt(search_term, vtcache):
 def search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
                       linelist, fragdict, fragsFound):
     found = 0
-    if is_gen1(search_term):
+    if is_gen1_fragment(search_term):
         m = re.search('([0-9]+)', search_term)
         number = int(m.groups()[0])
         extended = 'GMR_' if number < 100 else 'BJD_'
@@ -165,7 +170,7 @@ def search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
         if ld:
             for l in ld:
                 if search_term == l['name']:
-                    if is_gen1(search_term):
+                    if is_gen1_fragment(search_term):
                         logger.warning("Line %s is not a valid split half",
                                        search_term)
                     else:
@@ -224,7 +229,7 @@ def read_lines(fragdict, converted_aline):
             search_term = convert_vt(search_term, vtcache)
             if not search_term:
                 continue
-        if not is_gen1(search_term):
+        if not is_gen1_fragment(search_term):
             new_term = search_term
             search_option = ''
         else:
