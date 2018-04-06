@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime
 import json
 import os
+from os.path import expanduser
 import re
 import sys
 import colorlog
@@ -10,13 +11,11 @@ import requests
 
 
 # Configuration
-FRAGCACHE_FILE = os.path.basename(__file__).replace('.py', '') + '.frag.cache'
-VTCACHE_FILE = os.path.basename(__file__).replace('.py', '') + '.vt.cache'
+VTCACHE_FILE = expanduser('~') + '/' + os.path.basename(__file__).replace('.py', '') + '.vt.cache'
 SUFFIX_SCORE = {}
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 WARNED = {}
 fcdict = dict()
-
 
 def call_responder(server, endpoint):
     url = CONFIG[server]['url'] + endpoint
@@ -44,7 +43,7 @@ def initialize_program():
 
 
 def is_gen1(line):
-    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line)
+    m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}$', line, re.IGNORECASE)
     return(1 if m else 0)
 
 
@@ -147,79 +146,34 @@ def convert_vt(search_term, vtcache):
     return(st.split('_')[1])
 
 
-def read_lines(fragdict, converted_aline):
-    inputlist = []
-    linelist = []
-    fragsFound = dict()
-    frags_read = 0
-    fragcache = dict()
-    vtcache = dict()
-    if ARG.ALINE:
-        inputlist.append(converted_aline)
-    F = open(ARG.INPUT, 'r')
-    for input_line in F:
-        inputlist.append(input_line)
-    F.close()
-    # Get cached lines and VT conversions
-    if os.path.isfile(FRAGCACHE_FILE):
-        logger.debug("Retrieving cached lines")
-        with open(FRAGCACHE_FILE) as json_data:
-            fragcache = json.load(json_data)
-        logger.info("Found %s entries in fragment cache", len(fragcache))
-    if os.path.isfile(VTCACHE_FILE):
-        logger.debug("Retrieving cached VT lines")
-        with open(VTCACHE_FILE) as json_data:
-            vtcache = json.load(json_data)
-        logger.info("Found %s entries in VT cache", len(vtcache))
-    # Process input file
-    for input_line in inputlist:
-        frags_read = frags_read + 1
-        search_term = input_line.rstrip()
-        new_term = ''
-        if search_term.isdigit():
-            search_term = convert_vt(search_term, vtcache)
-            if not search_term:
-                continue
-        search_term = search_term.upper()
-        new_term = '*\_' + search_term + '*'
-        search_option = '&_columns=name'
-        if not is_gen1(search_term):
-            new_term = search_term
-            search_option = ''
-        if (search_term in fragsFound):
-            logger.warning("Ignoring duplicate %s", search_term)
-            frags_read = frags_read - 1
-            continue
-        else:
-            fragsFound[search_term] = 1
-        # Check for cached entry
-        stest = search_term.encode("utf-8")
-        if stest in fragcache:
-            decoded = fragcache[search_term].encode('ascii', 'ignore')
-            linelist.append(decoded)
-            fragsFound[search_term] = decoded
-            logger.info("Retrieved value %s from cache for %s", decoded, search_term)
-            continue
-        logger.debug(search_term + ' (' + new_term + ')')
+def search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
+                      linelist, fragdict, fragsFound):
+    found = 0
+    if is_gen1(search_term):
+        m = re.search('([0-9]+)', search_term)
+        number = int(m.groups()[0])
+        extended = 'GMR_' if number < 100 else 'BJD_'
+        extended += search_term
+        if extended in fragdict:
+            linelist.append(extended)
+            logger.info("Found %s in split half list", extended)
+            found = 1
+    if not found:
         response = call_responder('sage', "lines?name=" + new_term +
                                   search_option)
         ld = response['line_data']
         if ld:
             for l in ld:
                 if search_term == l['name']:
-                    if search_term in fragdict:
-                        linelist.append(search_term)
-                        logger.info(l['name'])
-                        break
-                    elif is_gen1(search_term):
+                    if is_gen1(search_term):
                         logger.warning("Line %s is not a valid split half",
                                        search_term)
                     else:
+                        # Non Gen-1
                         dtype = l['flycore_project'].split('-')[-1]
                         if dtype not in ['AD', 'DBD']:
                             logger.error("Non-Gen1 line %s is not an AD or DBD (%s)", search_term, l['flycore_project'])
                             break
-                        # Non Gen-1
                         fragdict[search_term] = []
                         fragdict[search_term].append({'line': new_term, 'type': dtype})
                         linelist.append(search_term)
@@ -234,7 +188,6 @@ def read_lines(fragdict, converted_aline):
                     logger.warning("Fragment %s does not have an AD or DBD", fragment)
                     break
                 fragsFound[search_term] = fragment
-                fragcache[search_term] = fragment
                 linelist.append(fragment)
                 logger.info(fragment)
                 break
@@ -242,6 +195,51 @@ def read_lines(fragdict, converted_aline):
             logger.error("%s was not found in SAGE", search_term)
             if ARG.ALINE and (converted_aline == search_term):
                 sys.exit(-1)
+
+
+def read_lines(fragdict, converted_aline):
+    inputlist = []
+    linelist = []
+    fragsFound = dict()
+    frags_read = 0
+    vtcache = dict()
+    if ARG.ALINE:
+        inputlist.append(converted_aline)
+    F = open(ARG.INPUT, 'r')
+    for input_line in F:
+        inputlist.append(input_line)
+    F.close()
+    # Get cached VT conversions
+    if os.path.isfile(VTCACHE_FILE):
+        logger.debug("Retrieving cached VT lines")
+        with open(VTCACHE_FILE) as json_data:
+            vtcache = json.load(json_data)
+        logger.info("Found %s entries in VT cache", len(vtcache))
+    # Process input file
+    for input_line in inputlist:
+        frags_read = frags_read + 1
+        search_term = input_line.rstrip()
+        new_term = ''
+        if search_term.isdigit():
+            search_term = convert_vt(search_term, vtcache)
+            if not search_term:
+                continue
+        if not is_gen1(search_term):
+            new_term = search_term
+            search_option = ''
+        else:
+            search_term = search_term.upper()
+            new_term = '*\_' + search_term + '*'
+            search_option = '&_columns=name'
+        if (search_term in fragsFound):
+            logger.warning("Ignoring duplicate %s", search_term)
+            frags_read = frags_read - 1
+            continue
+        else:
+            fragsFound[search_term] = 1
+        logger.debug(search_term + ' (' + new_term + ')')
+        search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
+                          linelist, fragdict, fragsFound)
     linelist.sort()
     print("Fragments read: %d" % (frags_read))
     n = len(linelist)
@@ -250,10 +248,7 @@ def read_lines(fragdict, converted_aline):
     if ARG.ALINE:
         combos = n - 1
     print("Theoretical crosses: %d" % (combos))
-    # Update caches
-    if len(fragcache):
-        with open(FRAGCACHE_FILE, 'w') as outfile:
-            json.dump(fragcache, outfile)
+    # Update cache
     if len(vtcache):
         with open(VTCACHE_FILE, 'w') as outfile:
             json.dump(vtcache, outfile)
@@ -356,7 +351,8 @@ if __name__ == '__main__':
     FLYCORE.write("\n")
     process_input()
     CROSSES.close()
+    NO_CROSSES.close()
     if os.path.getsize(nocross_file) < 1:
         os.remove(nocross_file)
     FLYCORE.close()
-    NO_CROSSES.close()
+
