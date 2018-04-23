@@ -24,7 +24,7 @@ use CGI::Session;
 use Date::Manip qw(DateCalc ParseDate UnixDate);
 use DBI;
 use JSON;
-use LWP::Simple;
+use LWP::Simple qw(get);
 use POSIX qw(ceil);
 use JFRC::Utils::Web qw(:all);
 use JFRC::Highcharts qw(:all);
@@ -170,7 +170,7 @@ DATASET => 'SELECT ed.value,e.name,ed.owner_key FROM entityData ed '
 # Session authentication
 
 my $Session = '';
-unless (param('mode') eq 'capture' || param('mode') eq 'rate') {
+unless (param('mode') && (param('mode') eq 'capture' || param('mode') eq 'rate')) {
   $Session = &establishSession(css_prefix => $PROGRAM);
   &sessionLogout($Session) if (param('logout'));
 }

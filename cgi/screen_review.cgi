@@ -10,11 +10,15 @@ use DBI;
 use IO::File;
 use JFRC::LDAP;
 use JSON;
-use LWP::Simple;
+use Kafka::Connection;
+use Kafka::Producer;
+use LWP::Simple qw(get);
 use POSIX qw(strftime);
 use REST::Client;
+use Scalar::Util qw(blessed);
 use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local qw(timelocal);
+use Try::Tiny;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
 
@@ -23,7 +27,7 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
-my %CONFIG;
+my (%CONFIG,%SERVER);
 
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
@@ -44,8 +48,7 @@ my $SECONDARY_MIP = 'Signal MIP ch1';
 # Export
 my $handle;
 # Database
-my $MONGO = 1;
-our ($dbh,$dbhf,$dbhw);
+our ($dbh,$dbhf);
 my %sth = (
 AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
            . "LEFT OUTER JOIN line_property_vw ad ON "
@@ -60,12 +63,12 @@ DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
 HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw lr "
           . "ON (lr.object=lp.name AND lr.relationship='child_of') WHERE "
           . "type='flycore_project' AND lr.subject=?",
-IMAGEL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
+IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
-IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'JRC_IS%' ORDER BY 1",
-SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
+IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' ORDER BY 1",
+SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
-           . "'JRC\_SS%' AND cross_type LIKE 'Split%' GROUP BY 1,2",
+           . "'JRC\_SS%' AND cross_type IN ('SplitFlipOuts','SplitPolarity') GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_property_vw ip "
              . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE value LIKE "
@@ -73,17 +76,16 @@ USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_prope
 # ----------------------------------------------------------------------------
 FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot FROM StockFinder "
               . "WHERE Stock_Name LIKE 'JRC_SS%'",
-# ----------------------------------------------------------------------------
-WS_LSMMIPS => "SELECT eds.entity_att,eds.value FROM entity e "
-              . "JOIN entityData eds ON (e.id=eds.parent_entity_id) WHERE e.name=?",
 );
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%SSCROSS,%USERNAME);
-my (%DATA_SET,%MISSING_MIP);
+my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
 my @performance;
 my $ACCESS = 0;
 my $split_name = '';
+# Kafka
+my ($connection,$producer,$kafka_msg);
 
 # ****************************************************************************
 # * Main                                                                     *
@@ -101,7 +103,6 @@ our $USERNAME = $Session->param('user_name');
 my $HEIGHT = param('height') || 150;
 my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
-my $ALL_STABLE = $Session->param('scicomp') || 1;
 my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb');
@@ -109,10 +110,9 @@ $CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
 $CAN_ORDER = 0 if ($USERID eq 'dolanm' || $RUN_AS eq 'dolanm');
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
-my $ALL_20X = param('all20x') || 0;
+my $ALL_20X = (param('all_20x') && (param('all_20x') eq 'all'));
 # Initialize
 &initializeProgram();
-#delete $PERMISSION{svirskasr};
 ($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
   if (exists $PERMISSION{$USERID});
 
@@ -133,8 +133,8 @@ elsif (param('verify')) {
 elsif (param('choose')) {
   &chooseCrosses();
 }
-elsif (param('line')) {
-  &showLine(param('line'));
+elsif (param('sline')) {
+  &showLine(param('sline'));
 }
 elsif ($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose') && !$ACCESS) {
   &limitFullSearch();
@@ -151,7 +151,6 @@ if ($dbh) {
   ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
   $dbh->disconnect;
   $dbhf->disconnect;
-  $dbhw->disconnect unless ($MONGO);
 }
 exit(0);
 
@@ -168,15 +167,31 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-  # Modify statements
-  if ($START && $STOP) {
-    $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
+  # Modify primary search statement
+  if (my $l = param('line')) {
+    $l = '%' . uc($l) . '%';
+    $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '$l'/;
+    $START = $STOP = '';
   }
-  elsif ($START) {
-    $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) >= '$START' AND /;
+  elsif (my $sc = param('slide_code')) {
+    $sc = uc($sc) . '%';
+    $sth{IMAGES} =~ s/line LIKE 'LINESEARCH'/slide_code LIKE '$sc'/;
+    $START = $STOP = '';
   }
-  elsif ($STOP) {
-    $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
+  else {
+    $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_IS%'/;
+    if (param('search_mode')) {
+      $sth{IMAGES} =~ s/_IS/_SS/ if (param('search_mode') eq 'ss');
+    }
+    if ($START && $STOP) {
+      $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
+    }
+    elsif ($START) {
+      $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) >= '$START' AND /;
+    }
+    elsif ($STOP) {
+      $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
+    }
   }
   print STDERR "Primary query: $sth{IMAGES}\n";
   # Connect to databases
@@ -184,21 +199,10 @@ sub initializeProgram
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
   &dbConnect(\$dbhf,'flyboy')
     || &terminateProgram("Could not connect to FlyBoy: ".$DBI::errstr);
-  unless ($MONGO) {
-    &dbConnect(\$dbhw,'workstation')
-      || &terminateProgram("Could not connect to Workstation: ".$DBI::errstr);
-  }
-#  $dbhw = DBI->connect('dbi:mysql:dbname=flyportal;host=val-db',('flyportalRead')x2,{RaiseError=>1,PrintError=>0});
   foreach (keys %sth) {
     if (/^FB_/) {
       (my $n = $_) =~ s/FB_//;
       $sth{$n} = $dbhf->prepare($sth{$_}) || &terminateProgram($dbhf->errstr);
-    }
-    elsif (/^WS_/) {
-      unless ($MONGO) {
-        (my $n = $_) =~ s/WS_//;
-        $sth{$n} = $dbhw->prepare($sth{$_}) || &terminateProgram($dbhw->errstr);
-      }
     }
     else {
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
@@ -214,6 +218,29 @@ sub initializeProgram
   close(SLURP);
   $hr = decode_json $slurp;
   %PERMISSION = %$hr;
+  # Get servers
+  $file = DATA_PATH . 'servers.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,$slurp,-s SLURP;
+  close(SLURP);
+  $hr = decode_json $slurp;
+  %SERVER = %$hr;
+  # Kafka
+    try {
+    $connection = Kafka::Connection->new(host => $SERVER{Kafka}{address},
+                                         timeout => 3);
+    $producer = Kafka::Producer->new(Connection => $connection)
+      if ($connection);
+  }
+  catch {
+    my $error = $_;
+    if (blessed($error) && $error->isa('Kafka::Exception')) {
+      print STDERR 'Error: (' . $error->code . ') ' . $error->message . "\n";
+    }
+    else {
+      print STDERR "$error\n";
+    }
+  };
   push @performance,sprintf 'Initialization: %.4f sec',tv_interval($t0,[gettimeofday]);
 }
 
@@ -221,7 +248,7 @@ sub initializeProgram
 sub showUserDialog()
 {
   print div({class => 'boxed'},
-            table({class => 'basic'},&dateDialog()),
+            &dateDialog(),
             &submitButton('choose','Search')),br,
            hidden(&identify('_userid'),default=>param('_userid')),
            hidden(&identify('mongo'),default=>param('mongo'));
@@ -232,8 +259,8 @@ sub showLine
 {
   my $line = shift;
   my @image;
-  $sth{IMAGEL}->execute($line);
-  my $ar = $sth{IMAGEL}->fetchall_arrayref();
+  $sth{IMAGESL}->execute($line);
+  my $ar = $sth{IMAGESL}->fetchall_arrayref();
   foreach (@$ar) {
     (my $wname = $_->[0]) =~ s/.+\///;
     $wname =~ s/\.bz2//;
@@ -249,21 +276,15 @@ sub showLine
 sub getSingleMIP
 {
   my($wname) = shift;
-  if ($MONGO) {
-    my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . "?name=$wname";
-    my $response = get $rest;
-    return('','') unless (length($response));
-    my $rvar;
-    eval {$rvar = decode_json($response)};
-    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                      . "Response: $response<br>Error: $@") if ($@);
-    return($rvar->{files}{$PRIMARY_MIP}||$rvar->{files}{$SECONDARY_MIP}||'',$rvar->{brightnessCompensation}||0);
-  }
-  else {
-    $sth{LSMMIPS}->execute($wname);
-    my $hr = $sth{LSMMIPS}->fetchall_hashref('entity_att');
-    return($hr->{$PRIMARY_MIP}{value},$hr->{'Brightness Compensation'}{value});
-  }
+  my $rest = $CONFIG{jacs}{url}.$CONFIG{jacs}{query}{LSMImages} . "?name=$wname";
+  my $response = get $rest;
+  return('','') unless (length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  (my $sample = $rvar->{sample} || '') =~ s/Sample#//;
+  return($rvar->{files}{$PRIMARY_MIP}||$rvar->{files}{$SECONDARY_MIP}||'',$rvar->{brightnessCompensation}||0,$sample);
 }
 
 
@@ -289,9 +310,8 @@ sub limitFullSearch
                   Tr(td('Image type:'),
                      td(popup_menu(&identify('type'),
                                    -values => ['','split','ti'],
-                                   -labels => $type))),
-                  &dateDialog(),
-                 ),
+                                   -labels => $type)))),
+            &dateDialog(),
             &submitButton('choose','Search')),
         hidden(&identify('mongo'),default=>param('mongo')),br;
 }
@@ -300,14 +320,38 @@ sub limitFullSearch
 sub dateDialog
 {
   my $ago = strftime "%F",localtime (timelocal(0,0,12,(localtime)[3,4,5])-(60*60*24*30));
-  (Tr(td('Start TMOG date:'),
-      td(input({&identify('start'),
-                value => $ago}) . ' (optional)')),
-   Tr(td('Stop TMOG date:'),
-      td(input({&identify('stop')}) . ' (optional)'))),
-   Tr(td('Grayscale:'),
-      td(input({&identify('grayscale'),
-                type => 'checkbox'})));
+  my $margin = 'border-right: 1px solid #aaa; padding-right: 50px; margin-right: 50px;';
+  my $datesect = div({style => $margin . 'float: left'},
+                     table({class => 'basic'},
+                           Tr(td('Start TMOG date:'),
+                              td(input({&identify('start'),
+                                        value => $ago}) . ' (optional)')),
+                           Tr(td('Stop TMOG date:'),
+                              td(input({&identify('stop')}) . ' (optional)'))),
+                     'Search by: ',
+                     radio_group(&identify('search_mode'),
+                                 -values => ['is','ss'],
+                                 -labels => {is => ' Initial split',
+                                             ss => ' Stable split'},
+                                 -default => 'is'));
+  my $lsect = div({style => $margin . 'float: left'},'Line: ' . input({&identify('line')}) . ' (optional)' . br
+                  'Enter any portion of an Initial or Stable' . br . 'split line name');
+  my $scsect = div({style => 'float: left;'},'Slide code: ' . input({&identify('slide_code')}) . ' (optional)'
+                   . br . 'Enter the start (date or date+slide#) of any slide code');
+  my($all,$mcfo) = ('')x2;
+  if ($VIEW_ALL) {
+    $mcfo = ('Display MCFO imagery: ' . input({&identify('show_mcfo'),type => 'checkbox'}) . br);
+    $all = '20X stable imagery to display: ' .
+           radio_group(&identify('all_20x'),
+                       -values => ['first','all'],
+                       -labels => {first => ' First 20X stable split only',
+                                   all => ' All 20X stable splits'},
+                       -default => 'first') . br;
+  }
+  (div({class => 'boxed', style => 'float: left'},$datesect,$lsect,$scsect),$CLEAR,
+   $mcfo,$all,
+   'Display imagery as grayscale: ',input({&identify('grayscale'),type => 'checkbox'})
+  );
 }
 
 
@@ -325,7 +369,7 @@ sub chooseCrosses
     $DSUSER = $RUN_AS || param('user') || '%';
     $DSTYPE = param('type') if (param('type'));
   }
-  my $ds = $DSUSER . '\_' . $DSTYPE . '\_screen\_review%';
+  my $ds = $DSUSER . '\_' . $DSTYPE . '\_screen\_review';
   $t0 = [gettimeofday];
   $sth{IMAGES}->execute($AUSER,$ds);
   my $ar = $sth{IMAGES}->fetchall_arrayref();
@@ -371,6 +415,7 @@ sub chooseCrosses
   my @export;
   my (%crossed,%cross_count);
   foreach my $l (@$ar) {
+    next if (exists $STABLE_SHOWN{$l->[0]});
     # Line, image name, data set, slide code, area, cross barcode, requester,
     # channel spec, power 1, power 2, gain 1, gain 2, url, comment, TMOG date
     my($line,$name,$dataset,$slide,$area,$barcode,$requester,
@@ -378,12 +423,13 @@ sub chooseCrosses
     my($power,$gain) = ($power{$line}{$area},$gain{$line}{$area});
     $lines{$line}++;
     $DATA_SET{$line} = $dataset;
+    my $hover_requester = $requester || &getUsername((split('_',$dataset))[0]);
     # Line control break
     if ($line ne $last_line) {
       $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,
                            $sss,$sss_adjusted,$polarity,$polarity_adjusted,
                            $controls,$class,$tossed) if ($lhtml);
-      $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$comment);
+      $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$slide,$comment);
       $last_line = $line;
       ($class,$imagery,$adjusted,$tossed) = ('unordered','','',0);
       %crossed = ();
@@ -471,17 +517,15 @@ sub chooseCrosses
                                 $stabilization,$discard));
         }
         $ordered++ if ($bump_ordered);
-        if ($ALL_STABLE) {
-          # ($mcfo) = &getStableImagery($stable_line,$DSUSER.'\_mcfo%');
-          ($sss,$sss_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_split\_screen\_review%');
-          if ($sss) {
-            $ordered-- if ($bump_ordered);
-            $class = 'stableimg';
-            $with_ss++;
-          }
-          else {
-            ($polarity,$polarity_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_polarity%');
-          }
+        ($mcfo) = &getStableImagery($stable_line,$DSUSER.'\_mcfo%') if (param('show_mcfo'));
+        ($sss,$sss_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_%\_screen\_review');
+        if ($sss) {
+          $ordered-- if ($bump_ordered);
+          $class = 'stableimg';
+          $with_ss++;
+        }
+        else {
+          ($polarity,$polarity_adjusted) = &getStableImagery($stable_line,$DSUSER.'\_polarity%');
         }
       }
       else {
@@ -492,8 +536,8 @@ sub chooseCrosses
                        );
       }
     }
-    $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date);
-    $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,1)
+    $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,&getHover($slide,$hover_requester));
+    $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,'',1)
       if (exists $BRIGHTNESS{$line}{$area});
     if ($area eq 'Brain') {
       $cross_count{Line}++;
@@ -505,8 +549,8 @@ sub chooseCrosses
   $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,$sss,$sss_adjusted,$polarity,
                        $polarity_adjusted,$controls,$class,$tossed) if ($lhtml);
 
-  push @performance,sprintf 'Main loop: %.4f sec',tv_interval($t0,
-                                                              [gettimeofday]);
+  push @performance,sprintf 'Main loop: %.4f sec',
+                    (my $elapsed_time = tv_interval($t0,[gettimeofday]));
   my $export_button = '';
   if (scalar @export) {
     push @export,['TOTAL',@cross_count{'Line',@CROSS}];
@@ -516,6 +560,8 @@ sub chooseCrosses
   my $uname = $USERNAME;
   $uname .= " (running as $RUN_AS)" if ($RUN_AS);
   my @other = &createAdditionalData();
+  $kafka_msg->{elapsed_time} = $elapsed_time;
+  &publish(encode_json($kafka_msg));
   print div({class => 'boxed',
              style => 'background-color: #cff'},
             h2('Performance data'),join(br,@performance),br)
@@ -532,7 +578,6 @@ sub chooseCrosses
                      )),
             &renderControls($ordered,scalar(keys %lines)-$ordered,$discarded,
                             $with_ss,$export_button),
-            (($MONGO) ? img({src => '/images/mongodb.png'}) : ''),
             &submitButton('verify','Next >')),
         div({id => 'scrollarea'},$html),
         hidden(&identify('_userid'),default=>param('_userid'));
@@ -545,6 +590,7 @@ sub populateBrightness
   foreach my $l (@$ar) {
     my($area) = $l->[$index];
     next unless ($area eq 'Brain');
+    next if ((!exists $POWER{$line}{Brain}) || (!exists $POWER{$line}{VNC}));
     if ($POWER{$line}{Brain} > $POWER{$line}{VNC}) {
       $BRIGHTNESS{$line}{Brain} = 100 * ($POWER{$line}{VNC} / $POWER{$line}{Brain});
       $BRIGHTNESS{$line}{VNC} = 100;
@@ -566,7 +612,7 @@ sub getPowerGain
 
 sub createLineHeader
 {
-  my($line,$dataset,$barcode,$requester,$comment) = @_;
+  my($line,$dataset,$barcode,$requester,$slide,$comment) = @_;
   my $split_halves = &getSplitHalves($line);
   my $type = ($dataset =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
   my $lhtml = h3(&lineLink($line) . (NBSP)x5 . $type);
@@ -577,6 +623,7 @@ sub createLineHeader
   $requester = &getUsername((split('_',$dataset))[0])
     if ($VIEW_ALL && !param('user') && !$requester);
   push @row,Tr(td(['Requester:',$requester])) if ($requester);
+  push @row,Tr(td(['Slide code:',$slide])) if ($slide);
   $comment ||= '';
   push @row,Tr(td(['Comment:',
                    ($CAN_ORDER) ? div({&identify($line.'_comment'),
@@ -653,6 +700,16 @@ sub getFlyStoreOrders
 }
 
 
+sub getHover
+{
+    my($slide_code,$requester) = @_;
+    my @hover;
+    push @hover,"Slide code: $slide_code" if ($slide_code);
+    push @hover,"Requester: $requester" if ($requester);
+    return(scalar(@hover) ? join("\n",@hover) : '');
+}
+
+
 sub getStableImagery
 {
   my($line,$ds) = @_;
@@ -663,10 +720,9 @@ sub getStableImagery
   return('','') unless (scalar @$ar);
   my $used = 0;
   foreach my $i (@$ar) {
-    my $objective = $i->[-2];
-    next unless ($objective =~ /20[Xx]/);
+    next unless ($i->[-4] =~ /20[Xx]/);
     last if ((!$ALL_20X) && ($used >= 2));
-    my($power,$gain) = &getPowerGain($i->[-3],@{$i}[3..6]);
+    my($power,$gain) = &getPowerGain($i->[-6],@{$i}[3..6]);
     $POWER{$line}{$i->[1]} = $power;
     $GAIN{$line}{$i->[1]} = $gain;
     $used++;
@@ -674,15 +730,19 @@ sub getStableImagery
   &populateBrightness($line,$ar,1);
   $used = 0;
   foreach my $i (@$ar) {
+    my $requester = pop @$i;
+    my $slide_code = pop @$i;
     my $tmog_date = pop @$i;
     my $objective = pop @$i;
     next unless ($objective =~ /20[Xx]/);
+    $STABLE_SHOWN{$line}++;
     last if ((!$ALL_20X) && ($used >= 2));
     # Image name, area, url, power 1, power 2, gain 1, gain 2, channel spec, data set
     splice(@$i,3,6,$POWER{$line}{$i->[1]},$GAIN{$line}{$i->[1]},$i->[-1]);
     push @$i,$tmog_date;
-    $img .= &addSingleImage('',@$i);
-    $adjusted .= &addSingleImage($line,@$i,1)
+    my $hover_requester = $requester || &getUsername((split('_',$i->[-2]))[0]);
+    $img .= &addSingleImage($line,@$i,&getHover($slide_code,$hover_requester));
+    $adjusted .= &addSingleImage($line,@$i,'',1)
       if (exists $BRIGHTNESS{$line}{$i->[1]});
     $used++;
   }
@@ -729,13 +789,13 @@ sub createStabilization
 
 sub addSingleImage
 {
-  my($line,$name,$area,$url,$power,$gain,$dataset,$tmog_date,$adjusted) = @_;
+  my($line,$name,$area,$url,$power,$gain,$dataset,$tmog_date,$hover,$adjusted) = @_;
   $dataset ||= '';
   (my $wname = $name) =~ s/.+\///;
   $wname =~ s/\.bz2//;
-  my($bc,$signalmip) = ('')x2;
-  ($signalmip,$bc) = &getSingleMIP($wname);
-  ($signalmip,$bc) = &getSingleMIP($wname.'.bz2') unless ($signalmip);
+  my($bc,$signalmip,$sample) = ('')x3;
+  ($signalmip,$bc,$sample) = &getSingleMIP($wname);
+  ($signalmip,$bc,$sample) = &getSingleMIP($wname.'.bz2') unless ($signalmip);
   return('') unless ($signalmip);
   $bc = 0 if ($tmog_date lt '2016-02-17');
   if ($bc) {
@@ -781,6 +841,7 @@ sub addSingleImage
                             . "&caption=$caption" . $parms,
                     target => '_blank'},
                    img({style => $style,
+                        title => $hover,
                         src => $url2, height => $HEIGHT}));
   }
   (my $all = $signal) =~ s/signal.+mp4$/all.mp4/;
@@ -813,17 +874,19 @@ sub addSingleImage
   if ($dataset =~ /mcfo/) {
     $PREFIX =~ s/split_screen_review/flylight_flip/;
   }
-  if ($dataset =~ /polarity/) {
+  elsif ($dataset =~ /polarity/) {
     $PREFIX =~ s/split_screen_review/flylight_polarity/;
   }
   my @row = ();
   my %opt = (class => 'imgoptions');
   ($url,$signal,$all,$opt{class}) = ('')x4 if ($adjusted);
   push @row,Tr(td({colspan => 5},$pgv));
+  my $link = ($sample) ? "http://webstation.int.janelia.org/do/Sample:$sample"
+                       : "$PREFIX=$name";
   div({class => 'single_mip'},$signalmip,br,
       table(Tr(td({width => '14%'},$url),
                td({width => '14%'},NBSP),
-               td({width => '44%'},a({href => "$PREFIX=$name",
+               td({width => '44%'},a({href => $link,
                                       target => '_blank'},$area)),
                td({width => '14%',%opt},$signal),
                td({width => '14%'},$all)),
@@ -840,12 +903,7 @@ sub renderLine {
   $imagery = div({class => 'category initialsplit'},
                  span({style => 'padding: 0 60px 0 60px'},'Initial split'))
              . $imagery;
-#  $imagery = div({style => 'float:left'},
-#                 table({class => 'categoryx'},
-#                       Tr(th({style => 'background-color: #058d95;'},
-#                             'Initial split'),
-#                          td($imagery)))
-#                );
+  $imagery = $adjusted = '' if ($line =~ /SS/);
   $adjusted = $CLEAR
               . div({class => 'inputblock',style => 'height: 100%;'},
                     div({class => 'category initialsplit_adjusted'},
@@ -853,8 +911,7 @@ sub renderLine {
                     . $adjusted) if ($adjusted);
   $mcfo = $CLEAR
           . div({class => 'inputblock',style => 'height: 100%;'},
-                div({class => 'category mcfo',
-                     style => 'background-color: #553d95;'},
+                div({class => 'category mcfo'},
                     span({style => 'padding: 0 60px 0 60px'},'20x MCFO'))
                 . $mcfo) if ($mcfo);
   if ($stable) {
@@ -890,8 +947,11 @@ sub renderLine {
   div({class => "line $class",
        id => $line,
        %options},
-      div({float => 'left'},$html,
-          div({class => 'inputblock',style => 'height: 100%;'},$imagery,$controls)),
+      div({style => 'float: left'},
+          div({style => 'float: left;min-width: 475px;'},$html),
+          div({style => 'float: left;'},(br)x2,$controls),
+          $CLEAR,
+          div({class => 'inputblock',style => 'height: 100%;'},$imagery)),
       $adjusted,$stable,$sadjusted,$mcfo,
       $CLEAR);
 }
@@ -967,6 +1027,9 @@ sub submitButton
 sub createAdditionalData
 {
   my @other;
+  $kafka_msg = {program => $PROGRAM,
+                user => $USERID,
+                operation => 'search'};
   if ($VIEW_ALL) {
     if (param('user')) {
       push @other,Tr(td(['Imaged for: ',&getUsername(param('user'))]));
@@ -976,9 +1039,43 @@ sub createAdditionalData
       push @other,Tr(td(['Viewable:',join(br,sort @{$PERMISSION{$USERID}})]));
     }
   }
-  unshift @other,Tr(td(['TMOG date range:',"$START - $STOP"]))
-    if ($START || $STOP);
+  if (param('line')) {
+    unshift @other,Tr(td(['Line search term:',param('line')]));
+    $kafka_msg->{line} = param('line');
+  }
+  elsif (param('slide_code')) {
+    unshift @other,Tr(td(['Slide code search term:',param('slide_code')]));
+    $kafka_msg->{slide_code} = param('slide_code');
+  }
+  else {
+    unshift @other,Tr(td(['TMOG date range:',"$START - $STOP"]));
+    unshift @other,Tr(td(['Search mode',(param('search_mode') eq 'is') ? 'Initial' : 'Stable']));
+    $kafka_msg->{date_range} = "$START - $STOP";
+    $kafka_msg->{search_mode} = param('search_mode');
+  }
   return(@other);
+}
+
+
+sub publish
+{
+  return unless ($producer);
+  my($message) = shift;
+  try {
+    my $t = time;
+    my $stamp = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
+    $stamp .= sprintf ".%03d", ($t-int($t))*1000;
+    my $response = $producer->send('split_screen',0,$message,$stamp);
+  }
+  catch {
+    my $error = $_;
+    if (blessed($error) && $error->isa('Kafka::Exception')) {
+      print STDERR 'Error: (' . $error->code . ') ' . $error->message . "\n";
+    }
+    else {
+      print STDERR "$error\n";
+    }
+  };
 }
 
 
@@ -1063,7 +1160,7 @@ sub requestCrosses
   my $json = JSON->new->allow_nonref;
   my $client = REST::Client->new();
   print "Crosses to be ordered: $total_cross" . br;
-  my (%error,%success);
+  my (%diagnostic,%error,%success);
   foreach my $line (sort keys %cross_line) {
     $sth{AD_DBD}->execute($line);
     my($ad,$dbd) = $sth{AD_DBD}->fetchrow_array();
@@ -1099,12 +1196,22 @@ sub requestCrosses
                    specialInstructions => $type{$line},
                    createNewOrder => 0};
       my $json_text = $json->encode($order);
-      $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
-      if ($client->responseCode() == 201) {
-        $success{$line}++;
+      if ($RUN_AS) {
+        $diagnostic{$line} = $json_text;
       }
       else {
-        $error{$line} = $json_text . (NBSP)x5 . $client->responseContent();
+        $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
+        $kafka_msg = {program => $PROGRAM,
+                      user => $USERID,
+                      operation => 'order',
+                      order => $order};
+        &publish(encode_json($kafka_msg));
+        if ($client->responseCode() == 201) {
+          $success{$line}++;
+        }
+        else {
+          $error{$line} = $json_text . (NBSP)x5 . $client->responseContent();
+        }
       }
     }
     else {
@@ -1115,6 +1222,11 @@ sub requestCrosses
   }
   if (scalar keys %success) {
     print &bootstrapPanel('Lines ordered',join(', ',sort keys %success),'success');
+  }
+  if (scalar keys %diagnostic) {
+    print &bootstrapPanel('Would have requested the following crosses:',
+                          join(br,map {$_ . (NBSP)x5 . $diagnostic{$_}} sort keys %diagnostic),
+                          'warning');
   }
   if (scalar keys %error) {
     print &bootstrapPanel('Could not request the following crosses:',
@@ -1146,7 +1258,7 @@ sub getUsername
   my $userid = shift;
   return($USERNAME{$userid}) if (exists $USERNAME{$userid});
   my $user = $service->getUser($userid);
-  $USERNAME{$userid} = join(' ',$user->givenName(),$user->sn());
+  $USERNAME{$userid} = ($user) ? join(' ',$user->givenName(),$user->sn()) : $userid;
   return($USERNAME{$userid});
 }
 
@@ -1158,8 +1270,11 @@ sub createExportFile
                  . "$suffix.xls";
   $handle = new IO::File $BASE.$filename,'>';
   print $handle join("\t",@$head) . "\n";
-  foreach (@$ar) {
-    my @l = @$_;
+  foreach my $r (@$ar) {
+    my @l = @$r;
+    foreach (2..4) {
+      $l[$_] ||= '';
+    }
     print $handle join("\t",@l) . "\n";
   }
   $handle->close;

@@ -10,7 +10,7 @@ use Date::Manip qw(UnixDate);
 use HTML::TableExtract;
 use IO::File;
 use JSON;
-use LWP::Simple;
+use LWP::Simple qw(get);
 use LWP::UserAgent;
 use POSIX qw(strftime);
 use Time::Local;
