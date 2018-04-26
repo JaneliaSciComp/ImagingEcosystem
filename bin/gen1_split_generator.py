@@ -267,7 +267,7 @@ def process_input():
     fragdict = response['split_halves']
     logger.info("Found %d fragments with AD/DBDs", len(fragdict))
     # Convert A line
-    converted_aline = ARG.ALINE
+    converted_aline = ARG.ALINE.upper()
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
         if original.isdigit():
