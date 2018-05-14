@@ -1,5 +1,6 @@
 import argparse
 import json
+import select
 import sys
 import colorlog
 import requests
@@ -75,6 +76,9 @@ def initialize_program():
 
 
 def process_file(filename):
+    if (not filename) and (not select.select([sys.stdin,],[],[],0.0)[0]):
+        logger.critical('You must either specify a file or pass data in through STDIN')
+        sys.exit(-1)        
     try:
         filehandle = open(filename, "r") if filename else sys.stdin
     except Exception as e:
