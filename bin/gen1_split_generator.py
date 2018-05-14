@@ -5,6 +5,7 @@ import json
 import os
 from os.path import expanduser
 import re
+import select
 import sys
 import colorlog
 import requests
@@ -210,10 +211,19 @@ def read_lines(fragdict, converted_aline):
     vtcache = dict()
     if ARG.ALINE:
         inputlist.append(converted_aline)
-    F = open(ARG.INPUT, 'r')
-    for input_line in F:
+    filename = ARG.FILE if ARG.FILE else ''
+    if (not filename) and (not select.select([sys.stdin,],[],[],0.0)[0]):
+        logger.critical('You must either specify a file or pass data in through STDIN')
+        sys.exit(-1)        
+    try:
+        filehandle = open(filename, "r") if filename else sys.stdin
+    except Exception as e:
+        logger.critical('Failed to open input: '+ str(e))
+        sys.exit(-1)
+    for input_line in filehandle:
         inputlist.append(input_line)
-    F.close()
+    if filehandle is not sys.stdin:
+        filehandle.close()
     # Get cached VT conversions
     if os.path.isfile(VTCACHE_FILE):
         logger.debug("Retrieving cached VT lines")
@@ -311,7 +321,7 @@ def process_input():
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description='Generate Gen1 initial splits')
-    PARSER.add_argument('--file', dest='INPUT', required=True, default='', help='Input file')
+    PARSER.add_argument('--file', dest='FILE', default='', help='Input file')
     PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
@@ -331,15 +341,16 @@ if __name__ == '__main__':
     logger.addHandler(HANDLER)
 
     initialize_program()
+    fname = ARG.FILE if ARG.FILE else 'STDIN'
     if (ARG.ALINE):
-        CROSSES = open(ARG.ALINE + '-' + ARG.INPUT + '.crosses.txt', 'w')
-        FLYCORE = open(ARG.ALINE + '-' + ARG.INPUT + '.flycore.xls', 'w')
-        nocross_file = ARG.ALINE + '-' + ARG.INPUT + '.no_crosses.txt'
+        CROSSES = open(ARG.ALINE + '-' + fname + '.crosses.txt', 'w')
+        FLYCORE = open(ARG.ALINE + '-' + fname + '.flycore.xls', 'w')
+        nocross_file = ARG.ALINE + '-' + fname + '.no_crosses.txt'
         NO_CROSSES = open(nocross_file, 'w')
     else:
-        CROSSES = open(ARG.INPUT + '.crosses.txt', 'w')
-        FLYCORE = open(ARG.INPUT + '.flycore.xls', 'w')
-        nocross_file = ARG.INPUT + '.no_crosses.txt'
+        CROSSES = open(fname + '.crosses.txt', 'w')
+        FLYCORE = open(fname + '.flycore.xls', 'w')
+        nocross_file = fname + '.no_crosses.txt'
         NO_CROSSES = open(nocross_file, 'w')
 
     for h in ('Who', '#', 'Alias', 'Pfrag'):
@@ -360,4 +371,3 @@ if __name__ == '__main__':
     if os.path.getsize(nocross_file) < 1:
         os.remove(nocross_file)
     FLYCORE.close()
-
