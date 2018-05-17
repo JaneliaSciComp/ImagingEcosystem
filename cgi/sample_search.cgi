@@ -30,7 +30,7 @@ my $ID = 0;
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Janelia Workstation sample search';
 my $BASE = "/var/www/html/output/";
-my %CONFIG;
+my (%CONFIG,%SERVER);
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 
@@ -94,7 +94,7 @@ my $WIDTH = param('width') || 150;
 
 our ($dbh,$dbhf,$dbhs);
 my $Subject;
-# Get WS REST config
+# Database config
 my $file = DATA_PATH . 'db_config.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
 sysread SLURP,my $slurp,-s SLURP;
@@ -103,12 +103,20 @@ my $hr = decode_json $slurp;
 %CONFIG = %$hr;
 my $mongodb = MongoDB->connect($CONFIG{uri});
 $Subject= $mongodb->ns('jacs.subject');
+# REST services
 $file = DATA_PATH . 'rest_services.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
 sysread SLURP,my $slurp,-s SLURP;
 close(SLURP);
 my $hr = decode_json $slurp;
 %CONFIG = %$hr;
+# Servers
+$file = DATA_PATH . 'servers.json';
+open SLURP,$file or &terminateProgram("Can't open $file: $!");
+sysread SLURP,my $slurp,-s SLURP;
+close(SLURP);
+$hr = decode_json $slurp;
+%SERVER = %$hr;
 # Connect to databases
 unless ($MONGO) {
   &dbConnect(\$dbh,'workstation')
@@ -285,9 +293,9 @@ sub showQuery {
           $r->[5] = &renderStatus($r->[5]);
           if ($AUTHORIZED) {
             if ($r->[-1]) {
-              $r->[-1] = a({href => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
+              $r->[-1] = a({href => "$SERVER{'jacs-storage'}{address}$r->[-1]",
                            target => '_blank'},
-                          img({src => "http://jacs-webdav.int.janelia.org/WebDAV$r->[-1]",
+                          img({src => "$SERVER{'jacs-storage'}{address}$r->[-1]",
                                width => $WIDTH}));
             }
             else {
@@ -461,9 +469,9 @@ sub getEntity
     }
     elsif ($AUTHORIZED && ($_->[4] =~ /\.(?:mp4|png)$/)) {
       $_->[4] .= NBSP
-                 . a({href => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
+                 . a({href => "$SERVER{'jacs-storage'}{address}$_->[4]",
                       target => '_blank'},
-                     img({src => "http://jacs-webdav.int.janelia.org/WebDAV$_->[4]",
+                     img({src => "$SERVER{'jacs-storage'}{address}$_->[4]",
                           width => $WIDTH}));
     }
     # EID -> [attribute, value, child EID]
@@ -718,7 +726,7 @@ sub process_files
 sub thumbnail
 {
   my($path) = @_;
-  my $src = "http://jacs-webdav.int.janelia.org/WebDAV$path";
+  my $src = "$SERVER{'jacs-storage'}{address}$path";
   a({href => $src,
      target => '_blank'},
     img({src => $src,
