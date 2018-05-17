@@ -12,6 +12,10 @@ div.boxed {
   height: 1000px;
 }
 
+#slider {
+    width : 200px;
+}
+
 .line {
   background-color: #333;
   color: #fff;
@@ -136,20 +140,30 @@ background: repeating-linear-gradient(
 .stablesplit_adjusted {
 background: repeating-linear-gradient(
   45deg,
+  #00a350,
+  #00a350 10px,
+  #777750 10px,
+  #777750 20px
+);
+}
+.polarity {background-color: #553d95;}
+.polarity_adjusted {
+background: repeating-linear-gradient(
+  45deg,
   #553d95,
   #553d95 10px,
   #777795 10px,
   #777795 20px
 );
 }
-.polarity {background-color: #00a350;}
-.polarity_adjusted {
+.mcfo {background-color: #cc9933;}
+.mcfo_adjusted {
 background: repeating-linear-gradient(
   45deg,
-  #00a350,
-  #00a350 10px,
-  #777750 10px,
-  #777750 20px
+  #cc9933,
+  #cc9933 10px,
+  #777733 10px,
+  #777733 20px
 );
 }
 

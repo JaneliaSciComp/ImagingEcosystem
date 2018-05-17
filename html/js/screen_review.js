@@ -1,3 +1,12 @@
+var orginalHeight = 150;
+
+function changeSlider (e) {
+  var fraction = (1 + $('#'+e+'Slider').val() / 100),
+  newHeight = orginalHeight * fraction;
+  $("#"+e).text(Math.floor(fraction * 100) + '%');
+  $('.ti').height(newHeight);
+}
+
 $(function() {
   $("#start").datepicker({dateFormat: 'yy-mm-dd'});
   $("#stop").datepicker({dateFormat: 'yy-mm-dd'});
@@ -27,6 +36,9 @@ $(function() {
     submit     : 'OK',
     style      : 'color: black',
   });
+if ($("#imgt1")) {
+  orginalHeight = $("#imgt1").height();
+}
 });
 
 function tagCross(this_id) {

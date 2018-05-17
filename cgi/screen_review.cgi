@@ -38,7 +38,8 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
 my $STACK = 'view_sage_imagery.cgi?_op=stack;_family=split_screen_review;_image';
-my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
+#my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
+my $WEBDAV = 'http://ws-img.int.janelia.org:8880/JFS/api/file/';
 my $PRIMARY_MIP = 'Signal 1 MIP';
 my $SECONDARY_MIP = 'Signal MIP ch1';
 
@@ -84,6 +85,7 @@ my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
 my @performance;
 my $ACCESS = 0;
 my $split_name = '';
+my $IMAGE_ID = 1;
 # Kafka
 my ($connection,$producer,$kafka_msg);
 
@@ -350,7 +352,7 @@ sub dateDialog
   }
   (div({class => 'boxed', style => 'float: left'},$datesect,$lsect,$scsect),$CLEAR,
    $mcfo,$all,
-   'Display imagery as grayscale: ',input({&identify('grayscale'),type => 'checkbox'})
+   'Display imagery as grayscale: ',input({&identify('grayscale'),type => 'checkbox'}),
   );
 }
 
@@ -840,7 +842,9 @@ sub addSingleImage
     $signalmip = a({href => "view_image.cgi?url=$url2"
                             . "&caption=$caption" . $parms,
                     target => '_blank'},
-                   img({style => $style,
+                   img({id => ('imgt' . $IMAGE_ID++),
+                        class => 'ti',
+                        style => $style,
                         title => $hover,
                         src => $url2, height => $HEIGHT}));
   }
@@ -1010,7 +1014,19 @@ sub renderControls
                                    target => '_blank'},$_)}
                                sort keys %MISSING_MIP));
   }
-  $html .= $CLEAR . $export;
+  $html .= div({style=>'clear:both;'},$export);
+  $html .= table({class => 'basic'},
+                 Tr(td('Thumbnail size: '),
+                 td(div({style => 'background-color:#eeeeee'},
+                    input({id => 'sSlider',
+                           type => 'range',
+                           min => 0,
+                           max => 400,
+                           step => 5,
+                           value => 0,
+                           onchange => "changeSlider('s');"}) .
+                    span({id => 's'},'100%'))))) . br;
+  return($html);
 }
 
 
