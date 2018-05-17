@@ -5,13 +5,11 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
-use DBI;
 use IO::File;
 use JSON;
 use LWP::Simple;
 use POSIX qw(strftime);
 use XML::Simple;
-use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
 
 # ****************************************************************************
