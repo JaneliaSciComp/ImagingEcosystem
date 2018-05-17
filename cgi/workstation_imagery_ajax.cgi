@@ -94,7 +94,7 @@ sub sampleMIP
                       Tr(th('Line'),td($rvar->{line})));
     my $html .= div({style => "float: left; border: 2px solid $COLOR"},
                     div({style => 'float:left'},
-                        img({src => $SERVER{'jacs-webdav'}{address} . $rvar->{image},
+                        img({src => $SERVER{'jacs-storage'}{address} . $rvar->{image},
                              height => $HEIGHT})),
                     div({style => 'float:left'},$table))
                 . div({style => 'clear: both;'},'');
