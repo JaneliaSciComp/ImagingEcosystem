@@ -29,7 +29,7 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
-my %CONFIG;
+my (%CONFIG,%SERVER);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -39,9 +39,6 @@ my $handle;
 # Web
 our ($USERID,$USERNAME);
 my $Session;
-# Database
-our $dbh;
-my $MONGO = 1;
 
 # ****************************************************************************
 # Session authentication
@@ -56,10 +53,6 @@ my $AUTHORIZED = ($Session->param('scicomp'))
 our $DATASET = param('dataset') || '';
 $DATASET = '' if ('All datasets' eq $DATASET);
 my $OPTIONS = ($DATASET) ? "WHERE edd.value='$DATASET'" : '';
-my %sth = (
-DATASETS => "SELECT edd.value,COUNT(1) FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') GROUP BY 1",
-ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityData eds ON (e.id=eds.parent_entity_id AND eds.entity_att='Status' AND eds.value='Error') JOIN entityData edd ON (e.id=edd.parent_entity_id AND edd.entity_att='Data Set Identifier') LEFT OUTER JOIN entityData edi ON (e.id=edi.parent_entity_id AND edi.entity_att='Default 2D Image') $OPTIONS ORDER BY 1",
-);
 
 
 # ****************************************************************************
@@ -68,10 +61,6 @@ ERRORS => "SELECT DISTINCT e.name,edd.value,edi.value FROM entity e JOIN entityD
 &initializeProgram();
 (param('dataset')) ? &displayErrors() : &displayQuery();
 # We're done!
-if ($dbh && (!$MONGO)) {
-  ref($sth{$_}) && $sth{$_}->finish foreach (keys %sth);
-  $dbh->disconnect;
-}
 exit(0);
 
 
@@ -88,17 +77,13 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
-
-  unless ($MONGO) {
-    # Connect to databases
-    &dbConnect(\$dbh,'workstation');
-    if (my $img = param('image')) {
-      $sth{ERRORS} =~ s/Default 2D Image/$img/e;
-    }
-    foreach (keys %sth) {
-      $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
-    }
-  }
+  # Servers
+  $file = DATA_PATH . 'servers.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  $hr = decode_json $slurp;
+  %SERVER = %$hr;
 }
 
 
@@ -106,7 +91,6 @@ sub displayQuery
 {
   &printHeader();
   my $ar;
-  if ($MONGO) {
     my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{SampleErrors};
     my $response = get $rest;
     &terminateProgram("<h3>REST GET returned null response</h3>"
@@ -118,11 +102,6 @@ sub displayQuery
                       . "Response: $response<br>Error: $@") if ($@);
     push @$ar,[@{$_}{qw(dataSet count)}]
       foreach (sort {$a->{dataSet} cmp $b->{dataSet}} @$rvar);
-  }
-  else {
-    $sth{DATASETS}->execute();
-    $ar = $sth{DATASETS}->fetchall_arrayref();
-  }
   my %label = map { $_->[0] => (sprintf '%s (%s error%s)',
                     $_->[0],$_->[1],((1 == $_->[1]) ? '' : 's'))} @$ar;
   my $count;
@@ -156,7 +135,6 @@ sub displayErrors
   # Build HTML
   &printHeader();
   my $ar;
-  if ($MONGO) {
     my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{ErrorMIPs};
     $rest .= "?dataset=$DATASET" if ($DATASET);
     my $response = get $rest;
@@ -170,11 +148,6 @@ sub displayErrors
     foreach (sort {$a->{sampleName} cmp $b->{sampleName}} @$rvar) {
         push @$ar,[@{$_}{qw(sampleName dataSet)},$_->{image}{'Signal MIP'}];
     }
-  }
-  else {
-    $sth{ERRORS}->execute();
-    $ar = $sth{ERRORS}->fetchall_arrayref();
-  }
   # Name, dataset, image
   my @row;
   foreach (@$ar) {
@@ -182,7 +155,7 @@ sub displayErrors
     $row[-1][0] = a({href => "sample_search.cgi?sample_id=$row[-1][0]",
                      target => '_blank'},$row[-1][0]);
     if ($row[-1][-1]) {
-      my $url = "http://jacs-webdav.int.janelia.org/WebDAV" . $row[-1][-1];
+      my $url = $SERVER{'jacs-storage'}{address} . "/" . $row[-1][-1];
       $row[-1][-1] = a({href => $url,
                         target => '_blank'},
                             img({src => $url,
@@ -190,7 +163,6 @@ sub displayErrors
     }
   }
   my @HEAD = ('Sample ID','Data set','Image');
-  print img({src => '/images/mongodb.png'}) if ($MONGO);
   print "Errors: ",scalar @$ar,(NBSP)x5,
         &createExportFile($ar,"_ws_sample_errors",\@HEAD),
         table({id => 'details',class => 'tablesorter standard'},
