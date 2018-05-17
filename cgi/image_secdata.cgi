@@ -23,8 +23,7 @@ use constant DATA_PATH => '/opt/informatics/data/';
 our $APPLICATION = 'Imagery secondary data';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
-my %CONFIG;
-my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
+my (%CONFIG,%SERVER);
 use constant NBSP => '&nbsp;';
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 
@@ -76,6 +75,13 @@ sub initializeProgram
   close(SLURP);
   my $hr = decode_json $slurp;
   %CONFIG = %$hr;
+  # Servers
+  $file = DATA_PATH . 'servers.json';
+  open SLURP,$file or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %SERVER = %$hr;
 }
 
 
@@ -198,14 +204,14 @@ sub renderFileBlock
   my (%name,%url);
   foreach (sort keys %{$files}) {
     my $thumb;
-    my $url = $WEBDAV . $base . $files->{$_};
+    my $url = $SERVER{'jacs-storage'}{address} . $base . $files->{$_};
     switch ($_) {
       case 'LSM Metadata' { $thumb = '/images/notes.jpg' }
       case /(Label|Lossless)/ { $thumb = '/images/stack_multi.png' }
       case /Movie/ { $thumb = '/images/movie_mp4.png' }
       case /Fast-loading Stack/ { $thumb = '/images/movie_mp4.png';
-                                   $url = $WEBDAV . $files->{$_}; }
-      else { $thumb = $WEBDAV . $base . $files->{$_};
+                                   $url = $SERVER{'jacs-storage'}{address} . $files->{$_}; }
+      else { $thumb = $SERVER{'jacs-storage'}{address} . $base . $files->{$_};
              if ($_ eq 'Reference MIP') {
                $name{image1} = $_;
                $url{image1} = $url;

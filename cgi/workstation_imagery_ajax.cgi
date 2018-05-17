@@ -12,7 +12,7 @@ use URI::Encode qw(uri_decode);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicomp/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -64,7 +64,7 @@ sub lsmMIP
   $PRODUCT = uri_decode($PRODUCT);
   my $img = $rvar->{files}{$PRODUCT} || '';
   if ($img) {
-    return(img({src => $SERVER{'jacs-webdav'}{address} . $img,
+    return(img({src => $SERVER{'jacs-storage'}{address} . $img,
                 height => $HEIGHT}));
   }
   else {
