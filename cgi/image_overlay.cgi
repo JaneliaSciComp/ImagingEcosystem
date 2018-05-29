@@ -40,10 +40,6 @@ sub getContent
   my $image1url = param('image1url');
   my $image2url = param('image2url');
   my $caption = param('caption');
-  foreach my $url ($image1url,$image2url) {
-    (my $path = $url) =~ s/.*WebDAV//;
-    return("$url was not found") unless (-r $path);
-  }
   my($content,$fp,$style) = ('')x3;
   my %value;
   my @control = ();

@@ -43,8 +43,6 @@ exit(0);
 sub getContent
 {
   my $url = shift;
-  (my $path = $url) =~ s/.*WebDAV//;
-  return("$url was not found") unless (-r $path);
   my($content,$fp,$style) = ('')x3;
   my %value;
   my @attribute = qw(brightness contrast saturate grayscale hue-rotate);
