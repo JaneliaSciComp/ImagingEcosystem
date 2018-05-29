@@ -27,6 +27,7 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
+my $CONFIG_SERVER = 'http://config.int.janelia.org/config';
 my (%CONFIG,%SERVER);
 
 # General
@@ -38,8 +39,6 @@ my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 my @CROSS = qw(Polarity MCFO Stabilization);
 my $STACK = 'view_sage_imagery.cgi?_op=stack;_family=split_screen_review;_image';
-#my $WEBDAV = 'http://jacs-webdav.int.janelia.org/WebDAV';
-my $WEBDAV = 'http://ws-img.int.janelia.org:8880/JFS/api/file/';
 my $PRIMARY_MIP = 'Signal 1 MIP';
 my $SECONDARY_MIP = 'Signal MIP ch1';
 
@@ -58,6 +57,7 @@ AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
            . "LEFT OUTER JOIN line_property_vw dbd ON (lr.object=dbd.name "
            . "AND lr.relationship='child_of' AND dbd.value='Split_GAL4-DBD' "
            . "AND dbd.type='flycore_project') WHERE lr.subject=?",
+CANORDER => "SELECT DISTINCT data_set FROM image_data_mv WHERE data_set LIKE '%split_screen_review'",
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
            . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? "
            . "AND i.family LIKE '%screen_review'",
@@ -69,18 +69,20 @@ IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd 
 IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' ORDER BY 1",
 SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
-           . "'JRC\_SS%' AND cross_type IN ('SplitFlipOuts','SplitPolarity') GROUP BY 1,2",
+           . "'JRC\_SS%' AND cross_type IN ('SplitFlipOuts','SplitPolarity','StableSplitScreen') GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERLINES => "SELECT value,COUNT(DISTINCT line) FROM image_vw i JOIN image_property_vw ip "
              . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE value LIKE "
              . "'%screen_review' GROUP BY 1",
 # ----------------------------------------------------------------------------
-FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot FROM StockFinder "
-              . "WHERE Stock_Name LIKE 'JRC_SS%'",
+FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
+              . "DISTINCT lab_member) FROM StockFinder sf LEFT OUTER JOIN "
+              . "Project_Crosses pc ON (sf.__kp_UniqueID=pc._kf_Parent_UID) "
+              . "WHERE Stock_Name LIKE 'JRC_SS%' GROUP BY 1,2,3",
 );
 our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
-my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%SSCROSS,%USERNAME);
+my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
 my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
 my @performance;
 my $ACCESS = 0;
@@ -107,9 +109,9 @@ my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
 my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
-$CAN_ORDER = 1 if ($USERID eq 'dicksonb');
-$CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
 $CAN_ORDER = 0 if ($USERID eq 'dolanm' || $RUN_AS eq 'dolanm');
+$CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
+$CAN_ORDER = 1 if ($USERID eq 'dicksonb' || $USERID eq 'rubing');
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
 my $ALL_20X = (param('all_20x') && (param('all_20x') eq 'all'));
@@ -162,13 +164,21 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get servers
+  my $rest = $CONFIG_SERVER . '/servers';
+  my $response = get $rest;
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+  %SERVER = %{$rvar->{config}};
   # Get WS REST config
-  my $file = DATA_PATH . 'rest_services.json';
-  open SLURP,$file or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,my $slurp,-s SLURP;
-  close(SLURP);
-  my $hr = decode_json $slurp;
-  %CONFIG = %$hr;
+  $rest = $CONFIG_SERVER . '/rest_services';
+  $response = get $rest;
+  eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+  %CONFIG = %{$rvar->{config}};
   # Modify primary search statement
   if (my $l = param('line')) {
     $l = '%' . uc($l) . '%';
@@ -213,20 +223,22 @@ sub initializeProgram
   # Set up LDAP service
   $service = JFRC::LDAP->new();
   # Get user permissions
-  $file = DATA_PATH . $PROGRAM . '.json';
+  my $file = DATA_PATH . $PROGRAM . '.json';
   open SLURP,$file
     or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,$slurp,-s SLURP;
+  sysread SLURP,my $slurp,-s SLURP;
   close(SLURP);
-  $hr = decode_json $slurp;
+  my $hr = decode_json $slurp;
   %PERMISSION = %$hr;
-  # Get servers
-  $file = DATA_PATH . 'servers.json';
-  open SLURP,$file or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,$slurp,-s SLURP;
-  close(SLURP);
-  $hr = decode_json $slurp;
-  %SERVER = %$hr;
+  $sth{CANORDER}->execute();
+  my $ar = $sth{CANORDER}->fetchall_arrayref();
+  foreach (@$ar) {
+    (my $dsu = $_->[0]) =~ s/_split_screen_review//;
+    if ($dsu eq $USERID) {
+      $CAN_ORDER = 1;
+      last;
+    }
+  }
   # Kafka
     try {
     $connection = Kafka::Connection->new(host => $SERVER{Kafka}{address},
@@ -268,7 +280,7 @@ sub showLine
     $wname =~ s/\.bz2//;
     $wname .= '.bz2';
     my($signalmip,undef) = &getSingleMIP($wname);
-    push @image,img({src => $WEBDAV . $signalmip});
+    push @image,img({src => $SERVER{'jacs-storage'}{address} . $signalmip});
   }
   print div({align => 'center',
              style => 'padding: 20px 0 20px 0; background-color: #111;'},@image);
@@ -464,10 +476,27 @@ sub chooseCrosses
         if ($sage_date) {
           $class = 'ordered';
           $bump_ordered = 1;
-          $discarded = $tossed = 1 if ($DISCARD{$stable_line});
+          if ($DISCARD{$stable_line}) {
+            $discarded++;
+            $tossed = 1;
+          }
+          my $available;
+          if (exists $REQUESTER{$stable_line}) {
+            if ($VIEW_ALL) {
+              $available = "(available: ordered by $REQUESTER{$stable_line})";
+            }
+            else {
+              $available = (index($REQUESTER{$stable_line},$USERNAME) >= 0)
+                           ? '(available: ordered by you)'
+                           : '(available: ordered by others, contact Fly Facility)';
+            }
+          }
+          else {
+            $available = '(available: unknown requester, contact Fly Facility)';
+          }
           my $link = a({href => "lineman.cgi?line=$stable_line",
                         target => '_blank'},
-                       (($tossed) ? $stable_line : '(available)'),'');
+                       (($tossed) ? $stable_line : $available),'');
           $stabilization = Tr(td({style => 'padding-left: 10px'},[
                                   (($tossed) ? "Stable stock $link is discarded"
                                              : "Stable stock $link"),
@@ -682,10 +711,9 @@ sub getFlyStoreOrders
   my @LIST = qw(Dead Exit Tossed);
   foreach (@$ar2) {
     $a = $_->[1] || '';
-    if ($a) {
-      $_->[2] ||= '';
-      $DISCARD{$_->[0]}++ if (grep(/$a/,@LIST) && ($_->[2] ne 'Yes'));
-    }
+    $DISCARD{$_->[0]}++ if ($a && grep(/$a/,@LIST));
+    $_->[2] ||= '';
+    $REQUESTER{$_->[0]} = $_->[3] if ($_->[2] eq 'Yes');
   }
   foreach my $order (keys %{$struct->{discards}}) {
     foreach my $l (@{$struct->{discards}{$order}{stockName}}) {
@@ -815,7 +843,7 @@ sub addSingleImage
   if ($i) {
     my @parms = ();
     my $parms = '';
-    $i = $WEBDAV . $i;
+    $i = $SERVER{'jacs-storage'}{address} . "/$i";
     my $style = '';
     if (param('grayscale')
         || ($adjusted && exists($BRIGHTNESS{$line}{$area}))) {
@@ -836,7 +864,7 @@ sub addSingleImage
       }
     }
     $BRIGHTNESS{$line}{$area} = $bc if ($bc);
-    my $url2 = $WEBDAV . $signalmip;
+    my $url2 = $SERVER{'jacs-storage'}{address} . "/$signalmip";
     my $caption=$line;
     $caption .= " ($split_name)" if ($split_name);
     $signalmip = a({href => "view_image.cgi?url=$url2"
@@ -849,11 +877,11 @@ sub addSingleImage
                         src => $url2, height => $HEIGHT}));
   }
   (my $all = $signal) =~ s/signal.+mp4$/all.mp4/;
-  $signal = a({href => $WEBDAV . $signal,
+  $signal = a({href => $SERVER{'jacs-storage'}{address} . "/$signal",
                target => '_blank'},
               img({src => '/images/stack_plain.png',
                    title => 'Show signal movie'}));
-  $all = a({href => $WEBDAV . $all,
+  $all = a({href => $SERVER{'jacs-storage'}{address} . "/$all",
             target => '_blank'},
            img({src => '/images/stack_multi.png',
                 title => 'Show reference+signal movie'}));
