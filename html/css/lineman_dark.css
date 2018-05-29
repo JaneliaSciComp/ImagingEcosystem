@@ -1,0 +1,202 @@
+.redacted { 
+  color: #8e0036; 
+  font-weight: bold;
+}
+
+
+/* Query section */
+#querybox { max-width: 600px; }
+
+#queryitem {
+  text-align: center;
+  float: left;
+  margin: 5px;
+}
+
+/* Line add divs */
+.ui-autocomplete {
+  height: 400px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+div.parents {
+  width: 600px;
+}
+div.parentline {
+  float: left;
+  padding: 0px 10px 20px 0px;
+}
+div.line_metadata {
+  max-width: 280px;
+  font-size: 7pt;
+}
+div.childline {
+  clear: both;
+  border: 1px solid gray;
+  width: 600px;
+}
+
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+/* Conditions tables */
+table#conditions {
+  border: 0px;
+  border-collapse: collapse;
+}
+
+#conditions td {
+  text-align: left;
+  padding: 0 0 0 10px;
+  font-size: 10pt;
+}
+
+table#advanced {
+  border: solid navy 1px;
+  border-collapse: collapse;
+}
+
+#advanced td {
+  text-align: left;
+  padding: 0 0 0 10px;
+  font-size: 10pt;
+}
+
+/* Summary list */
+table#linelist {
+  background: #f7f7f7;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#linelist th {
+  background: #e7e7e7;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+#linelist td {
+  text-align: center;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+/* Summary area */
+#summaryarea {
+  background: #222;
+  border: 1px solid #3875d7;
+}
+
+/* Summary table */
+#scrollsummary {
+  padding-top: 3px;
+  background: #222;
+  border-top: 1px solid #3875d7;
+  overflow: scroll;
+  overflow-x: hidden;
+  overflow-y: auto;
+  height: 182px;
+}
+
+table.summary {
+  background: #222;
+  border-collapse: collapse;
+}
+
+.summary td {
+  text-align: left;
+  padding: 0 5px 0 5px;
+  background: #222;
+}
+
+.summary th {
+  text-align: center;
+  padding: 0 5px 0 5px;
+  width: 130px;
+}
+
+table.relationships {
+  background: #222;
+  border-collapse: collapse;
+}
+
+.relationships td {
+  text-align: center;
+  padding: 0 5px 0 5px;
+  border: 1px solid navy;
+  background: #222;
+}
+
+.relationships th {
+  text-align: center;
+  padding: 0 5px 0 5px;
+  width: 130px;
+}
+
+.parentchild td {
+  background: #3cc !important;
+  font-color: #ccc !important;
+}
+
+table.standard {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.standard th {
+  background: #333;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+.standard td {
+  background: #444;
+  border: 1px solid #5895f7;
+  padding: 0 2px 0 2px;
+}
+
+/* Imagery */
+div.img_container {
+  border: 2px solid green;
+  margin: 5px;
+  overflow: auto;
+  width: 100%
+}
+div.labeled_img {
+  float: left;
+  margin : 2px;
+  border: 1px solid gray;
+}
+
+option:hover { background: #444; }
+
+/* Overrides of janelia_common */
+
+/* General */
+body, input, select {
+  background-color: #222;
+  color: #bbc;
+}
+
+/* Input */
+input:focus { background: #222; }
+input:hover { background: #333; }
+
+/* Links */
+a:link, a:visited { color: #4863a0; }
+
+a:hover, a:active {
+  color: #666;
+  background: #336;
+}
+
+/* Bootstrap */
+.breadcrumb {
+  background-color: #222;
+}

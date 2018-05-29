@@ -1,0 +1,136 @@
+/* Boxed area */
+div.boxed {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+/* Input block */
+.input_block {
+  float: left;
+  margin-right: 5px;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+}
+
+/* Left-side block */
+#left_block {
+  float: left;
+  background-color: #222;
+  width: 550px;
+}
+
+/* Activation domain */
+#activation_domain {
+  float: left;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  background-color: #399;
+  width: 550px;
+}
+
+/* Primary area */
+#primary {
+  float: left;
+  background-color: #399;
+  height: 650px;
+}
+
+/* Primary carousel */
+#primary_carousel {
+  float: left;
+  background-color: #000;
+  width: 500px;
+  height: 550px;
+}
+
+/* Search area */
+#search {
+  float: left;
+  background-color: #fcf;
+}
+
+#crossarea {
+  clear: both;
+  float: left;
+  padding: 3px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  width: 550px;
+  display: none;
+}
+
+#crosses {
+  color: green;
+}
+
+/* Right-side block */
+#right_block {
+  position: absolute;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  background-color: #c60;
+  margin-top: 0px;
+  margin-left: 560px;
+  margin-right: 25px;
+}
+
+#scrollarea {
+  overflow-y: scroll;
+  height: 800px;
+}
+
+#bottom_block {
+  float: left;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  background-color: #c60;
+  margin: 0 0 0 0;
+}
+
+.single_dbd {
+  float: left;
+  border: 1px solid green;
+  background-color: #222;
+}
+
+/* Overrides of janelia_common */
+
+/* General */
+body, input, select {
+  background-color: #222;
+  color: #bbc;
+}
+
+/* Input */
+input:focus { background: #222; }
+input:hover { background: #333; }
+
+/* Links */
+a:link, a:visited { color: #4863a0; }
+
+a:hover, a:active {
+  color: #666;
+  background: #336;
+}
+
+/* Bootstrap */
+.breadcrumb {
+  background-color: #222;
+}
