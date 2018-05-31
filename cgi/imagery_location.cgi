@@ -8,7 +8,6 @@ use Data::Dumper;
 use Date::Calc qw(Delta_Days);
 use DBI;
 use POSIX qw(ceil);
-use lib '/home/svirskasr/workspace/PerlModules/JFRC-Highcharts/lib';
 use JFRC::Highcharts qw(:all);
 use JFRC::Utils::Web qw(:all);
 
@@ -24,11 +23,12 @@ my @BREADCRUMBS = ('Imagery tools',
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Imagery Location Dashboard';
 my %COLOR = (Scality => '#55ee55',
-             dm11 => '#ee5555',
-             tier2 => '#eeee55',
-             'tier2 uncompressed' => '#ff9933',
+             dm11 => '#eeee55',
+             other=> '#ee5555',
+             'dm11 uncompressed' => '#ff9933',
+             'other uncompressed' => '#ee5555',
 );
-my @COLOR = ('#55ee55','#ee5555','#eeee55','#ff9933');
+my @COLOR = ('#55ee55','#eeee55','#ff9933','#ee5555','#ee5555');
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -36,17 +36,24 @@ my @COLOR = ('#55ee55','#ee5555','#eeee55','#ff9933');
 # Parameters
 my $DATABASE;
 my %sth = (
+ALL_FAMILY => "SELECT path,file_size,DATE(create_date) FROM "
+              . "image_data_mv WHERE family=? AND path IS NOT NULL AND "
+              . "path NOT LIKE '%lsm'",
 FAMILY => "SELECT path,file_size,DATE(create_date) FROM "
           . "image_data_mv WHERE family=? AND path IS NOT NULL AND "
           . "path LIKE '%lsm'",
-IMAGE => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
-         . "image_data_mv WHERE family NOT LIKE 'simpson%' "
-         . "AND family NOT LIKE 'rubin%' AND family NOT LIKE 'truman%' "
-         . "AND family NOT IN ('baker_lab','flylight_rd','heberlein_central_brain','leet_chacrm',"
+FL_LSMS => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
+           . "image_data_mv WHERE family NOT LIKE 'simpson%' "
+           . "AND family NOT LIKE 'rubin_wu%' AND family NOT LIKE 'truman%' "
+           . "AND family NOT IN ('baker_lab','flylight_rd','heberlein_central_brain','leet_chacrm',"
          . "'leet_discovery','rubin_lab_2','rubin_rd_split',"
          . "'zlatic_peripheral') AND name LIKE '%lsm'",
-IMAGEA => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM image_data_mv WHERE "
-          . "name LIKE '%lsm' AND (path IS NOT NULL OR jfs_path IS NOT NULL)",
+ALL_LSMS => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
+            . "image_data_mv WHERE name LIKE '%lsm' AND (path IS NOT NULL "
+            . "OR jfs_path IS NOT NULL)",
+ALL_OTHER => "SELECT family,path,jfs_path,file_size,DATE(create_date) FROM "
+             . "image_data_mv WHERE name NOT LIKE '%lsm' AND (path IS NOT NULL "
+             . "OR jfs_path IS NOT NULL)",
 );
 
 # ****************************************************************************
@@ -92,39 +99,53 @@ sub showFamilyDetails
 {
   # ----- Page header -----
   print &pageHead(),start_form,&hiddenParameters();
-  $sth{FAMILY}->execute(my $family = param('family'));
-  my $ar = $sth{FAMILY}->fetchall_arrayref();
+  my $cursor = (param('other')) ? 'ALL_FAMILY' : 'FAMILY';
+  $sth{$cursor}->execute(my $family = param('family'));
+  my $ar = $sth{$cursor}->fetchall_arrayref();
   print "$family uncompressed LSMs: ",scalar(@$ar),br;
-  my %bin;
+  my (%bin,%sbin);
   my @today = qw(2016 03 29);
   foreach (@$ar) {
     my $days = Delta_Days(split(/[-T]/,$_->[-1]),@today);
     if ($days <= 30) {
       $bin{'<= 30 days'}++;
+      $sbin{'<= 30 days'} += $_->[1];
     }
     elsif ($days <= 60) {
       $bin{'30-60 days'}++;
+      $sbin{'30-60 days'} += $_->[1];
     }
     elsif ($days <= 90) {
       $bin{'60-90 days'}++;
+      $sbin{'60-90 days'} += $_->[1];
     }
     elsif ($days <= 180) {
       $bin{'3-6 months'}++;
+      $sbin{'3-6 months'} += $_->[1];
     }
     else {
-      $bin{'> 6 months'}++
+      $bin{'> 6 months'}++;
+      $sbin{'> 6 months'} += $_->[1];
     }
   }
-  my @bin;
+  my (@bin,@sbin);
   foreach ('<= 30 days','30-60 days','60-90 days','3-6 months','> 6 months') {
     push @bin,[$_,$bin{$_}] if (exists $bin{$_});
+    push @sbin,[$_,1*sprintf "%.2f",$sbin{$_}/(1024**4)] if (exists $sbin{$_});
   }
-  my $histogram = &generateHistogram(arrayref => \@bin,
-                                     title => 'LSM age',
-                                     content => 'age',
-                                     color => '#66f',
-                                     width => '600px', height => '500px');
-  print $histogram;
+my $histogram = &generateHistogram(arrayref => \@bin,
+                                   title => 'LSM age (# files)',
+                                   content => 'age',
+                                   yaxis_title => '# files',
+                                   color => '#66f',
+                                   width => '600px', height => '500px');
+  my $shistogram = &generateHistogram(arrayref => \@sbin,
+                                      title => 'LSM age (space in TB)',
+                                      content => 'space',
+                                      yaxis_title => 'Total space (TB)',
+                                      color => '#6f6',
+                                      width => '600px', height => '500px');
+  print $histogram,br,$shistogram;
 }
 
 
@@ -143,7 +164,8 @@ sub showStandardDashboard
 
   # Imagery location
   my %family;
-  my $cursor = (param('all')) ? 'IMAGEA' : 'IMAGE';
+  my $cursor = (param('all')) ? 'ALL_LSMS' : 'FL_LSMS';
+  $cursor = 'ALL_OTHER' if (param('other'));
   $sth{$cursor}->execute();
   my $ar = $sth{$cursor}->fetchall_arrayref();
   my (%count,%size);
@@ -153,25 +175,34 @@ sub showStandardDashboard
     $file_size ||= 0;
     $family{$family}{nofs}++ unless ($file_size);
     if (!$path && !$jfs_path) {
+      # Error
       $family{$family}{error}++;
     }
     elsif (!$path && $jfs_path) {
+      # Scality
       $family{$family}{jfs}++;
       $family{$family}{jfsfs} += $file_size;
       $count{Scality}++;
       $size{Scality} += $file_size;
     }
     elsif ($path && $jfs_path) {
+      # Dual
       $family{$family}{dual}++;
     }
     else {
-      my $disk = 'tier2';
+      my $disk = 'other';
       $disk = 'dm11' if ($path =~ /\/groups/);
-      $count{($disk eq 'tier2' && $path =~ /lsm$/) ? 'tier2 uncompressed' : $disk}++;
-      $size{($disk eq 'tier2' && $path =~ /lsm$/) ? 'tier2 uncompressed' : $disk} += $file_size;
-      $family{$family}{($path =~ /lsm$/) ? $disk.'u' : $disk.'c'}++;
-      $family{$family}{($path =~ /lsm$/) ? $disk.'ufs' : $disk.'cfs'} += $file_size;
-      if ($path =~ /lsm$/) {
+      if ($disk eq 'dm11') {
+        $count{($path !~ /bz2$/) ? 'dm11 uncompressed' : $disk}++;
+        $size{($path !~ /bz2$/) ? 'dm11 uncompressed' : $disk} += $file_size;
+      }
+      else {
+        $count{($path !~ /bz2$/) ? 'other uncompressed' : $disk}++;
+        $size{($path !~ /bz2$/) ? 'other uncompressed' : $disk} += $file_size;
+      }
+      $family{$family}{($path !~ /bz2$/) ? $disk.'u' : $disk.'c'}++;
+      $family{$family}{($path !~ /bz2$/) ? $disk.'ufs' : $disk.'cfs'} += $file_size;
+      if ($path !~ /bz2$/) {
         $family{$family}{oldest} = $create_date
           if (!$family{$family}{oldest} || $create_date lt $family{$family}{oldest});
         $family{$family}{newest} = $create_date
@@ -184,35 +215,42 @@ sub showStandardDashboard
   my @row;
   my $dual = 0;
   $dual += ($family{$_}{dual}||0) foreach (keys %family);
-  my @acc = qw(jfs jfsfs tier2c tier2cfs tier2u tier2ufs dm11u dm11ufs);
+  my @acc = qw(jfs jfsfs otheru otherufs dm11c dm11cfs dm11u dm11ufs);
   foreach (sort keys %family) {
     foreach my $t (@acc) {
       $sum{$t} += ($family{$_}{$t}||0);
     }
     my @col = (td($_),&renderColumns($family{$_}{jfs},$family{$_}{jfsfs},$COLOR{Scality}),
-               &renderColumns($family{$_}{tier2c},$family{$_}{tier2cfs},$COLOR{tier2}),
-               &renderColumns($family{$_}{tier2u},$family{$_}{tier2ufs},$COLOR{'tier2 uncompressed'}),
-               &renderColumns($family{$_}{dm11u},$family{$_}{dm11ufs},$COLOR{dm11}));
+               &renderColumns($family{$_}{dm11c},$family{$_}{dm11cfs},$COLOR{dm11}),
+               &renderColumns($family{$_}{dm11u},$family{$_}{dm11ufs},$COLOR{'dm11 uncompressed'}),
+               &renderColumns($family{$_}{otheru},$family{$_}{otherufs},$COLOR{'other uncompressed'}),
+              );
     push @col,td($family{$_}{dual}) if ($dual);
-    push @col,td(a({href => "?family=$_",
+    push @col,td(a({href => "?family=$_"
+                    . ((param('other')) ? ';other=1' : ''),
                     target => '_blank'},$family{$_}{oldest}));
     push @row,[@col];
   }
   my @header = ('Family','Scality','JFS size (TB)',
-                'tier2 compressed','tier2 compressed size (TB)',
-                'tier2 uncompressed','tier2 uncompressed size (TB)',
+                'dm11 compressed','dm11 compressed size (TB)',
                 'dm11 uncompressed','dm11 uncompressed size (TB)',
-                'Dual locations','Oldest uncompressed');
-  splice @header,9,1 unless ($dual);
+                'other uncompressed','other uncompressed size (TB)',
+                'Oldest uncompressed');
   my @col = (th('TOTAL'),
              &renderColumns($sum{jfs},$sum{jfsfs},$COLOR{Scality},1),
-             &renderColumns($sum{tier2c},$sum{tier2cfs},$COLOR{tier2},1),
-             &renderColumns($sum{tier2u},$sum{tier2ufs},$COLOR{'tier2 uncompressed'},1),
-             &renderColumns($sum{dm11u},$sum{dm11ufs},$COLOR{dm11},1),
-             td(['','']));
+             &renderColumns($sum{dm11c},$sum{dm11cfs},$COLOR{dm11},1),
+             &renderColumns($sum{dm11u},$sum{dm11ufs},$COLOR{'dm11 uncompressed'},1),
+             &renderColumns($sum{otheru},$sum{otherufs},$COLOR{'other uncompressed'},1),
+             td(['']));
+  my $title = 'LSM location by family';
+  if (param('other')) {
+    $title = 'Imagery location (excluding LSMs)';
+  }
+  elsif (param('all')) {
+    $title .= ' for Workstation-managed imagery';
+  }
   $panel{image} =
-        h3('LSM location by family'
-           . ((param('all')) ? '' : ' for Workstation-managed imagery'))
+        h3($title)
         . table({class => 'sortable',&identify('standard')},
                 thead(Tr(th([@header]))),
                 tbody(map {Tr(@$_)} @row),
