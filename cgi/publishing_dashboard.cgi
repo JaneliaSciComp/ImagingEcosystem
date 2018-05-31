@@ -10,14 +10,6 @@ use XML::Simple;
 use JFRC::LDAP;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
-use JFRC::Highcharts qw(:all);
-
-# ****************************************************************************
-# * Environment-dependent                                                    *
-# ****************************************************************************
-# Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
-my $BASE = "/var/www/html/output/";
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -26,7 +18,6 @@ my $BASE = "/var/www/html/output/";
 our $APPLICATION = 'Publishing dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
-my %CONFIG;
 use constant NBSP => '&nbsp;';
 my %BG = ('Pre-staged' => '#bb0',
           Staged => '#c90',
@@ -69,7 +60,7 @@ my %sths = (
              . "alps_release=? group by 1",
   DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
             . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
-            . "AS Proj FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
+            . "AS Proj,workstation_sample_id FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
             . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
             . "WHERE alps_release=? GROUP BY 2 ORDER BY 1,4,5",
 );
@@ -88,7 +79,7 @@ my %MBEW = (
              . "alps_release=? group by 1",
   DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
             . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
-            . "AS Proj FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
+            . "AS Proj,workstation_sample_id FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
             . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
             . "WHERE alps_release=? GROUP BY 2 ORDER BY 1,4,5",
 );
@@ -160,6 +151,13 @@ sub displayRelease
     }
     my $image_count;
     $image_count += $_->[1] foreach (@$ar);
+    if ($cursor eq 'DETAIL') {
+      foreach (@$ar) {
+        my $sid = pop @$_;
+        $_->[2] = a({href => "http://webstation.int.janelia.org/do/$sid",
+                     target => '_blank'},$_->[2]);
+      }
+    }
     $display .= table({id => '$cursor',class => 'tablesorter standard'},
                       thead(Tr(th($header{$cursor}))),
                       tbody(map {Tr(td($_))} @$ar),
@@ -191,22 +189,22 @@ sub displayDashboard
     print div({class => 'panel panel-info'},
               div({class => 'panel-heading'},
                   span({class => 'panel-heading;'},
-                       'Awaiting publishing')),
+                       'On SAGE, awaiting publishing')),
               div({class => 'panel-body'},$waiting))
           . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
   my $h = sprintf '%dpx',300 + 30 * $release_count;
   foreach ('Pre-staged','Staged','Production') {
-    $render .= div({class => 'boxed',
-                    style => "float: left; width: 350px; height: $h;background-color: $BG{$_};"},
-                   h1({style => 'color: #fff'},$_),$published{$_});
+    $render .= div({class => 'publish',
+                    style => "height: $h;background-color: $BG{$_};"},
+                   h1({class => 'boxhead'},$_),$published{$_});
   }
   print div({class => 'panel panel-success'},
             div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},'Published')),
             div({class => 'panel-body'},
-                div({style => 'float: left;'},$render)));
+                div({class => 'left'},$render)));
   print end_form,&sessionFooter($Session),end_html;
 }
 
@@ -313,9 +311,9 @@ sub getStagedData
       $image_count += $_->[2];
       $line_check{$current}{$_->[0]} = $_->[1];
       $image_check{$current}{$_->[0]} = $_->[2];
-      $_->[1] = span({style => 'color: red'},$_->[1])
+      $_->[1] = span({class => 'mismatch'},$_->[1])
         if ($line_check{$previous}{$_->[0]} != $_->[1]);
-      $_->[2] = span({style => 'color: red'},$_->[2])
+      $_->[2] = span({class => 'mismatch'},$_->[2])
         if ($image_check{$previous}{$_->[0]} != $_->[2]);
       $_->[0] = a({href => "?release=$_->[0]&instance=$instance&title=$current",
                    target => '_blank'},$_->[0]);
@@ -346,9 +344,7 @@ sub getStagedData
 sub printHeader {
   my($onload) = @_;
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} }
-                    ('highcharts-4.0.1/highcharts',
-                     'highcharts-4.0.1/highcharts-more',
-                     'jquery/jquery.tablesorter','tablesorter');
+                    ('jquery/jquery.tablesorter','tablesorter');
   my @styles = map { Link({-rel=>'stylesheet',
                            -type=>'text/css',-href=>"/css/$_.css"}) }
                    qw(tablesorter-jrc1);

@@ -1,10 +1,11 @@
-/* Boxed area */
-div.boxed {
+div.publish {
   padding: 5px;
   border: 1px solid #ccc;
   border-radius: 12px;
   -webkit-border-radius: 12px;
   -moz-border-radius: 12px;
+  float: left;
+  width: 350px;
 }
 
 table.standard {
@@ -23,6 +24,14 @@ table.standard {
   text-align: left;
   border: 1px solid #058d95;
   padding: 0 2px 0 2px;
+}
+
+.boxhead {
+  color: #fff;
+}
+
+.mismatch {
+  color: red;
 }
 
 .panel-warning > .panel-heading {
