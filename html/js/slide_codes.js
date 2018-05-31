@@ -30,16 +30,22 @@ function showDetail(id,create_date,name,annotator,microscope,dataset,slide_code,
          {name: name,
           product: 'Reference+Signal MIP'},
          function(data) {
-  var d = "<div style='float: left;'><div style='float:left'>"
-          + data + "</div>"
-          + "<div style='float: left;'>" + t + "</div></div><div style='clear: both;'></div>";
+  var d = "<div class='left'><div class='left'>" + data + "</div>"
+          + "<div class='left'>" + t + "</div></div><div class='clear'></div>";
   $('#display').html(d);
          });
   return false;
 }
 
+function spinner(divtag,msg) {
+  $("div#"+divtag).text('');
+  $('<img />').attr({src: '/images/loading.gif'}).appendTo("div#"+divtag);
+  $("div#"+divtag).append(' '+msg);
+}
+
 $(document).ready(function() {
   // Populate data_set block
+  spinner('data_set_block','Fetching data sets');
   $.getJSON(SAGE_RESPONDER + '/images?family=flylight*&_columns=data_set&_distinct=1&_sort=data_set',
       function(data) {})
       .success(function(data) {
@@ -63,7 +69,7 @@ $(document).ready(function() {
       $("div#objective_block").html('')
       $("div#data_block").html('')
       $("div#display").html('')
-      $("div#slide_code_block").html('(Fetching slide codes for ' + data_set + ')')
+      spinner('slide_code_block','Fetching slide codes for ' + data_set);
       $.getJSON(SAGE_RESPONDER + '/images?_columns=slide_code&_distinct=1&data_set=' + $(this).val(),
         function(data) {})
         .success(function(data) {
@@ -102,7 +108,7 @@ $(document).ready(function() {
   $('body').on('change', '#slide_code', function() {
     slide_code = $(this).val()
     if (slide_code) {
-      $("div#objective_block").html('(Fetching objectives for ' + data_set + '/' + slide_code + ')');
+      spinner('objective_block','Fetching objectives for ' + data_set + '/' + slide_code);
       $("div#data_block").html('')
       $("div#display").html('')
       $.getJSON(SAGE_RESPONDER + '/images?_columns=objective&_distinct=1&data_set=' + data_set + '&slide_code=' + slide_code,
@@ -126,7 +132,7 @@ $(document).ready(function() {
   $('body').on('change', '#objective', function() {
     objective = $(this).val()
     if (objective) {
-      $("div#data_block").html('(Fetching data for ' + data_set + '/' + slide_code + '/' + objective + ')')
+      spinner('data_block','Fetching data for ' + data_set + '/' + slide_code + '/' + objective);
       $("div#display").html('')
       $.getJSON(SAGE_RESPONDER + '/images?_columns=id,slide_code,capture_date,create_date,microscope,microscope_filename,cross_barcode,line,name,annotated_by,area,tile&_distinct=1&data_set=' + data_set + '&slide_code=' + slide_code + '&objective=' + objective,
         function(data) {})
@@ -139,7 +145,7 @@ $(document).ready(function() {
         $.each(data.image_data, function(key, val) {
           var cd = new Date(val.capture_date);
           var td = new Date(val.create_date);
-          var ws_link = 'http://webstation.int.janelia.org/search?term=' + val.name;
+          var ws_link = 'http://webstation.int.janelia.org/search?term=' + val.name + '&type_label=LSM+Image';
           link = $('<a>',{text: val.name,
                           href: ws_link,
                           target: "_blank",
