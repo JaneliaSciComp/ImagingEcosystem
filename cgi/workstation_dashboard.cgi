@@ -22,7 +22,7 @@ use JFRC::Highcharts qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicomp/informatics/data/';
 my $BASE = "/var/www/html/output/";
 
 # ****************************************************************************
@@ -246,11 +246,11 @@ sub displayDashboard
                    div({class => 'panel-heading'},
                        span({class => 'panel-heading;'},'Intake')),
                    div({class => 'panel-body'},
-                       div({style => 'float: left'},
+                       div({class => 'left'},
                            div({class => 'left10'},
                                div({class => 'boxed'},$last{all},hr,$today{all})),
                            div({class => 'left10'},$histogram1,br,$histogram2),
-                           div({style => 'float: left;'},$objective_boxes))))
+                           div({class => 'left'},$objective_boxes))))
                . div({style => 'clear: both;'},NBSP);
   &printCurrentStatus();
   print $intake,$pipeline;
@@ -439,24 +439,24 @@ sub reportStatus
                                  ['Sample','User','Start date','Delta days']);
   # Render
   $disposition{Null} = 'In process';
-  my $pipeline = div({style => 'float: left'},
-                     div({style => 'float: left'},
+  my $pipeline = div({class => 'left'},
+                     div({class => 'left'},
                          table({id => 'stats',class => 'tablesorter standard'},
                                thead(Tr(th(['Disposition','Status','Count','%']))),
                                tbody(map {Tr(td([$disposition{$_},$_,&commify($status_count{$_}),
                                                  sprintf '%.2f%%',$status_count{$_}/$total*100]))}
                                     sort keys %status_count)),
                          $donut1),
-                     div({style => 'float: left',align => 'center'},$line1),br,
+                     div({class => 'left',align => 'center'},$line1),br,
                      div({style => 'clear: both;'},NBSP),
-                     div({style => 'float: left;'},
+                     div({class => 'left'},
                          div({class => 'left10'},$pie1),
                          div({class => 'left10'},$pie2),
                          div({class => 'left10'},$pie3,br,$export),
                         ),br,
-                     div({style => 'float: left'},
-                         div({style => 'float: left'},$line2),
-                         div({style => 'float: left'},$histogram4)
+                     div({class => 'left'},
+                         div({class => 'left'},$line2),
+                         div({class => 'left'},$histogram4)
                         ));
   return (div({class => 'panel panel-primary'},
              div({class => 'panel-heading'},
@@ -525,7 +525,7 @@ sub printCurrentStatus
              div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},$current)),
             div({class => 'panel-body',style => 'font-size: 18pt'},
-                div({style => 'float: left'},
+                div({class => 'left'},
                     div({class=> 'left30'},
                         'Error rate: ',
                         span({style => $err_style},$Error_rate.'%'),
