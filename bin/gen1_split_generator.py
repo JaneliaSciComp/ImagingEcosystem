@@ -277,7 +277,7 @@ def read_lines(fragdict, converted_aline):
     if len(vtcache):
         with open(VTCACHE_FILE, 'w') as outfile:
             json.dump(vtcache, outfile)
-    return(linelist)
+    return(linelist, combos)
 
 
 def process_input():
@@ -296,7 +296,7 @@ def process_input():
                 sys.exit(-1)
     # Find fragments
     logger.info("Processing line fragment list")
-    fraglist = read_lines(fragdict, converted_aline)
+    (fraglist, combos) = read_lines(fragdict, converted_aline)
     logger.info("Generating crosses")
     crosses = 0
     for idx, frag1 in enumerate(fraglist):
@@ -319,9 +319,9 @@ def process_input():
                     what = "DBD"
                 logger.warning("Missing %s for %s-x-%s", what, frag1, frag2)
                 NO_CROSSES.write("Missing %s for %s-x-%s\n" % (what, frag1,
-                                                                   frag2))
+                                                               frag2))
     stop_time = datetime.now()
-    print("Crosses found: %d" % crosses)
+    print("Crosses found: %d/%d (%.2f%%)" % (crosses, combos, float(crosses) / float(combos) * 100.0))
     logger.info("Elapsed time: %s", (stop_time - start_time))
 
 
