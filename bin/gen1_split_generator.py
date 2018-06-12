@@ -76,7 +76,7 @@ def set_max_score(ad, dbd, final_score, max_score):
         max_score['dbd'] = dbd
 
 
-def generateCross(fragdict, frag1, frag2):
+def generate_cross(fragdict, frag1, frag2):
     logger.debug("Attempting cross %s-x-%s", frag1, frag2)
     max_score = {'score': -1, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
@@ -84,8 +84,13 @@ def generateCross(fragdict, frag1, frag2):
         if f1['type'] == 'DBD':
             continue
         score = generate_score(f1['line'])
+        ls1 = f1['line'].rpartition('_')[-1]
         for f2 in fragdict[frag2]:
             if f2['type'] == 'AD':
+                continue
+            ls2 = f2['line'].rpartition('_')[-1]
+            if (ls1 == ls2):
+                logger.error("Same landing site for %s and %s" % (f1['line'], f2['line']))
                 continue
             final_score = score + generate_score(f2['line'])
             set_max_score(f1['line'], f2['line'], final_score, max_score)
@@ -94,8 +99,13 @@ def generateCross(fragdict, frag1, frag2):
         if f1['type'] == 'AD':
             continue
         score = generate_score(f1['line'])
+        ls1 = f1['line'].rpartition('_')[-1]
         for f2 in fragdict[frag2]:
             if f2['type'] == 'DBD':
+                continue
+            ls2 = f2['line'].rpartition('_')[-1]
+            if (ls1 == ls2):
+                logger.error("Same landing site for %s and %s" % (f1['line'], f2['line']))
                 continue
             final_score = score + generate_score(f2['line'])
             set_max_score(f2['line'], f1['line'], final_score, max_score)
@@ -267,7 +277,7 @@ def read_lines(fragdict, converted_aline):
     if len(vtcache):
         with open(VTCACHE_FILE, 'w') as outfile:
             json.dump(vtcache, outfile)
-    return(linelist)
+    return(linelist, combos)
 
 
 def process_input():
@@ -286,7 +296,7 @@ def process_input():
                 sys.exit(-1)
     # Find fragments
     logger.info("Processing line fragment list")
-    fraglist = read_lines(fragdict, converted_aline)
+    (fraglist, combos) = read_lines(fragdict, converted_aline)
     logger.info("Generating crosses")
     crosses = 0
     for idx, frag1 in enumerate(fraglist):
@@ -297,7 +307,7 @@ def process_input():
                 if converted_aline not in frag1 and converted_aline not in frag2:
                     logger.debug("Cross does not contain A line %s", converted_aline)
                     continue
-            (ad, dbd) = generateCross(fragdict, frag1, frag2)
+            (ad, dbd) = generate_cross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
                 good_cross(ad, dbd)
@@ -309,9 +319,9 @@ def process_input():
                     what = "DBD"
                 logger.warning("Missing %s for %s-x-%s", what, frag1, frag2)
                 NO_CROSSES.write("Missing %s for %s-x-%s\n" % (what, frag1,
-                                                                   frag2))
+                                                               frag2))
     stop_time = datetime.now()
-    print("Crosses found: %d" % crosses)
+    print("Crosses found: %d/%d (%.2f%%)" % (crosses, combos, float(crosses) / float(combos) * 100.0))
     logger.info("Elapsed time: %s", (stop_time - start_time))
 
 
