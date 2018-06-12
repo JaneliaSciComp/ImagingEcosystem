@@ -8,7 +8,6 @@ use CGI::Carp qw(fatalsToBrowser);
 use Data::Dumper;
 use DBI;
 use IO::File;
-use JFRC::LDAP;
 use JSON;
 use Kafka::Connection;
 use Kafka::Producer;
@@ -80,7 +79,6 @@ FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
               . "Project_Crosses pc ON (sf.__kp_UniqueID=pc._kf_Parent_UID) "
               . "WHERE Stock_Name LIKE 'JRC_SS%' GROUP BY 1,2,3",
 );
-our $service;
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
 my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
@@ -117,8 +115,6 @@ my $STOP = param('stop') || '';
 my $ALL_20X = (param('all_20x') && (param('all_20x') eq 'all'));
 # Initialize
 &initializeProgram();
-($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
-  if (exists $PERMISSION{$USERID});
 
 # ----- Page header -----
 print &pageHead(),start_multipart_form;
@@ -140,7 +136,7 @@ elsif (param('choose')) {
 elsif (param('sline')) {
   &showLine(param('sline'));
 }
-elsif ($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose') && !$ACCESS) {
+elsif (($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose')) || $ACCESS) {
   &limitFullSearch();
 }
 else {
@@ -206,6 +202,22 @@ sub initializeProgram
     }
   }
   print STDERR "Primary query: $sth{IMAGES}\n";
+  # Get user permissions
+  my $file = DATA_PATH . $PROGRAM . '.json';
+  open SLURP,$file
+    or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %PERMISSION = %$hr;
+  ($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
+    if (exists $PERMISSION{$USERID});
+  # Change permission query
+  if ($ACCESS) {
+    my $stmt = "IN ('" . join("','",@{$PERMISSION{$USERID}}) . "')";
+    $sth{USERLINES} =~ s/LIKE '%screen_review'/$stmt/;
+    print STDERR "User query: $sth{USERLINES}\n";
+  }
   # Connect to databases
   &dbConnect(\$dbh,'sage')
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
@@ -220,16 +232,7 @@ sub initializeProgram
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
     }
   }
-  # Set up LDAP service
-  $service = JFRC::LDAP->new();
-  # Get user permissions
-  my $file = DATA_PATH . $PROGRAM . '.json';
-  open SLURP,$file
-    or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,my $slurp,-s SLURP;
-  close(SLURP);
-  my $hr = decode_json $slurp;
-  %PERMISSION = %$hr;
+  # Can stocks be ordered?
   $sth{CANORDER}->execute();
   my $ar = $sth{CANORDER}->fetchall_arrayref();
   foreach (@$ar) {
@@ -264,8 +267,7 @@ sub showUserDialog()
   print div({class => 'boxed'},
             &dateDialog(),
             &submitButton('choose','Search')),br,
-           hidden(&identify('_userid'),default=>param('_userid')),
-           hidden(&identify('mongo'),default=>param('mongo'));
+           hidden(&identify('_userid'),default=>param('_userid'));
 }
 
 
@@ -307,10 +309,9 @@ sub limitFullSearch
   $sth{USERLINES}->execute();
   my $ar = $sth{USERLINES}->fetchall_arrayref();
   my %label = map {$a = (split('_',$_->[0]))[0];
-                   my $user = $service->getUser($a);
                    $a => &getUsername($a) . " ($_->[1] lines)"} @$ar;
   $label{''} = '(Any)';
-  my %screen_count;
+  my %screen_count = (split => 0, ti => 0);
   $screen_count{(split('_',$_->[0]))[1]} += $_->[1] foreach (@$ar);
   my $type = {'' => '(Any)',
               split => "Split screen ($screen_count{split} lines)",
@@ -326,8 +327,7 @@ sub limitFullSearch
                                    -values => ['','split','ti'],
                                    -labels => $type)))),
             &dateDialog(),
-            &submitButton('choose','Search')),
-        hidden(&identify('mongo'),default=>param('mongo')),br;
+            &submitButton('choose','Search')),br;
 }
 
 
@@ -1301,6 +1301,8 @@ sub getUsername
 {
   my $userid = shift;
   return($USERNAME{$userid}) if (exists $USERNAME{$userid});
+  # Set up LDAP service
+  my $service = JFRC::LDAP->new({host => 'ldap-vip3.int.janelia.org'});
   my $user = $service->getUser($userid);
   $USERNAME{$userid} = ($user) ? join(' ',$user->givenName(),$user->sn()) : $userid;
   return($USERNAME{$userid});
