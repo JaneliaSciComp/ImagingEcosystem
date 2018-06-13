@@ -1,4 +1,4 @@
-var SAGE_RESPONDER = 'http://informatics-flask-dev.int.janelia.org:83/sage_responder';
+var SAGE_RESPONDER = 'http://informatics-flask.int.janelia.org:83/sage_responder';
 var data_set = '';
 var slide_code = '';
 var objective = ''
@@ -46,7 +46,12 @@ function spinner(divtag,msg) {
 $(document).ready(function() {
   // Populate data_set block
   spinner('data_set_block','Fetching data sets');
-  $.getJSON(SAGE_RESPONDER + '/images?family=flylight*&_columns=data_set&_distinct=1&_sort=data_set',
+  var sql = 'family=' + $("#family").val()
+            + '&_columns=data_set&_distinct=1&_sort=data_set';
+  if ($("#family").val() == 'all') {
+    sql = '_columns=data_set&_distinct=1&_sort=data_set';
+  }
+  $.getJSON(SAGE_RESPONDER + '/images?' + sql,
       function(data) {})
       .success(function(data) {
         var s = $('<select id="data_set" name="data_set"/>');
@@ -137,8 +142,9 @@ $(document).ready(function() {
       $.getJSON(SAGE_RESPONDER + '/images?_columns=id,slide_code,capture_date,create_date,microscope,microscope_filename,cross_barcode,line,name,annotated_by,area,tile&_distinct=1&data_set=' + data_set + '&slide_code=' + slide_code + '&objective=' + objective,
         function(data) {})
         .success(function(data) {
-        var t = $('<table></table>').attr({class:"standard"});
-        var row = $('<tr></tr>').appendTo(t);
+        var t = $('<table id="itable"></table>').attr({class:"tablesorter standard"});
+        var thead = $('<thead></thead>').appendTo(t);
+        var row = $('<tr></tr>').appendTo(thead);
         $.each(['Slide code','Capture date','TMOG date','Microscope','Microscope filename','Cross barcode','Line','Image name'], function(i,v) {
           $('<th></th>').text(v).appendTo(row);
         });
@@ -163,7 +169,8 @@ $(document).ready(function() {
           });
           $('<td></td>').html(link).appendTo(row);
         });
-        $("div#data_block").html(t)
+        $("div#data_block").html(t);
+        $("#itable").tablesorter();
       })
       .fail(function(data) {
         displayError(data,'data_block');
