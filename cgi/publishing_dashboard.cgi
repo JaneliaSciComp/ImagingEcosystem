@@ -43,6 +43,11 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
 my %sths = (
+  ANNOTATIONS => "SELECT DISTINCT i.line,alps_release,GROUP_CONCAT(DISTINCT "
+                 . "o.type SEPARATOR ', ') FROM image_data_mv i LEFT OUTER "
+                 . "JOIN session_vw s ON (i.line=s.line) LEFT OUTER JOIN "
+                 . "observation_vw o ON (s.id=o.session_id) WHERE "
+                 . "i.to_publish='Y' GROUP BY 1,2 ORDER BY 1,2",
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
            . "WHERE published='Y'",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
@@ -69,6 +74,11 @@ my %FLEW = (
                . "WHERE family != 'rubin_lab_external'",
 );
 my %MBEW = (
+  ANNOTATIONS => "SELECT DISTINCT i.line,alps_release,GROUP_CONCAT(DISTINCT "
+                 . "term SEPARATOR ', ') FROM image_data_mv i LEFT OUTER "
+                 . "JOIN session_vw s ON (i.line=s.line) LEFT OUTER JOIN "
+                 . "observation_vw o ON (s.id=o.session_id) "
+                 . "GROUP BY 1,2 ORDER BY 1,2",
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv",
   PUBLISHED => "SELECT alps_release,COUNT(DISTINCT line),COUNT(1) FROM "
                . "image_data_mv GROUP BY 1",
@@ -91,6 +101,9 @@ my %MBEW = (
 &initializeProgram();
 if (param('release')) {
   &displayRelease(param('release'),param('instance'));
+}
+elsif (param('annotations')) {
+  &displayAnnotations(param('instance'));
 }
 else {
   &displayDashboard();
@@ -129,6 +142,35 @@ sub initializeProgram
     $sth{$i}{$_} = $pdbh{$i}->prepare($MBEW{$_}) || &terminateProgram($pdbh{$i}->errstr)
       foreach (keys %MBEW);
   }
+}
+
+
+sub displayAnnotations
+{
+  my($instance) = @_;
+  &printHeader();
+  my $display;
+  my @header = ['Line','ALPS release','Annotations'];
+  my $ar;
+  if ($instance) {
+    $sth{$instance}{ANNOTATIONS}->execute();
+    $ar = $sth{$instance}{ANNOTATIONS}->fetchall_arrayref();
+  }
+  else {
+    $sths{ANNOTATIONS}->execute();
+    $ar = $sths{ANNOTATIONS}->fetchall_arrayref();
+  }
+  $display .= table({id => 'annotations',class => 'tablesorter standard'},
+                    thead(Tr(th(@header))),
+                    tbody(map {Tr(td($_))} @$ar)) . br;
+  my $title = "Annotations";
+  my $t = param('title');
+  if ($t) {
+    $title .= " ($t)";
+    $title = span({style => "background: $BG{$t}"},$title);
+  }
+  print h1($title),$display,
+        end_form,&sessionFooter($Session),end_html;
 }
 
 
@@ -209,9 +251,24 @@ sub displayDashboard
 }
 
 
+sub getAnnotations
+{
+  my($arrayref,$instance,$current) = @_;
+  my($lc,$ac) = (0)x2;
+  foreach (@$arrayref) {
+    $lc++;
+    $ac++ if ($_->[2]);
+  }
+  my $msg = "$ac of $lc Split GAL4 lines have annotations";
+  span({style => 'background: white'},
+       a({href => "?annotations=1&instance=$instance&title=$current",
+          target => '_blank'},$msg));
+}
+
+
 sub getPrestagedData
 {
-  my $service = JFRC::LDAP->new();
+  my $service = JFRC::LDAP->new({host => 'ldap-vip3.int.janelia.org'});
   my ($annotator,$ar,$waiting) = ('')x3;
   # Waiting
   $sths{WAITING}->execute();
@@ -283,13 +340,17 @@ sub getPrestagedData
     foreach (keys %group) {
       $group{$_}{lines} = $sths{SPLIT_GAL4}->fetchrow_array() if (/Split GAL4/);
     }
+    $sths{ANNOTATIONS}->execute();
+    my($amsg) = &getAnnotations($sths{ANNOTATIONS}->fetchall_arrayref(),'','Pre-staged');
     $published = table({id => 'published',class => 'tablesorter standard'},
                        thead(Tr(th(['Website','ALPS release','Lines','Images']))),
                        tbody(map {Tr(td($_))} @$ar),
                        tfoot(Tr(td(['','',$line_count,$image_count]))))
                  . table({class => 'standard'},
                          thead(Tr(th(['Website','Lines','Images']))),
-                         tbody(map {Tr(td([$_,$group{$_}{lines},$group{$_}{images}]))} sort {$group{$a}{name} cmp $group{$b}{name}} keys %group));
+                         tbody(map {Tr(td([$_,$group{$_}{lines},$group{$_}{images}]))}
+                                   sort {$group{$a}{name} cmp $group{$b}{name}} keys %group))
+                 . br . $amsg;
   }
   return($published,$waiting);
 }
@@ -326,10 +387,13 @@ sub getStagedData
     $ar = $sth{$instance}{HALVES}->fetchall_arrayref();
     my $tsh = 0;
     $tsh += $_->[1] foreach (@$ar);
+    $sth{$instance}{ANNOTATIONS}->execute();
+    my($amsg) = &getAnnotations($sth{$instance}{ANNOTATIONS}->fetchall_arrayref(),$instance,$current);
     $published .= table({id => 'publishedh',class => 'tablesorter standard'},
                         thead(Tr(th(['Lines','Images']))),
                         tbody(map {Tr(td($_))} @$ar),
-                        tfoot(Tr(td(['',$tsh]))));
+                        tfoot(Tr(td(['',$tsh]))))
+                  . $amsg;
   }
   else {
     $published = table({id => 'publishedf',class => 'tablesorter standard'},
