@@ -10,6 +10,8 @@ use XML::Simple;
 use JFRC::LDAP;
 use JFRC::Utils::DB qw(:all);
 use JFRC::Utils::Web qw(:all);
+use lib '/groups/scicompsoft/home/svirskasr/workspace/JFRC-Utils-FLEW/lib';
+use JFRC::Utils::FLEW qw(:all);
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -22,6 +24,8 @@ use constant NBSP => '&nbsp;';
 my %BG = ('Pre-staged' => '#bb0',
           Staged => '#c90',
           Production => '#696');
+my %header = (SUMMARY => ['Line','Images'],
+              DETAIL => ['Line','Image ID','Name','Objective','Area','Tile','Slide code','LSMs','Projections']);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -63,7 +67,7 @@ my %sths = (
                . "published='Y' AND published_to='Split GAL4'",
   SUMMARY => "SELECT line,COUNT(1) FROM image_data_mv WHERE "
              . "alps_release=? group by 1",
-  DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
+  DETAIL => "SELECT i.line,i.id,i.name,i.objective,i.area,i.tile,i.slide_code,"
             . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
             . "AS Proj,workstation_sample_id FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
             . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
@@ -87,7 +91,7 @@ my %MBEW = (
             . "l.name NOT IN (SELECT line FROM image_data_mv) GROUP BY 1",
   SUMMARY => "SELECT line,COUNT(1) FROM image_data_mv WHERE "
              . "alps_release=? group by 1",
-  DETAIL => "SELECT i.line,i.id,i.name,i.area,i.tile,i.slide_code,"
+  DETAIL => "SELECT i.line,i.id,i.name,i.objective,i.area,i.tile,i.slide_code,"
             . "IF(i2.url IS NULL,'','Yes') AS LSM,IF(COUNT(s.id) > 0,'Yes','') "
             . "AS Proj,workstation_sample_id FROM image_data_mv i JOIN image i2 ON (i.id=i2.id) "
             . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
@@ -101,6 +105,9 @@ my %MBEW = (
 &initializeProgram();
 if (param('release')) {
   &displayRelease(param('release'),param('instance'));
+}
+elsif (param('report')) {
+  &releaseReport(param('report'),param('instance'));
 }
 elsif (param('annotations')) {
   &displayAnnotations(param('instance'));
@@ -145,12 +152,9 @@ sub initializeProgram
 }
 
 
-sub displayAnnotations
+sub queryAnnotations
 {
-  my($instance) = @_;
-  &printHeader();
-  my $display;
-  my @header = ['Line','ALPS release','Annotations'];
+  my($instance) = shift;
   my $ar;
   if ($instance) {
     $sth{$instance}{ANNOTATIONS}->execute();
@@ -160,17 +164,98 @@ sub displayAnnotations
     $sths{ANNOTATIONS}->execute();
     $ar = $sths{ANNOTATIONS}->fetchall_arrayref();
   }
-  $display .= table({id => 'annotations',class => 'tablesorter standard'},
-                    thead(Tr(th(@header))),
-                    tbody(map {Tr(td($_))} @$ar)) . br;
-  my $title = "Annotations";
+  return($ar);
+}
+
+
+sub getTitle
+{
+  my $title = shift;
   my $t = param('title');
   if ($t) {
     $title .= " ($t)";
     $title = span({style => "background: $BG{$t}"},$title);
   }
-  print h1($title),$display,
+  return(h1($title));
+}
+
+
+sub displayAnnotations
+{
+  my($instance) = @_;
+  &printHeader();
+  my $display;
+  my @header = ['Line','ALPS release','Annotations'];
+  my $ar = &queryAnnotations($instance);
+  foreach (@$ar) {
+    $_->[-1] = &greekify($_->[-1]);
+  }
+  $display .= table({id => 'annotations',class => 'tablesorter standard'},
+                    thead(Tr(th(@header))),
+                    tbody(map {Tr(td($_))} @$ar)) . br;
+  print &getTitle('Annotations'),$display,
         end_form,&sessionFooter($Session),end_html;
+}
+
+
+sub releaseReport
+{
+  my($release,$instance) = @_;
+  &printHeader();
+  print &getTitle("Release report for $release"),br;
+  my $ar;
+  if ($instance) {
+    $sth{$instance}{DETAIL}->execute($release);
+    $ar = $sth{$instance}{DETAIL}->fetchall_arrayref();
+  }
+  else {
+    $sths{DETAIL}->execute($release);
+    $ar = $sths{DETAIL}->fetchall_arrayref();
+  }
+  my %line;
+  my($image_count) = (0)x0;
+  my(@lsm,@mip);
+  foreach (@$ar) {
+    $line{$_->[0]}++;
+    $image_count++;
+    my $sid = pop @$_;
+    $_->[2] = a({href => "http://webstation.int.janelia.org/do/$sid",
+                 target => '_blank'},$_->[2]) if ($sid);
+    push @lsm,$_ unless ($_->[6]);
+    push @mip,$_ unless ($_->[7]);
+  }
+  (my $rel = $release) =~ s/&/%26/g;
+  my $summary = 'Lines: ' . scalar(keys %line) . br
+                . 'Images: ' . $image_count . br
+                . a({href => "?release=$rel;instance=$instance;title=" . param('title'),
+                   target => '_blank'},'Show details');
+  print &bootstrapPanel('Release summary',$summary,'info');
+  if (scalar @lsm) {
+    print &bootstrapPanel('Images with missing LSMs',
+                          table({id => 'lsm',class => 'tablesorter standard'},
+                          thead(Tr(th($header{DETAIL}))),
+                          tbody(map {Tr(td($_))} @lsm)),'warning');
+                          
+  }
+  if (scalar @mip) {
+    print &bootstrapPanel('Images with missing MIPs',
+                          table({id => 'mip',class => 'tablesorter standard'},
+                          thead(Tr(th($header{DETAIL}))),
+                          tbody(map {Tr(td($_))} @mip)));
+                          
+  }
+  $ar = &queryAnnotations($instance);
+  my @ann;
+  foreach (@$ar) {
+    push @ann,$_->[0] if (($_->[1] eq $release) && (!$_->[2]));
+  }
+  if (scalar @ann) {
+    print &bootstrapPanel('Lines with missing annotations',
+                          join(', ',sort @ann));
+  }
+  print &bootstrapPanel('Validated','This release has no missing data','success')
+    unless (scalar(@mip) || scalar(@lsm) || scalar(@ann));
+  print end_form,&sessionFooter($Session),end_html;
 }
 
 
@@ -179,8 +264,6 @@ sub displayRelease
   my($release,$instance) = @_;
   &printHeader();
   my $display;
-  my %header = (SUMMARY => ['Line','Images'],
-                DETAIL => ['Line','Image ID','Name','Area','Tile','Slide code','LSMs','Projections']);
   foreach my $cursor('SUMMARY','DETAIL') {
     my $ar;
     if ($instance) {
@@ -205,13 +288,7 @@ sub displayRelease
                       tbody(map {Tr(td($_))} @$ar),
                       ($cursor eq 'SUMMARY') ? tfoot(Tr(td(['',$image_count]))) : '') . br;
   }
-  my $title = "Release $release";
-  my $t = param('title');
-  if ($t) {
-    $title .= " ($t)";
-    $title = span({style => "background: $BG{$t}"},$title);
-  }
-  print h1($title),$display,
+  print &getTitle("$release details"),$display,
         end_form,&sessionFooter($Session),end_html;
 }
 
@@ -228,11 +305,8 @@ sub displayDashboard
   $published{Production} .= &getStagedData('flew-prod');
   # Render
   if ($waiting) {
-    print div({class => 'panel panel-info'},
-              div({class => 'panel-heading'},
-                  span({class => 'panel-heading;'},
-                       'On SAGE, awaiting publishing')),
-              div({class => 'panel-body'},$waiting))
+    print &bootstrapPanel('On SAGE, awaiting publishing',
+                          $waiting,'info')
           . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
@@ -242,11 +316,7 @@ sub displayDashboard
                     style => "height: $h;background-color: $BG{$_};"},
                    h1({class => 'boxhead'},$_),$published{$_});
   }
-  print div({class => 'panel panel-success'},
-            div({class => 'panel-heading'},
-                span({class => 'panel-heading;'},'Published')),
-            div({class => 'panel-body'},
-                div({class => 'left'},$render)));
+  print &bootstrapPanel('Published',$render,'success');
   print end_form,&sessionFooter($Session),end_html;
 }
 
@@ -332,7 +402,8 @@ sub getPrestagedData
       $line_check{'Pre-staged'}{$_->[1]} = $_->[2];
       $image_check{'Pre-staged'}{$_->[1]} = $_->[3];
       unless ($_->[0] =~ /FLEW/) {
-        $_->[1] = a({href => "?release=$_->[1]&title=Pre-staged",
+        (my $rel = $_->[1]) =~ s/&/%26/g;
+        $_->[1] = a({href => "?report=$rel&title=Pre-staged",
                      target => '_blank'},$_->[1]);
       }
     }
@@ -376,7 +447,8 @@ sub getStagedData
         if ($line_check{$previous}{$_->[0]} != $_->[1]);
       $_->[2] = span({class => 'mismatch'},$_->[2])
         if ($image_check{$previous}{$_->[0]} != $_->[2]);
-      $_->[0] = a({href => "?release=$_->[0]&instance=$instance&title=$current",
+      (my $rel = $_->[0]) =~ s/&/%26/g;
+      $_->[0] = a({href => "?report=$rel;instance=$instance;title=$current",
                    target => '_blank'},$_->[0]);
     }
     $published = table({id => 'publishedm',class => 'tablesorter standard'},
