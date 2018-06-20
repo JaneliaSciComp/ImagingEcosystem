@@ -60,9 +60,11 @@ CANORDER => "SELECT DISTINCT data_set FROM image_data_mv WHERE data_set LIKE '%s
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
            . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? "
            . "AND i.family LIKE '%screen_review'",
-HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw lr "
-          . "ON (lr.object=lp.name AND lr.relationship='child_of') WHERE "
-          . "type='flycore_project' AND lr.subject=?",
+HALVES => "SELECT lp.value,lp.name,lpp.value AS info FROM line_property_vw lp "
+          . "JOIN line_relationship_vw lr ON (lr.object=lp.name AND "
+          . "lr.relationship='child_of') JOIN line_property_vw lpp ON "
+          . "(lp.name=lpp.name AND lpp.type='flycore_production_info') WHERE "
+          . "lp.type='flycore_project' AND lr.subject=?",
 IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
 IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' ORDER BY 1",
@@ -81,7 +83,7 @@ FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
-my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
+my (%DATA_SET,%MISSING_HALF,%MISSING_MIP,%STABLE_SHOWN);
 my @performance;
 my $ACCESS = 0;
 my $split_name = '';
@@ -373,7 +375,7 @@ sub chooseCrosses
 {
   my %lines = ();
   my ($adjusted,$class,$controls,$lhtml,$imagery,$last_line,$mcfo,$sss,
-      $sss_adjusted,$polarity,$polarity_adjusted) = ('')x11;
+      $sss_adjusted,$polarity,$polarity_adjusted,$tossh) = ('')x12;
   my $AUSER = $USERID;
   $AUSER = $RUN_AS || param('user') || $USERID if ($VIEW_ALL);
   print hidden({&identify('userid'),value => $AUSER});
@@ -443,12 +445,12 @@ sub chooseCrosses
       $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,
                            $sss,$sss_adjusted,$polarity,$polarity_adjusted,
                            $controls,$class,$tossed) if ($lhtml);
-      $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$slide,$comment);
+      ($lhtml,$tossh) = &createLineHeader($line,$dataset,$barcode,$requester,$slide,$comment);
       $last_line = $line;
       ($class,$imagery,$adjusted,$tossed) = ('unordered','','',0);
       %crossed = ();
       my %cross_type = ();
-      if ($barcode) {
+      if ($barcode && (! exists $MISSING_HALF{$line})) {
         # Allow orders
         my %request;
         $request{$_} = $ONORDER{$line}{dateCreated}
@@ -515,7 +517,15 @@ sub chooseCrosses
           $discard = '';
           $stabilization = &createStabilization($line,$barcode);
         }
-        if ($tossed) {
+        if ($tossh) {
+          $controls = &bootstrapPanel('Cannot order stable splits',
+                          span({style => 'color:#000'},
+                               'One or more '
+                               . span({style => 'background:#fc9'},
+                                      'split halves')
+                               . ' is tossed.'));
+        }
+        elsif ($tossed) {
           $controls = $stabilization;
         }
         else {
@@ -644,7 +654,7 @@ sub getPowerGain
 sub createLineHeader
 {
   my($line,$dataset,$barcode,$requester,$slide,$comment) = @_;
-  my $split_halves = &getSplitHalves($line);
+  my($split_halves,$tossed) = &getSplitHalves($line);
   my $type = ($dataset =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
   my $lhtml = h3(&lineLink($line) . (NBSP)x5 . $type);
   my $bh = ($barcode) ? a({href => "/flyboy_search.php?cross=$barcode",
@@ -662,7 +672,7 @@ sub createLineHeader
                                 : $comment]));
   $lhtml .= table({class => 'basic'},@row);
   $lhtml .= $split_halves if ($split_halves);
-  return($lhtml);
+  return($lhtml,$tossed);
 }
 
 
@@ -787,21 +797,30 @@ sub getSplitHalves
   my $hr = $sth{HALVES}->fetchall_hashref('value');
   my $html = '';
   $split_name = '';
+  $MISSING_HALF{$line}++ unless (scalar(keys %$hr) > 1);
+  my $tossed = 0;
   if (scalar(keys %$hr)) {
     $html = join(br,table({class => 'halves'},
-                          map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name})))}
+                          map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name},
+                                                          $hr->{$_}{info})))}
                               sort keys %$hr));
     $split_name = join('-x-',map {$hr->{$_}{name}} sort keys %$hr);
+    foreach (keys %$hr) {
+      $tossed++ if ($hr->{$_}{info} eq 'Tossed');
+    }
   }
-  return($html);
+  return($html,$tossed);
 }
 
 
 sub lineLink
 {
-  my $l = shift;
-  a({href => 'lineman.cgi?line='.$l,
-     target => '_blank'},$l);
+  my($l,$info) = @_;
+  $info ||= '';
+  my $link = a({href => 'lineman.cgi?line='.$l,
+                target => '_blank'},$l);
+  return(($info eq 'Tossed') ? span({style => 'background:#fc9'},$link)
+                             : $link);
 }
 
 
