@@ -56,15 +56,13 @@ AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
            . "LEFT OUTER JOIN line_property_vw dbd ON (lr.object=dbd.name "
            . "AND lr.relationship='child_of' AND dbd.value='Split_GAL4-DBD' "
            . "AND dbd.type='flycore_project') WHERE lr.subject=?",
-CANORDER => "SELECT DISTINCT data_set FROM image_data_mv WHERE data_set LIKE '%split_screen_review'",
+CANORDER => "SELECT data_set FROM image_data_mv WHERE data_set LIKE ? LIMIT 1",
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
            . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? "
            . "AND i.family LIKE '%screen_review'",
-HALVES => "SELECT lp.value,lp.name,lpp.value AS info FROM line_property_vw lp "
-          . "JOIN line_relationship_vw lr ON (lr.object=lp.name AND "
-          . "lr.relationship='child_of') JOIN line_property_vw lpp ON "
-          . "(lp.name=lpp.name AND lpp.type='flycore_production_info') WHERE "
-          . "lp.type='flycore_project' AND lr.subject=?",
+HALVES => "SELECT value,name FROM line_property_vw lp JOIN line_relationship_vw lr "
+          . "ON (lr.object=lp.name AND lr.relationship='child_of') WHERE "
+          . "type='flycore_project' AND lr.subject=?",
 IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
 IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id AND la.userid=?) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' ORDER BY 1",
@@ -83,7 +81,7 @@ FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
-my (%DATA_SET,%MISSING_HALF,%MISSING_MIP,%STABLE_SHOWN);
+my (%DATA_SET,%MISSING_MIP,%STABLE_SHOWN);
 my @performance;
 my $ACCESS = 0;
 my $split_name = '';
@@ -110,13 +108,14 @@ my $VIEW_ALL = (($Session->param('scicomp'))
 my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
 $CAN_ORDER = 0 if ($USERID eq 'dolanm' || $RUN_AS eq 'dolanm');
-$CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb' || $USERID eq 'rubing');
 my $START = param('start') || '';
 my $STOP = param('stop') || '';
 my $ALL_20X = (param('all_20x') && (param('all_20x') eq 'all'));
 # Initialize
 &initializeProgram();
+($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
+  if (exists $PERMISSION{$USERID});
 
 # ----- Page header -----
 print &pageHead(),start_multipart_form;
@@ -138,7 +137,7 @@ elsif (param('choose')) {
 elsif (param('sline')) {
   &showLine(param('sline'));
 }
-elsif (($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose')) || $ACCESS) {
+elsif ($VIEW_ALL && !$RUN_AS && !param('user') && !param('choose') && !$ACCESS) {
   &limitFullSearch();
 }
 else {
@@ -204,22 +203,6 @@ sub initializeProgram
     }
   }
   print STDERR "Primary query: $sth{IMAGES}\n";
-  # Get user permissions
-  my $file = DATA_PATH . $PROGRAM . '.json';
-  open SLURP,$file
-    or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,my $slurp,-s SLURP;
-  close(SLURP);
-  my $hr = decode_json $slurp;
-  %PERMISSION = %$hr;
-  ($ACCESS,$CAN_ORDER,$VIEW_ALL) = (1,1,1)
-    if (exists $PERMISSION{$USERID});
-  # Change permission query
-  if ($ACCESS) {
-    my $stmt = "IN ('" . join("','",@{$PERMISSION{$USERID}}) . "')";
-    $sth{USERLINES} =~ s/LIKE '%screen_review'/$stmt/;
-    print STDERR "User query: $sth{USERLINES}\n";
-  }
   # Connect to databases
   &dbConnect(\$dbh,'sage')
     || &terminateProgram("Could not connect to SAGE: ".$DBI::errstr);
@@ -234,16 +217,18 @@ sub initializeProgram
       $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr);
     }
   }
-  # Can stocks be ordered?
-  $sth{CANORDER}->execute();
+  # Get user permissions
+  my $file = DATA_PATH . $PROGRAM . '.json';
+  open SLURP,$file
+    or &terminateProgram("Can't open $file: $!");
+  sysread SLURP,my $slurp,-s SLURP;
+  close(SLURP);
+  my $hr = decode_json $slurp;
+  %PERMISSION = %$hr;
+  my $CUSER = $RUN_AS || $USERID;
+  $sth{CANORDER}->execute($CUSER . '%_screen_review');
   my $ar = $sth{CANORDER}->fetchall_arrayref();
-  foreach (@$ar) {
-    (my $dsu = $_->[0]) =~ s/_split_screen_review//;
-    if ($dsu eq $USERID) {
-      $CAN_ORDER = 1;
-      last;
-    }
-  }
+  $CAN_ORDER = 1 if (scalar @$ar);
   # Kafka
     try {
     $connection = Kafka::Connection->new(host => $SERVER{Kafka}{address},
@@ -269,7 +254,8 @@ sub showUserDialog()
   print div({class => 'boxed'},
             &dateDialog(),
             &submitButton('choose','Search')),br,
-           hidden(&identify('_userid'),default=>param('_userid'));
+           hidden(&identify('_userid'),default=>param('_userid')),
+           hidden(&identify('mongo'),default=>param('mongo'));
 }
 
 
@@ -313,7 +299,7 @@ sub limitFullSearch
   my %label = map {$a = (split('_',$_->[0]))[0];
                    $a => &getUsername($a) . " ($_->[1] lines)"} @$ar;
   $label{''} = '(Any)';
-  my %screen_count = (split => 0, ti => 0);
+  my %screen_count;
   $screen_count{(split('_',$_->[0]))[1]} += $_->[1] foreach (@$ar);
   my $type = {'' => '(Any)',
               split => "Split screen ($screen_count{split} lines)",
@@ -329,7 +315,8 @@ sub limitFullSearch
                                    -values => ['','split','ti'],
                                    -labels => $type)))),
             &dateDialog(),
-            &submitButton('choose','Search')),br;
+            &submitButton('choose','Search')),
+        hidden(&identify('mongo'),default=>param('mongo')),br;
 }
 
 
@@ -375,7 +362,7 @@ sub chooseCrosses
 {
   my %lines = ();
   my ($adjusted,$class,$controls,$lhtml,$imagery,$last_line,$mcfo,$sss,
-      $sss_adjusted,$polarity,$polarity_adjusted,$tossh) = ('')x12;
+      $sss_adjusted,$polarity,$polarity_adjusted) = ('')x11;
   my $AUSER = $USERID;
   $AUSER = $RUN_AS || param('user') || $USERID if ($VIEW_ALL);
   print hidden({&identify('userid'),value => $AUSER});
@@ -445,12 +432,12 @@ sub chooseCrosses
       $html .= &renderLine($last_line,$lhtml,$imagery,$adjusted,$mcfo,
                            $sss,$sss_adjusted,$polarity,$polarity_adjusted,
                            $controls,$class,$tossed) if ($lhtml);
-      ($lhtml,$tossh) = &createLineHeader($line,$dataset,$barcode,$requester,$slide,$comment);
+      $lhtml = &createLineHeader($line,$dataset,$barcode,$requester,$slide,$comment);
       $last_line = $line;
       ($class,$imagery,$adjusted,$tossed) = ('unordered','','',0);
       %crossed = ();
       my %cross_type = ();
-      if ($barcode && (! exists $MISSING_HALF{$line})) {
+      if ($barcode) {
         # Allow orders
         my %request;
         $request{$_} = $ONORDER{$line}{dateCreated}
@@ -517,15 +504,7 @@ sub chooseCrosses
           $discard = '';
           $stabilization = &createStabilization($line,$barcode);
         }
-        if ($tossh) {
-          $controls = &bootstrapPanel('Cannot order stable splits',
-                          span({style => 'color:#000'},
-                               'One or more '
-                               . span({style => 'background:#fc9'},
-                                      'split halves')
-                               . ' is tossed.'));
-        }
-        elsif ($tossed) {
+        if ($tossed) {
           $controls = $stabilization;
         }
         else {
@@ -654,7 +633,7 @@ sub getPowerGain
 sub createLineHeader
 {
   my($line,$dataset,$barcode,$requester,$slide,$comment) = @_;
-  my($split_halves,$tossed) = &getSplitHalves($line);
+  my $split_halves = &getSplitHalves($line);
   my $type = ($dataset =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
   my $lhtml = h3(&lineLink($line) . (NBSP)x5 . $type);
   my $bh = ($barcode) ? a({href => "/flyboy_search.php?cross=$barcode",
@@ -672,7 +651,7 @@ sub createLineHeader
                                 : $comment]));
   $lhtml .= table({class => 'basic'},@row);
   $lhtml .= $split_halves if ($split_halves);
-  return($lhtml,$tossed);
+  return($lhtml);
 }
 
 
@@ -797,30 +776,21 @@ sub getSplitHalves
   my $hr = $sth{HALVES}->fetchall_hashref('value');
   my $html = '';
   $split_name = '';
-  $MISSING_HALF{$line}++ unless (scalar(keys %$hr) > 1);
-  my $tossed = 0;
   if (scalar(keys %$hr)) {
     $html = join(br,table({class => 'halves'},
-                          map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name},
-                                                          $hr->{$_}{info})))}
+                          map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name})))}
                               sort keys %$hr));
     $split_name = join('-x-',map {$hr->{$_}{name}} sort keys %$hr);
-    foreach (keys %$hr) {
-      $tossed++ if ($hr->{$_}{info} eq 'Tossed');
-    }
   }
-  return($html,$tossed);
+  return($html);
 }
 
 
 sub lineLink
 {
-  my($l,$info) = @_;
-  $info ||= '';
-  my $link = a({href => 'lineman.cgi?line='.$l,
-                target => '_blank'},$l);
-  return(($info eq 'Tossed') ? span({style => 'background:#fc9'},$link)
-                             : $link);
+  my $l = shift;
+  a({href => 'lineman.cgi?line='.$l,
+     target => '_blank'},$l);
 }
 
 
@@ -923,10 +893,10 @@ sub addSingleImage
   }
   my $PREFIX = $STACK;
   if ($dataset =~ /mcfo/) {
-    $PREFIX =~ s/split_screen_review/flylight_flip/;
+    $PREFIX =~ s/(?:split|ti)_screen_review/flylight_flip/;
   }
   elsif ($dataset =~ /polarity/) {
-    $PREFIX =~ s/split_screen_review/flylight_polarity/;
+    $PREFIX =~ s/(?:split|ti)_screen_review/flylight_polarity/;
   }
   my @row = ();
   my %opt = (class => 'imgoptions');
@@ -1061,18 +1031,38 @@ sub renderControls
                                    target => '_blank'},$_)}
                                sort keys %MISSING_MIP));
   }
-  $html .= div({style=>'clear:both;'},$export);
-  $html .= table({class => 'basic'},
-                 Tr(td('Thumbnail size: '),
-                 td(div({style => 'background-color:#eeeeee'},
-                    input({id => 'sSlider',
-                           type => 'range',
-                           min => 0,
-                           max => 400,
-                           step => 5,
-                           value => 0,
-                           onchange => "changeSlider('s');"}) .
-                    span({id => 's'},'100%'))))) . br;
+  my $thumb = table({class => 'basic'},
+                    Tr(td('Thumbnail size: '),
+                       td(div({style => 'background-color:#eeeeee'},
+                          input({id => 'sSlider',
+                              type => 'range',
+                              min => 0,
+                              max => 400,
+                              step => 5,
+                              value => 0,
+                              onchange => "changeSlider('s');"}) .
+                       span({id => 's'},'100%')))));
+  my $warn = '';
+  if ($CAN_ORDER) {
+    $warn = div({class => 'boxed',style => 'border-color: #6c0'},
+                span({style => 'color: #6c0;font-size: 14pt;'},
+                     span({class => 'glyphicon glyphicon-ok'},''),
+                        'You are authorized to order crosses'));
+  }
+  else {
+    $warn = div({class => 'boxed',style => 'border-color: #f60'},
+                span({style => 'color: #f60;font-size: 14pt;'},
+                     span({class => 'glyphicon glyphicon-warning-sign'},''),
+                        'You are not authorized to order crosses'));
+  }
+  $html .= div({style=>'clear:both;',class=>'left'},
+               div({class => 'left'},$export),
+               div({class => 'left'},$thumb),
+               div({class => 'left'},$warn)
+              );
+  $html .= div({style=>'clear:both;'},NBSP);
+#  $html .= div({style=>'clear:both;'},$export);
+#  $html .= $thumb;
   return($html);
 }
 
@@ -1180,11 +1170,13 @@ sub verifyCrosses
                          Tr(th($_),td([$line{$_},@col]));
                         } sort keys %line)),
         br,
-        (sprintf 'A total of %d cross%s will be ordered for %s.',
+        (sprintf 'A total of %d cross%s can be ordered for %s.',
                  $total_cross,(1 == $total_cross) ? '' : 'es',$USERNAME),br,
         $priority,
-        (sprintf 'A total of %d line%s will be discarded.',
+        (sprintf 'A total of %d line%s can be discarded.',
                  $total_discard,(1 == $total_discard) ? '' : 's'),br,
+        (($CAN_ORDER) ? 'Press the "Request crosses/discards" button to place your order.'
+                      : "This is simply a verification screen; no order will be placed."),
         div({align => 'center'},
                 submit({&identify('cancel'),class => 'btn btn-danger',
                         value => "Cancel",
@@ -1321,7 +1313,8 @@ sub getUsername
   my $userid = shift;
   return($USERNAME{$userid}) if (exists $USERNAME{$userid});
   # Set up LDAP service
-  my $service = JFRC::LDAP->new({host => 'ldap-vip3.int.janelia.org'});
+  # my $service = JFRC::LDAP->new({host => 'ldap-vip3.int.janelia.org'});
+  my $service = JFRC::LDAP->new();
   my $user = $service->getUser($userid);
   $USERNAME{$userid} = ($user) ? join(' ',$user->givenName(),$user->sn()) : $userid;
   return($USERNAME{$userid});
