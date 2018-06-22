@@ -66,28 +66,6 @@ def call_responder(server, endpoint):
         sys.exit(-1)
 
 
-def call_rest(endpoint, server='sage', type='get'):
-    """ Call a REST server with GET/POST
-        Keyword arguments:
-        endpoint: REST endpoint
-        server: REST server
-        type: get
-    """
-    url = SERVER[server]['url'] + endpoint
-    try:
-        req = requests.get(url)
-    except requests.exceptions.RequestException as e:
-        logger.critical(e)
-        sys.exit(-1)
-    if req.status_code == 200:
-        j = req.json()
-        return(j)
-    else:
-        logger.critical('Status: ' + str(req.status_code))
-        sys.exit(-1)
-
-
-
 def initialize_program():
     """ Initialize database """
     global CONFIG
