@@ -21,8 +21,7 @@ SQL = {
 CONN = dict()
 CURSOR = dict()
 # Configuration
-CONFIG_FILE = '/groups/scicomp/informatics/data/rest_services.json'
-CONFIG = {}
+CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 
 
 # -----------------------------------------------------------------------------
@@ -53,6 +52,20 @@ def db_connect(db):
         sql_error(e)
 
 
+def call_responder(server, endpoint):
+    url = CONFIG[server]['url'] + endpoint
+    try:
+        req = requests.get(url)
+    except requests.exceptions.RequestException as err:
+        logger.critical(err)
+        sys.exit(-1)
+    if req.status_code == 200:
+        return req.json()
+    else:
+        logger.error('Status: %s', str(req.status_code))
+        sys.exit(-1)
+
+
 def call_rest(endpoint, server='sage', type='get'):
     """ Call a REST server with GET/POST
         Keyword arguments:
@@ -60,7 +73,7 @@ def call_rest(endpoint, server='sage', type='get'):
         server: REST server
         type: get
     """
-    url = CONFIG[server]['url'] + endpoint
+    url = SERVER[server]['url'] + endpoint
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as e:
@@ -77,12 +90,11 @@ def call_rest(endpoint, server='sage', type='get'):
 
 def initialize_program():
     """ Initialize database """
-    json_data = open(CONFIG_FILE).read()
     global CONFIG
-    CONFIG = json.loads(json_data)
-    dbc = call_rest('database_configuration')
-    data = dbc['config']
-    (CONN['sage'], CURSOR['sage']) = db_connect(data['sage']['prod'])
+    data = call_responder('config', 'config/rest_services')
+    CONFIG = data['config']
+    data = call_responder('config', 'config/db_config')
+    (CONN['sage'], CURSOR['sage']) = db_connect(data['config']['sage']['prod'])
 
 
 def process_scopes():
