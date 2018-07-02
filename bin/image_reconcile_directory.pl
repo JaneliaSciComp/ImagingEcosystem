@@ -81,6 +81,10 @@ sub wanted
   $count{'Files found'}++;
   print "$name\n" if ($DEBUG);
   my $rvar = &getREST($REST{sage}{url}."images?name=$name");
+  unless ($rvar) {
+    print "No response for image $name; skipping\n";
+    return;
+  }
   my ($jfs_path,$path,$url) = ('')x3;
   unless (scalar @{$rvar->{image_data}}) {
     &checkForRename($File::Find::name,$name);
@@ -165,9 +169,10 @@ sub getREST
 {
   my($rest) = shift;
   my $response = get $rest;
-  &terminateProgram("<h3>REST GET returned null response</h3>"
-                    . "<br>Request: $rest<br>")
-    unless (length($response));
+  #&terminateProgram("<h3>REST GET returned null response</h3>"
+  #                  . "<br>Request: $rest<br>")
+  #  unless (length($response));
+  return() unless (length($response));
   my $rvar;
   eval {$rvar = decode_json($response)};
   &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
