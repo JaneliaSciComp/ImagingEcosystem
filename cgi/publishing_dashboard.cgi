@@ -55,7 +55,7 @@ my %sths = (
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
            . "WHERE published='Y'",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
-               . "COUNT(1) FROM image_data_mv WHERE published='Y' "
+               . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
   WAITING => "SELECT line,published_to,alps_release,publishing_user,"
              . "GROUP_CONCAT(DISTINCT IFNULL(tile,'NULL') ORDER BY tile SEPARATOR ', '),"
@@ -310,7 +310,7 @@ sub displayDashboard
           . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
-  my $h = sprintf '%dpx',300 + 30 * $release_count;
+  my $h = sprintf '%dpx',300 + 35 * $release_count;
   foreach ('Pre-staged','Staged','Production') {
     $render .= div({class => 'publish',
                     style => "height: $h;background-color: $BG{$_};"},
