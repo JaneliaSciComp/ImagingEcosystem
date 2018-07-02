@@ -53,6 +53,36 @@ def is_gen1_fragment(line):
     return(1 if m else 0)
 
 
+def convert_gen1(gen1):
+	gen1 = gen1.upper()
+	if re.search('^((BJD|GMR)_)', gen1):
+		gen1 = gen1.split('_' )[1]
+	gen1 = re.sub('_.*', '', gen1)
+	return(gen1)
+
+
+def translate_vt(vt):
+    response = call_responder('sage', "translatevt/" + vt)
+    if ('line_data' in response and len(response['line_data'])):
+        return(response['line_data'][0]['line'])
+    else:
+        return('')
+
+
+def convert_vt(search_term, vtcache):
+    vt = 'VT' + search_term.zfill(6)
+    if search_term in vtcache:
+        return(vtcache[search_term])
+    st = translate_vt(vt)
+    if (not st):
+        logger.warning("Could not convert %s to line", vt)
+        NO_CROSSES.write("Could not convert %s to line" % (vt))
+        return()
+    logger.debug("Converted %s to %s", search_term, st)
+    vtcache[search_term] = st.split('_')[1]
+    return(st.split('_')[1])
+
+    
 def generate_score(line):
     if not is_gen1(line):
         return(1)
@@ -140,29 +170,7 @@ def good_cross(ad, dbd):
     FLYCORE.write("\n")
 
 
-def translate_vt(vt):
-    response = call_responder('sage', "translatevt/" + vt)
-    if ('line_data' in response and len(response['line_data'])):
-        return(response['line_data'][0]['line'])
-    else:
-        return('')
-
-
-def convert_vt(search_term, vtcache):
-    vt = 'VT' + search_term.zfill(6)
-    if search_term in vtcache:
-        return(vtcache[search_term])
-    st = translate_vt(vt)
-    if (not st):
-        logger.warning("Could not convert %s to line", vt)
-        NO_CROSSES.write("Could not convert %s to line" % (vt))
-        return()
-    logger.debug("Converted %s to %s", search_term, st)
-    vtcache[search_term] = st.split('_')[1]
-    return(st.split('_')[1])
-
-
-def search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
+def search_for_ad_dbd(aline, search_term, new_term, search_option,
                       linelist, fragdict, fragsFound):
     found = 0
     if is_gen1_fragment(search_term):
@@ -209,18 +217,18 @@ def search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
                 break
         else:
             logger.error("%s was not found in SAGE", search_term)
-            if ARG.ALINE and (converted_aline == search_term):
+            if ARG.ALINE and (aline == search_term):
                 sys.exit(-1)
 
 
-def read_lines(fragdict, converted_aline):
+def read_lines(fragdict, aline):
     inputlist = []
     linelist = []
     fragsFound = dict()
     frags_read = 0
     vtcache = dict()
     if ARG.ALINE:
-        inputlist.append(converted_aline)
+        inputlist.append(aline)
     filename = ARG.FILE if ARG.FILE else ''
     if (not filename) and (not select.select([sys.stdin,],[],[],0.0)[0]):
         logger.critical('You must either specify a file or pass data in through STDIN')
@@ -249,13 +257,13 @@ def read_lines(fragdict, converted_aline):
             search_term = convert_vt(search_term, vtcache)
             if not search_term:
                 continue
-        if not is_gen1_fragment(search_term):
-            new_term = search_term
-            search_option = ''
-        else:
-            search_term = search_term.upper()
+        if is_gen1_fragment(search_term) or is_gen1(search_term):
+            search_term = convert_gen1(search_term)
             new_term = '*\_' + search_term + '*'
             search_option = '&_columns=name'
+        else:
+            new_term = search_term
+            search_option = ''
         if (search_term in fragsFound):
             logger.warning("Ignoring duplicate %s", search_term)
             frags_read = frags_read - 1
@@ -263,7 +271,7 @@ def read_lines(fragdict, converted_aline):
         else:
             fragsFound[search_term] = 1
         logger.debug(search_term + ' (' + new_term + ')')
-        search_for_ad_dbd(converted_aline, search_term, new_term, search_option,
+        search_for_ad_dbd(aline, search_term, new_term, search_option,
                           linelist, fragdict, fragsFound)
     linelist.sort()
     print("Fragments read: %d" % (frags_read))
@@ -287,25 +295,28 @@ def process_input():
     fragdict = response['split_halves']
     logger.info("Found %d fragments with AD/DBDs", len(fragdict))
     # Convert A line
-    converted_aline = ARG.ALINE.upper()
+    aline = ARG.ALINE.upper()
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
         if original.isdigit():
-            converted_aline = convert_vt(original)
-            if not converted_aline:
+            aline = convert_vt(original)
+            if not aline:
                 sys.exit(-1)
     # Find fragments
     logger.info("Processing line fragment list")
-    (fraglist, combos) = read_lines(fragdict, converted_aline)
+    (fraglist, combos) = read_lines(fragdict, aline)
+    if not combos:
+    	logger.critical("No theoretical crosses found")
+    	sys.exit(-1)
     logger.info("Generating crosses")
     crosses = 0
     for idx, frag1 in enumerate(fraglist):
         for frag2 in fraglist[idx:]:
             if (frag1 == frag2):
                 continue
-            if converted_aline:
-                if converted_aline not in frag1 and converted_aline not in frag2:
-                    logger.debug("Cross does not contain A line %s", converted_aline)
+            if aline:
+                if aline not in frag1 and aline not in frag2:
+                    logger.debug("Cross does not contain A line %s", aline)
                     continue
             (ad, dbd) = generate_cross(fragdict, frag1, frag2)
             if (ad and dbd):

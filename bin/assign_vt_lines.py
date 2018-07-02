@@ -25,9 +25,7 @@ CONN = dict()
 CURSOR = dict()
 
 # Configuration
-CONFIG_FILE = '/groups/scicomp/informatics/data/rest_services.json'
-CONFIG = {}
-
+CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 
 def sql_error(err):
     """ Log a critical SQL error and exit """
@@ -56,12 +54,8 @@ def db_connect(db):
         sql_error(err)
 
 
-def call_sage_responder(endpoint):
-    """ Call the SAGE responder
-        Keyword arguments:
-        endpoint: REST endpoint
-    """
-    url = CONFIG['sage']['url'] + endpoint
+def call_responder(server, endpoint):
+    url = CONFIG[server]['url'] + endpoint
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as err:
@@ -77,15 +71,10 @@ def call_sage_responder(endpoint):
 def initialize_program():
     """ Initialize databases """
     global CONFIG
-    try:
-        json_data = open(CONFIG_FILE).read()
-        CONFIG = json.loads(json_data)
-    except Exception, err:
-        logger.critical(err)
-        sys.exit(-1)
-    dc = call_sage_responder('database_configuration')
-    data = dc['config']
-    (CONN['sage'], CURSOR['sage']) = db_connect(data['sage']['prod'])
+    data = call_responder('config', 'config/rest_services')
+    CONFIG = data['config']
+    data = call_responder('config', 'config/db_config')
+    (CONN['sage'], CURSOR['sage']) = db_connect(data['config']['sage']['prod'])
 
 
 def find_lines():
