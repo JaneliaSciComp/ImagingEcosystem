@@ -251,7 +251,8 @@ sub releaseReport
   }
   if (scalar @ann) {
     print &bootstrapPanel('Lines with missing annotations',
-                          join(', ',sort @ann));
+                          ((scalar(keys %line) == scalar(@ann)) ? 'No lines have annotations'
+                                                                : join(', ',sort @ann)));
   }
   print &bootstrapPanel('Validated','This release has no missing data','success')
     unless (scalar(@mip) || scalar(@lsm) || scalar(@ann));
@@ -310,7 +311,7 @@ sub displayDashboard
           . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
-  my $h = sprintf '%dpx',300 + 35 * $release_count;
+  my $h = sprintf '%dpx',400 + 30 * $release_count;
   foreach ('Pre-staged','Staged','Production') {
     $render .= div({class => 'publish',
                     style => "height: $h;background-color: $BG{$_};"},

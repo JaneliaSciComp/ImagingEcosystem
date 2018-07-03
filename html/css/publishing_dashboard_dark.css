@@ -5,7 +5,7 @@ div.publish {
   -webkit-border-radius: 12px;
   -moz-border-radius: 12px;
   float: left;
-  width: 350px;
+  min-width: 350px;
 }
 
 table.standard {
