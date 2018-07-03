@@ -250,8 +250,10 @@ def read_lines(fragdict, aline):
         logger.info("Found %s entries in VT cache", len(vtcache))
     # Process input file
     for input_line in inputlist:
-        frags_read = frags_read + 1
         search_term = input_line.rstrip()
+        if not len(search_term):
+        	continue
+        frags_read += 1
         new_term = ''
         if search_term.isdigit():
             search_term = convert_vt(search_term, vtcache)
