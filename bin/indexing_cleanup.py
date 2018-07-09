@@ -91,7 +91,7 @@ def processImages(cursor):
             chunks = [lsmlist[i:i+50] for i in xrange(0,len(lsmlist),50)]
             for sublist in chunks:
                 post = {"lsmNames": sublist}
-                post_url = 'http://jacs.int.janelia.org:8180/rest-v1/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
+                post_url = 'http://jacs.int.janelia.org:8180/rest-v3/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
                 req = urllib2.Request(post_url)
                 req.add_header('Content-Type', 'application/json')
                 if DEBUG:
