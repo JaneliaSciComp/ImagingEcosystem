@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import os
 from os.path import expanduser
+import pwd
 import re
 import select
 import sys
@@ -27,20 +28,33 @@ def call_responder(server, endpoint):
         sys.exit(-1)
     if req.status_code == 200:
         return req.json()
+    elif req.status_code == 404:
+    	return ''
     else:
         logger.error('Status: %s', str(req.status_code))
         sys.exit(-1)
 
 
-def initialize_program():
+def find_username(userid):
+    if not userid:
+        userid = pwd.getpwuid(os.getuid())[0]
+    userdata = call_responder('config', 'config/workday/' + userid)
+    if userdata:
+        return userdata['config']['first'] + ' ' + userdata['config']['last']
+    else:
+        return userid
+
+
+def initialize_program(name):
     """ Get REST and score configuration
     """
-    global CONFIG, SUFFIX_SCORE
+    global CONFIG, SUFFIX_SCORE, ORDERNAME
     data = call_responder('config', 'config/rest_services')
     CONFIG = data['config']
     prog = os.path.basename(__file__).replace('.py', '')
     data = call_responder('config', 'config/' + prog)
     SUFFIX_SCORE = data['config']['score']
+    ORDERNAME = find_username(name)
 
 
 def is_gen1(line):
@@ -156,7 +170,7 @@ def good_cross(ad, dbd):
         flycoreData(dbd)
     alias = ad + '-x-' + dbd
     pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
-    FLYCORE.write("%s\t%s\t%s\t%s\t%s" % ('Tanya Wolff', '', alias, pfrag, ''))
+    FLYCORE.write("%s\t%s\t%s\t%s\t%s" % (ORDERNAME, '', alias, pfrag, ''))
     for half in (ad, dbd):
         FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
                       % (fcdict[half]['A_Concat_Loc'],
@@ -346,6 +360,7 @@ if __name__ == '__main__':
         description='Generate Gen1 initial splits')
     PARSER.add_argument('--file', dest='FILE', default='', help='Input file')
     PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
+    PARSER.add_argument('--name', dest='NAME', default='', help='Name to use for the order')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
@@ -363,7 +378,7 @@ if __name__ == '__main__':
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(HANDLER)
 
-    initialize_program()
+    initialize_program(ARG.NAME)
     fname = ARG.FILE if ARG.FILE else 'STDIN'
     if (ARG.ALINE):
         CROSSES = open(ARG.ALINE + '-' + fname + '.crosses.txt', 'w')
