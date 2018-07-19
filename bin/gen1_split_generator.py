@@ -55,6 +55,7 @@ def initialize_program(name):
     data = call_responder('config', 'config/' + prog)
     SUFFIX_SCORE = data['config']['score']
     ORDERNAME = find_username(name)
+    logger.info("Will use name " + ORDERNAME + " on output spreadsheet")
 
 
 def is_gen1(line):
