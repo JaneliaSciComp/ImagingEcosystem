@@ -258,6 +258,8 @@ def read_lines(fragdict, aline):
     if filehandle is not sys.stdin:
         filehandle.close()
     # Get cached VT conversions
+    if ARG.VTCACHE is not None:
+        VTCACHE_FILE = ARG.VTCACHE
     if os.path.isfile(VTCACHE_FILE):
         logger.debug("Retrieving cached VT lines")
         with open(VTCACHE_FILE) as json_data:
@@ -366,6 +368,7 @@ if __name__ == '__main__':
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
                         default=False, help='Turn on debug output')
+    PARSER.add_argument('--vtcache', dest='VTCACHE', default=None, help='location of vtcache file')
     ARG = PARSER.parse_args()
 
     logger = colorlog.getLogger()
