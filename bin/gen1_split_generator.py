@@ -237,6 +237,7 @@ def search_for_ad_dbd(aline, search_term, new_term, search_option,
 
 
 def read_lines(fragdict, aline):
+    global VTCACHE_FILE
     inputlist = []
     linelist = []
     fragsFound = dict()
