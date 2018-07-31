@@ -1,14 +1,27 @@
-div.step {
-  text-align: left;
-  padding: 5px;
-  border: 1px solid #ccc;
-  border-radius: 12px;
-  -webkit-border-radius: 12px;
-  -moz-border-radius: 12px;
-  width: 350px;
-}
+head	1.1;
+access;
+symbols;
+locks; strict;
+comment	@# @;
 
-div.publish {
+
+1.1
+date	2018.07.20.20.47.40;	author svirskasr;	state Exp;
+branches;
+next	;
+
+
+desc
+@quit()
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@div.publish {
   padding: 5px;
   border: 1px solid #ccc;
   border-radius: 12px;
@@ -16,6 +29,16 @@ div.publish {
   -moz-border-radius: 12px;
   float: left;
   min-width: 350px;
+}
+
+div.step{
+  text-align: left;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  width: 350px;
 }
 
 table.standard {
@@ -65,3 +88,4 @@ table.standard {
 .panel-success> .panel-body{
   border-color: green;
 }
+@

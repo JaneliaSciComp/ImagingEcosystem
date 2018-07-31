@@ -5,7 +5,11 @@ use warnings;
 use CGI qw/:standard :cgi-lib/;
 use CGI::Carp qw(fatalsToBrowser);
 use CGI::Session;
+use Date::Calc qw(Add_Delta_Days);
+use Date::Manip qw(UnixDate);
 use DBI;
+use JSON;
+use LWP::Simple qw(get);
 use XML::Simple;
 use JFRC::LDAP;
 use JFRC::Utils::DB qw(:all);
@@ -21,11 +25,18 @@ our $APPLICATION = 'Publishing dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
 use constant NBSP => '&nbsp;';
-my %BG = ('Pre-staged' => '#bb0',
+my %BG = (Inactive => '#999',
+          'Annotation in progress' => '#96f',
+          Annotated => '#69f',
+          'Pre-staged' => '#bb0',
           Staged => '#c90',
           Production => '#696');
 my %header = (SUMMARY => ['Line','Images'],
-              DETAIL => ['Line','Image ID','Name','Objective','Area','Tile','Slide code','LSMs','Projections']);
+              DETAIL => ['Line','Image ID','Name','Objective','Area','Tile',
+                         'Slide code','LSMs','Projections']);
+my $MEASUREMENT_DAYS = 30;
+my $CONFIG_SERVER = 'http://config.int.janelia.org/config';
+my %CONFIG;
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -54,10 +65,16 @@ my %sths = (
                  . "i.to_publish='Y' GROUP BY 1,2 ORDER BY 1,2",
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv "
            . "WHERE published='Y'",
+  PUBLISHEDSG => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
+                 . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' "
+                 . "GROUP BY 1,2 ORDER BY 1,2",
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
-               . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' "
+               . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' OR published='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
-  WAITING => "SELECT line,published_to,alps_release,publishing_user,"
+  STAGED => "SELECT alps_release,COUNT(DISTINCT line),COUNT(1) FROM "
+            . "image_data_mv WHERE to_publish='Y' AND published='Y' AND "
+            . "published_externally IS NULL GROUP BY 1",
+  WAITING => "SELECT line,publishing_name,published_to,alps_release,publishing_user,"
              . "GROUP_CONCAT(DISTINCT IFNULL(tile,'NULL') ORDER BY tile SEPARATOR ', '),"
              . "GROUP_CONCAT(DISTINCT objective SEPARATOR ', '),"
              . "GROUP_CONCAT(DISTINCT effector SEPARATOR ', '),COUNT(1) FROM "
@@ -131,8 +148,30 @@ exit(0);
 # * Subroutines                                                              *
 # ****************************************************************************
 
+sub getREST
+{
+  my($server,$endpoint) = @_;
+  my $url = $CONFIG{$server}{url} . $endpoint;
+  my $response = get $url;
+  return() unless ($response && length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $url<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
+}
+
+
 sub initializeProgram
 {
+  # Get general REST config
+  my $rest = $CONFIG_SERVER . '/rest_services';
+  my $response = get $rest;
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+    &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                      . "Response: $response<br>Error: $@") if ($@);
+  %CONFIG = %{$rvar->{config}};
   # Connect to databases
   &dbConnect(\$dbh,'sage');
   $sths{$_} = $dbh->prepare($sths{$_}) || &terminateProgram($dbh->errstr)
@@ -304,11 +343,12 @@ sub displayDashboard
   $published{Staged} .= &getStagedData('flew-dev');
   $published{Production} = &getStagedData('mbew-prod');
   $published{Production} .= &getStagedData('flew-prod');
+  my $detail = '';
   # Render
   if ($waiting) {
-    print &bootstrapPanel('On SAGE, awaiting publishing',
-                          $waiting,'info')
-          . div({style => 'clear: both;'},NBSP);
+    $detail .= &bootstrapPanel('On SAGE, awaiting publishing',
+                               $waiting,'info')
+               . div({style => 'clear: both;'},NBSP);
   }
   my $render = '';
   my $h = sprintf '%dpx',400 + 30 * $release_count;
@@ -317,7 +357,26 @@ sub displayDashboard
                     style => "height: $h;background-color: $BG{$_};"},
                    h1({class => 'boxhead'},$_),$published{$_});
   }
-  print &bootstrapPanel('Published',$render,'success');
+  $detail .= &bootstrapPanel('Published',$render,'success');
+  my @content = ({id => 'summary', title => 'Summary', content => &ALPSSummary()},
+                 {id => 'detail', title => 'Detail', content=>$detail});
+  my($class,$class2) = ('active','tab-pane active');
+  print div({role=>'tabpanel'},
+            ul({class=>'nav nav-tabs',role=>'tablist'},
+               map {$a = li({role=>'presentation',class=>$class},
+                            a({href=>'#'.$_->{id},
+                               'aria-controls'=>$_->{id},
+                               role=>'tab',
+                               'data-toggle'=>'tab'},$_->{title}));
+                    $class = '';
+                    $a;
+                   } @content),br,
+            div({class=>'tab-content'},
+                map {$a = div({role=>'tabpanel',class=>$class2,id=>$_->{id}},
+                              $_->{content});
+                     $class2 = 'tab-pane';
+                     $a} @content)
+           );
   print end_form,&sessionFooter($Session),end_html;
 }
 
@@ -337,6 +396,92 @@ sub getAnnotations
 }
 
 
+sub ALPSSummary
+{
+  # Production
+  my $instance = 'mbew-prod';
+  $sth{$instance}{PUBLISHED}->execute();
+  my $ar = $sth{$instance}{PUBLISHED}->fetchall_arrayref();
+  my %step;
+  foreach (@$ar) {
+    $step{Production}{$_->[0]}{lines} = $_->[1];
+    $step{Production}{$_->[0]}{images} = $_->[2];
+  }
+  # Staged
+  @$ar = ();
+  $sths{STAGED}->execute();
+  $ar = $sths{STAGED}->fetchall_arrayref();
+  foreach (@$ar) {
+    next if (exists $step{Production}{$_->[0]});
+    $step{Staged}{$_->[0]}{lines} = $_->[1];
+    $step{Staged}{$_->[0]}{images} = $_->[2];
+  }
+  # Pre-staged
+  $sths{PUBLISHEDSG}->execute();
+  $ar = $sths{PUBLISHEDSG}->fetchall_arrayref();
+  foreach (@$ar) {
+    next if (exists $step{Production}{$_->[1]} || exists $step{Staged}{$_->[1]});
+    $step{'Pre-staged'}{$_->[1]}{lines} = $_->[2];
+    $step{'Pre-staged'}{$_->[1]}{images} = $_->[3];
+  }
+  # Annotation
+  my $resp = &getREST('jacs',"process/release");
+  my %alc;
+  foreach my $r (@$resp) {
+    my $name = $r->{name};
+    next if (exists $step{Production}{$name});
+    my $use_step = ($r->{sageSync}) ? 'Annotated' : 'Annotation in progress';
+    if (!$r->{sageSync} && $r->{updatedDate}) {
+      my $updated = (split('T',$r->{updatedDate}))[0];
+      my $today = UnixDate("today","%Y-%m-%d");
+      my $ago = sprintf '%4d-%02d-%02d',
+                        Add_Delta_Days(split('-',$today),-$MEASUREMENT_DAYS);
+      $use_step = 'Inactive' if ($updated < $ago);
+    }
+    my $rel = &getREST('jacs',"process/release/$name/status");
+    foreach (keys %$rel) {
+      $alc{$_}++;
+      $step{$use_step}{$name}{images} += $rel->{$_}{numRepresentatives};
+      $step{$use_step}{$name}{images} += $rel->{$_}{numSamples};
+    }
+    $step{$use_step}{$name}{lines} = scalar(keys %alc);
+    %alc = ();
+  }
+  my @block;
+  my @steps = ('Annotated','Pre-staged','Staged','Production');
+  if (exists $step{'Inactive'}) {
+    unshift @steps,'Inactive','Annotation in progress';
+  }
+  elsif (exists $step{'Annotation in progress'}) {
+    unshift @steps,'Annotation in progress';
+  }
+  foreach my $s (@steps) {
+    my $inner;
+    my $h = sprintf '%dpx',32 + 22 * scalar(keys %{$step{$s}});
+    foreach (sort keys %{$step{$s}}) {
+      $inner .= (sprintf "%s (%d line%s, %d image%s",
+                 $_,scalar($step{$s}{$_}{lines}),
+                 (scalar($step{$s}{$_}{lines}) == 1 ? '' : 's'),
+                 scalar($step{$s}{$_}{images}),
+                 (scalar($step{$s}{$_}{images}) == 1 ? '' : 's')) . ')<br>';
+    }
+    push @block,div({class => 'step',
+                    style => "height: $h;background-color: $BG{$s};"},
+                   h1({class => 'boxhead'},$s),span({style => 'color: black'},$inner));
+  }
+  my $divider = '<span class="glyphicon glyphicon-arrow-down" aria-hidden="true"></span>';
+  return(div({align => 'center', style => 'margin: 0 auto;'},
+             join($divider,@block)));
+}
+
+
+sub linkLine
+{
+  return(a({href => "lineman.cgi?line=$_->[0]",
+            target => '_blank'},$_->[0]));
+}
+
+
 sub getPrestagedData
 {
   my $service = JFRC::LDAP->new({host => 'ldap-vip3.int.janelia.org'});
@@ -345,37 +490,41 @@ sub getPrestagedData
   $sths{WAITING}->execute();
   $ar = $sths{WAITING}->fetchall_arrayref();
   if (scalar @$ar) {
-    my (%hist,%line);
-    my $images = 0;
+    my %line;
+    my($images,$err) = (0)x2;
     foreach (@$ar) {
       $line{$_->[0]}++;
-      unless ($_->[1]) {
-        $_->[1] = 'FLEW';
-        $_->[2] = '(FLEW)';
+      $_->[0] = &linkLine($_->[0]);
+      unless ($_->[2]) {
+        $_->[2] = 'FLEW';
+        $_->[3] = '(FLEW)';
       }
-      if ($_->[3]) {
-        my $u = $service->getUser($_->[3]);
+      if ($_->[4]) {
+        my $u = $service->getUser($_->[4]);
         $annotator = join(' ',$u->{givenName},$u->{sn});
       }
-      $_->[3] = ($annotator ne ' ') ? $annotator : $_->[3];
+      $_->[4] = ($annotator ne ' ') ? $annotator : $_->[4];
       my @o;
-      foreach my $o (split(', ',$_->[5])) {
+      foreach my $o (split(', ',$_->[6])) {
         $o =~ s/\D+(\d+[Xx]).+/$1/;
         push @o,$o;
       }
       $_->[5] = join(', ',@o);
-      $hist{$_->[-1]}++;
       $images += $_->[-1];
+      if (!$_->[1]) {
+        $_->[0] = span({style => 'border: 1px solid red'},$_->[0]);
+        $err++;
+      }
+      splice(@$_,1,1);
     }
-    $waiting = table({id => 'waiting',class => 'tablesorter standard'},
-                     thead(Tr(th(['Line','Website','ALPS release','Annotator',
-                                  'Tiles','Objectives','Reporters','Images']))),
+    $waiting = 'Lines enclosed in a '
+               . span({style => 'border: 1px solid red'},'red box')
+               . ' are missing publishing names.<br>' if ($err);
+    $waiting .= table({id => 'waiting',class => 'tablesorter standard'},
+                      thead(Tr(th(['Line','Website','ALPS release',
+                                  'Annotator','Tiles','Objectives','Reporters','Images']))),
                      tbody(map {Tr(td($_))} @$ar),
                      tfoot(Tr(td([scalar keys(%line),('')x6,$images]))));
-    $waiting .= h3('Number of images per line')
-                . table({id => 'ipl',class => 'tablesorter standard'},
-                        thead(Tr(th(['Lines','Images']))),
-                        tbody(map {Tr(td($_),td($hist{$_}))} sort keys %hist));
   }
   # Published
   $sths{PUBLISHED}->execute();

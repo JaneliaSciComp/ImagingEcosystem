@@ -1,3 +1,13 @@
+div.step {
+  text-align: left;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  -webkit-border-radius: 12px;
+  -moz-border-radius: 12px;
+  width: 350px;
+}
+
 div.publish {
   padding: 5px;
   border: 1px solid #ccc;
