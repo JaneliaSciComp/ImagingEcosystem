@@ -91,6 +91,8 @@ def translate_vt(vt):
 
 
 def convert_vt(search_term, vtcache):
+    search_term = search_term.upper()
+    search_term.replace('VT', '')
     vt = 'VT' + search_term.zfill(6)
     if search_term in vtcache:
         return(vtcache[search_term])
@@ -276,7 +278,7 @@ def read_lines(fragdict, aline):
     for input_line in inputlist:
         search_term = input_line.rstrip()
         if not len(search_term):
-        	continue
+            continue
         frags_read += 1
         new_term = ''
         if is_vt(search_term):
