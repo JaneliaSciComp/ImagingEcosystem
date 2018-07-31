@@ -58,6 +58,12 @@ def initialize_program(name):
     logger.info("Will use name " + ORDERNAME + " on output spreadsheet")
 
 
+def is_vt(line):
+    if line.upper().startswith('VT'):
+        return(1)
+    return(1 if line.isdigit() else 0)
+
+
 def is_gen1(line):
     m = re.search('^((BJD|GMR)_)*[0-9]+[A-H][0-9]{2}_[A-Z]{2}_[0-9]{2}$', line, re.IGNORECASE)
     return(1 if m else 0)
@@ -273,7 +279,7 @@ def read_lines(fragdict, aline):
         	continue
         frags_read += 1
         new_term = ''
-        if search_term.isdigit():
+        if is_vt(search_term):
             search_term = convert_vt(search_term, vtcache)
             if not search_term:
                 continue
@@ -318,7 +324,7 @@ def process_input():
     aline = ARG.ALINE.upper()
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
-        if original.isdigit():
+        if is_vt(original):
             aline = convert_vt(original)
             if not aline:
                 sys.exit(-1)
