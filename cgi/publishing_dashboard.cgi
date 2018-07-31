@@ -441,7 +441,6 @@ sub ALPSSummary
     my $rel = &getREST('jacs',"process/release/$name/status");
     foreach (keys %$rel) {
       $alc{$_}++;
-      $step{$use_step}{$name}{images} += $rel->{$_}{numRepresentatives};
       $step{$use_step}{$name}{images} += $rel->{$_}{numSamples};
     }
     $step{$use_step}{$name}{lines} = scalar(keys %alc);
@@ -459,10 +458,11 @@ sub ALPSSummary
     my $inner;
     my $h = sprintf '%dpx',32 + 22 * scalar(keys %{$step{$s}});
     foreach (sort keys %{$step{$s}}) {
-      $inner .= (sprintf "%s (%d line%s, %d image%s",
+      my $label = ($s =~ /^(?:Inactive|Annot)/) ? 'sample' : 'image';
+      $inner .= (sprintf "%s (%d line%s, %d %s%s",
                  $_,scalar($step{$s}{$_}{lines}),
                  (scalar($step{$s}{$_}{lines}) == 1 ? '' : 's'),
-                 scalar($step{$s}{$_}{images}),
+                 scalar($step{$s}{$_}{images}),$label,
                  (scalar($step{$s}{$_}{images}) == 1 ? '' : 's')) . ')<br>';
     }
     push @block,div({class => 'step',
