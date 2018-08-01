@@ -94,6 +94,8 @@ def convert_vt(search_term, vtcache):
     search_term = search_term.upper()
     search_term.replace('VT', '')
     vt = 'VT' + search_term.zfill(6)
+    if vtcache == None:
+        vtcache = dict()
     if search_term in vtcache:
         return(vtcache[search_term])
     st = translate_vt(vt)
@@ -327,7 +329,7 @@ def process_input():
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
         if is_vt(original):
-            aline = convert_vt(original)
+            aline = convert_vt(original, None)
             if not aline:
                 sys.exit(-1)
     # Find fragments
