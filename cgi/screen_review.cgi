@@ -24,7 +24,6 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-use constant DATA_PATH  => '/opt/informatics/data/';
 use constant NBSP => '&nbsp;';
 my $CONFIG_SERVER = 'http://config.int.janelia.org/config';
 my (%CONFIG,%SERVER);
