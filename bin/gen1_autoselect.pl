@@ -21,7 +21,7 @@ use constant DATA_PATH => '/opt/informatics/data/';
 # * Constants                                                                *
 # ****************************************************************************
 my %CONFIG;
-my $SESSION = 'http://informatics-flask.int.janelia.org:83/sage_responder/session';
+my $SESSION = 'http://sage_responder.int.janelia.org/session';
 
 # ****************************************************************************
 # * Variables                                                                *
