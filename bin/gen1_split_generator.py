@@ -332,7 +332,7 @@ def process_input():
     if ARG.ALINE:
         original = ARG.ALINE.rstrip()
         if is_vt(original):
-            aline = convert_vt(original, None)
+            aline = convert_vt(original)
             if not aline:
                 sys.exit(-1)
     # Find fragments
