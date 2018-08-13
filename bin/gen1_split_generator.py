@@ -378,6 +378,7 @@ if __name__ == '__main__':
     PARSER.add_argument('--file', dest='FILE', default='', help='Input file')
     PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
     PARSER.add_argument('--name', dest='NAME', default='', help='Name to use for the order')
+    PARSER.add_argument('--task', dest='TASK', default='', help='Task name')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
@@ -396,7 +397,7 @@ if __name__ == '__main__':
     logger.addHandler(HANDLER)
 
     initialize_program(ARG.NAME)
-    fname = ARG.FILE if ARG.FILE else 'STDIN'
+    fname = ARG.FILE if ARG.FILE else ARG.TASK if ARG.TASK else 'STDIN'
     if (ARG.ALINE):
         CROSSES = open(ARG.ALINE + '-' + fname + '.crosses.txt', 'w')
         FLYCORE = open(ARG.ALINE + '-' + fname + '.flycore.xls', 'w')
