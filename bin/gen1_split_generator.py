@@ -13,16 +13,19 @@ import requests
 
 
 # Configuration
-VTCACHE_FILE = expanduser('~') + '/' + os.path.basename(__file__).replace('.py', '') + '.vt.cache'
 SUFFIX_SCORE = {}
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
+VTCACHE = {}
 WARNED = {}
 fcdict = dict()
 
-def call_responder(server, endpoint):
+def call_responder(server, endpoint, post=''):
     url = CONFIG[server]['url'] + endpoint
     try:
-        req = requests.get(url)
+        if post:
+            req = requests.post(url, post)
+        else:
+            req = requests.get(url)
     except requests.exceptions.RequestException as err:
         logger.critical(err)
         sys.exit(-1)
@@ -31,7 +34,10 @@ def call_responder(server, endpoint):
     elif req.status_code == 404:
     	return ''
     else:
-        logger.error('Status: %s', str(req.status_code))
+        try:
+            logger.critical('%s: %s', str(req.status_code), req.json()['rest']['message'])
+        except:
+            logger.critical('%s: %s', str(req.status_code), req.text)
         sys.exit(-1)
 
 
@@ -85,25 +91,33 @@ def convert_gen1(gen1):
 def translate_vt(vt):
     response = call_responder('sage', "translatevt/" + vt)
     if ('line_data' in response and len(response['line_data'])):
+        # Add to config
+        platewell = response['line_data'][0]['line'].split('_')[1]
+        vtdict = {"config": json.dumps(platewell)}
+        call_responder('config', 'importjson/vt_conversion/' + vt, vtdict)
+        # Returns qualified line ("BJD_112C03_BB_21")
         return(response['line_data'][0]['line'])
     else:
         return('')
 
 
-def convert_vt(search_term, vtcache):
+def convert_vt(search_term):
     search_term = search_term.upper()
-    search_term.replace('VT', '')
+    search_term = search_term.replace('VT', '')
     vt = 'VT' + search_term.zfill(6)
-    if search_term in vtcache:
-        return(vtcache[search_term])
-    st = translate_vt(vt)
-    if (not st):
-        logger.warning("Could not convert %s to line", vt)
-        NO_CROSSES.write("Could not convert %s to line" % (vt))
-        return()
-    logger.debug("Converted %s to %s", search_term, st)
-    vtcache[search_term] = st.split('_')[1]
-    return(st.split('_')[1])
+    st = ''
+    if vt in VTCACHE:
+        st = VTCACHE[vt]
+    else:
+        st = translate_vt(vt)
+        if (not st):
+            logger.warning("Could not convert %s to line", vt)
+            NO_CROSSES.write("Could not convert %s to line" % (vt))
+            return()
+        st = st.split('_')[1]
+        VTCACHE[vt] = st
+    logger.debug("Converted %s to %s", vt, st)
+    return(st)
 
     
 def generate_score(line):
@@ -245,12 +259,11 @@ def search_for_ad_dbd(aline, search_term, new_term, search_option,
 
 
 def read_lines(fragdict, aline):
-    global VTCACHE_FILE
+    global VTCACHE
     inputlist = []
     linelist = []
     fragsFound = dict()
     frags_read = 0
-    vtcache = dict()
     if ARG.ALINE:
         inputlist.append(aline)
     filename = ARG.FILE if ARG.FILE else ''
@@ -267,13 +280,9 @@ def read_lines(fragdict, aline):
     if filehandle is not sys.stdin:
         filehandle.close()
     # Get cached VT conversions
-    if ARG.VTCACHE is not None:
-        VTCACHE_FILE = ARG.VTCACHE
-    if os.path.isfile(VTCACHE_FILE):
-        logger.debug("Retrieving cached VT lines")
-        with open(VTCACHE_FILE) as json_data:
-            vtcache = json.load(json_data)
-        logger.info("Found %s entries in VT cache", len(vtcache))
+    response = call_responder('config', 'config/vt_conversion')
+    VTCACHE = response['config']
+    logger.info("Found %s entries in VT cache", len(VTCACHE))
     # Process input file
     for input_line in inputlist:
         search_term = input_line.rstrip()
@@ -282,7 +291,7 @@ def read_lines(fragdict, aline):
         frags_read += 1
         new_term = ''
         if is_vt(search_term):
-            search_term = convert_vt(search_term, vtcache)
+            search_term = convert_vt(search_term)
             if not search_term:
                 continue
         if is_gen1_fragment(search_term) or is_gen1(search_term):
@@ -309,10 +318,6 @@ def read_lines(fragdict, aline):
     if ARG.ALINE:
         combos = n - 1
     print("Theoretical crosses: %d" % (combos))
-    # Update cache
-    if len(vtcache):
-        with open(VTCACHE_FILE, 'w') as outfile:
-            json.dump(vtcache, outfile)
     return(linelist, combos)
 
 
@@ -373,11 +378,11 @@ if __name__ == '__main__':
     PARSER.add_argument('--file', dest='FILE', default='', help='Input file')
     PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
     PARSER.add_argument('--name', dest='NAME', default='', help='Name to use for the order')
+    PARSER.add_argument('--task', dest='TASK', default='', help='Task name')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
                         default=False, help='Turn on debug output')
-    PARSER.add_argument('--vtcache', dest='VTCACHE', default=None, help='location of vtcache file')
     ARG = PARSER.parse_args()
 
     logger = colorlog.getLogger()
@@ -392,7 +397,7 @@ if __name__ == '__main__':
     logger.addHandler(HANDLER)
 
     initialize_program(ARG.NAME)
-    fname = ARG.FILE if ARG.FILE else 'STDIN'
+    fname = ARG.FILE if ARG.FILE else ARG.TASK if ARG.TASK else 'STDIN'
     if (ARG.ALINE):
         CROSSES = open(ARG.ALINE + '-' + fname + '.crosses.txt', 'w')
         FLYCORE = open(ARG.ALINE + '-' + fname + '.flycore.xls', 'w')
