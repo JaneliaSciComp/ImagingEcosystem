@@ -1167,7 +1167,7 @@ sub publish
     my $t = time;
     my $stamp = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
     $stamp .= sprintf ".%03d", ($t-int($t))*1000;
-    my $response = $producer->send('split_screen',0,$message,$stamp);
+    my $response = $producer->send('split_screen',0,$message,$stamp,undef,time*1000);
   }
   catch {
     my $error = $_;

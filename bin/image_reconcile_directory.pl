@@ -82,7 +82,7 @@ sub wanted
   print "$name\n" if ($DEBUG);
   my $rvar = &getREST($REST{sage}{url}."images?name=$name");
   unless ($rvar) {
-    print "No response for image $name; skipping\n";
+    print "No response for image $name at $_\n";
     return;
   }
   my ($jfs_path,$path,$url) = ('')x3;

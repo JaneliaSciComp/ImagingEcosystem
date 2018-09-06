@@ -71,12 +71,11 @@ my %sths = (
   PUBLISHED => "SELECT published_to,alps_release,COUNT(DISTINCT line),"
                . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' OR published='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
-  STAGED => "SELECT alps_release,COUNT(DISTINCT line),COUNT(1) FROM "
-            . "image_data_mv WHERE to_publish='Y' AND published='Y' AND "
-            . "published_externally IS NULL GROUP BY 1",
+  SAMPLES => "SELECT alps_release,COUNT(DISTINCT line),COUNT(DISTINCT workstation_sample_id),COUNT(1) FROM "
+            . "image_data_mv WHERE to_publish='Y' AND published_externally IS NULL GROUP BY 1",
   WAITING => "SELECT line,publishing_name,published_to,alps_release,publishing_user,"
-             . "GROUP_CONCAT(DISTINCT IFNULL(tile,'NULL') ORDER BY tile SEPARATOR ', '),"
-             . "GROUP_CONCAT(DISTINCT objective SEPARATOR ', '),"
+             . "GROUP_CONCAT(DISTINCT publishing_name SEPARATOR ', '),"
+             . "GROUP_CONCAT(DISTINCT IFNULL(objective,'NULL') ORDER BY objective SEPARATOR ', '),"
              . "GROUP_CONCAT(DISTINCT effector SEPARATOR ', '),COUNT(1) FROM "
              . "image_data_mv WHERE published IS NULL "
              . "AND to_publish='Y' GROUP BY 1,2,3,4",
@@ -103,6 +102,8 @@ my %MBEW = (
   LINES => "SELECT COUNT(DISTINCT line) FROM image_data_mv",
   PUBLISHED => "SELECT alps_release,COUNT(DISTINCT line),COUNT(1) FROM "
                . "image_data_mv GROUP BY 1",
+  SAMPLES => "SELECT alps_release,COUNT(DISTINCT line),COUNT(DISTINCT workstation_sample_id),COUNT(1) FROM "
+            . "image_data_mv GROUP BY 1",
   HALVES => "SELECT value,COUNT(1) FROM line l JOIN line_property_vw lp ON "
             . "(l.id=lp.line_id AND lp.type='flycore_project') WHERE "
             . "l.name NOT IN (SELECT line FROM image_data_mv) GROUP BY 1",
@@ -400,29 +401,34 @@ sub ALPSSummary
 {
   # Production
   my $instance = 'mbew-prod';
-  $sth{$instance}{PUBLISHED}->execute();
-  my $ar = $sth{$instance}{PUBLISHED}->fetchall_arrayref();
+  $sth{$instance}{SAMPLES}->execute();
+  my $ar = $sth{$instance}{SAMPLES}->fetchall_arrayref();
   my %step;
   foreach (@$ar) {
     $step{Production}{$_->[0]}{lines} = $_->[1];
-    $step{Production}{$_->[0]}{images} = $_->[2];
+    $step{Production}{$_->[0]}{samples} = $_->[2]
+      if ($_->[2]);
+    $step{Production}{$_->[0]}{images} = $_->[3];
   }
   # Staged
+  $instance = 'mbew-dev';
   @$ar = ();
-  $sths{STAGED}->execute();
-  $ar = $sths{STAGED}->fetchall_arrayref();
+  $sth{$instance}{SAMPLES}->execute();
+  $ar = $sth{$instance}{SAMPLES}->fetchall_arrayref();
   foreach (@$ar) {
     next if (exists $step{Production}{$_->[0]});
     $step{Staged}{$_->[0]}{lines} = $_->[1];
-    $step{Staged}{$_->[0]}{images} = $_->[2];
+    $step{Staged}{$_->[0]}{samples} = $_->[2];
+    $step{Staged}{$_->[0]}{images} = $_->[3];
   }
   # Pre-staged
-  $sths{PUBLISHEDSG}->execute();
-  $ar = $sths{PUBLISHEDSG}->fetchall_arrayref();
+  $sths{SAMPLES}->execute();
+  $ar = $sths{SAMPLES}->fetchall_arrayref();
   foreach (@$ar) {
-    next if (exists $step{Production}{$_->[1]} || exists $step{Staged}{$_->[1]});
-    $step{'Pre-staged'}{$_->[1]}{lines} = $_->[2];
-    $step{'Pre-staged'}{$_->[1]}{images} = $_->[3];
+    next if (exists $step{Production}{$_->[0]});
+    $step{'Pre-staged'}{$_->[0]}{lines} = $_->[1];
+    $step{'Pre-staged'}{$_->[0]}{samples} = $_->[2];
+    $step{'Pre-staged'}{$_->[0]}{images} = $_->[3];
   }
   # Annotation
   my $resp = &getREST('jacs',"process/release");
@@ -436,7 +442,7 @@ sub ALPSSummary
       my $today = UnixDate("today","%Y-%m-%d");
       my $ago = sprintf '%4d-%02d-%02d',
                         Add_Delta_Days(split('-',$today),-$MEASUREMENT_DAYS);
-      $use_step = 'Inactive' if ($updated < $ago);
+      $use_step = 'Inactive' if ($updated lt $ago);
     }
     my $rel = &getREST('jacs',"process/release/$name/status");
     foreach (keys %$rel) {
@@ -459,11 +465,24 @@ sub ALPSSummary
     my $h = sprintf '%dpx',32 + 22 * scalar(keys %{$step{$s}});
     foreach (sort keys %{$step{$s}}) {
       my $label = ($s =~ /^(?:Inactive|Annot)/) ? 'sample' : 'image';
-      $inner .= (sprintf "%s (%d line%s, %d %s%s",
-                 $_,scalar($step{$s}{$_}{lines}),
-                 (scalar($step{$s}{$_}{lines}) == 1 ? '' : 's'),
-                 scalar($step{$s}{$_}{images}),$label,
-                 (scalar($step{$s}{$_}{images}) == 1 ? '' : 's')) . ')<br>';
+      $step{$s}{$_}{lines} ||= 0;
+      $step{$s}{$_}{images} ||= 0;
+      if (exists $step{$s}{$_}{samples}) {
+        $inner .= (sprintf "%s (%d line%s, %d sample%s, %d image%s",
+                   $_,scalar($step{$s}{$_}{lines}),
+                   (scalar($step{$s}{$_}{lines}) == 1 ? '' : 's'),
+                   scalar($step{$s}{$_}{samples}),
+                   (scalar($step{$s}{$_}{samples}) == 1 ? '' : 's'),
+                   scalar($step{$s}{$_}{images}),
+                   (scalar($step{$s}{$_}{images}) == 1 ? '' : 's')) . ')<br>';
+      }
+      else {
+        $inner .= (sprintf "%s (%d line%s, %d %s%s",
+                   $_,scalar($step{$s}{$_}{lines}),
+                   (scalar($step{$s}{$_}{lines}) == 1 ? '' : 's'),
+                   scalar($step{$s}{$_}{images}),$label,
+                   (scalar($step{$s}{$_}{images}) == 1 ? '' : 's')) . ')<br>';
+      }
     }
     push @block,div({class => 'step',
                     style => "height: $h;background-color: $BG{$s};"},
@@ -490,10 +509,17 @@ sub getPrestagedData
   $sths{WAITING}->execute();
   $ar = $sths{WAITING}->fetchall_arrayref();
   if (scalar @$ar) {
-    my %line;
-    my($images,$err) = (0)x2;
+    my (%line,%pubcheck);
+    my($images,$nopuberr,$puberr) = (0)x3;
+    foreach (@$ar) {
+      $pubcheck{$_->[5]}{$_->[0]}++;
+    }
     foreach (@$ar) {
       $line{$_->[0]}++;
+      if (scalar(keys %{$pubcheck{$_->[1]}}) > 1) {
+        $_->[5] = span({style => 'border: 2px solid red'},$_->[5]);
+        $puberr++;
+      }
       $_->[0] = &linkLine($_->[0]);
       unless ($_->[2]) {
         $_->[2] = 'FLEW';
@@ -509,20 +535,23 @@ sub getPrestagedData
         $o =~ s/\D+(\d+[Xx]).+/$1/;
         push @o,$o;
       }
-      $_->[5] = join(', ',@o);
+      $_->[6] = join(', ',@o);
       $images += $_->[-1];
       if (!$_->[1]) {
-        $_->[0] = span({style => 'border: 1px solid red'},$_->[0]);
-        $err++;
+        $_->[0] = span({style => 'border: 2px solid red'},$_->[0]);
+        $nopuberr++;
       }
       splice(@$_,1,1);
     }
     $waiting = 'Lines enclosed in a '
-               . span({style => 'border: 1px solid red'},'red box')
-               . ' are missing publishing names.<br>' if ($err);
+               . span({style => 'border: 2px solid red'},'red box')
+               . ' are missing publishing names.<br>' if ($nopuberr);
+    $waiting = 'Publishing names enclosed in a '
+               . span({style => 'border: 2px solid red'},'red box')
+               . ' are associated with more than one line.<br>' if ($puberr);
     $waiting .= table({id => 'waiting',class => 'tablesorter standard'},
                       thead(Tr(th(['Line','Website','ALPS release',
-                                  'Annotator','Tiles','Objectives','Reporters','Images']))),
+                                  'Annotator','Publishing names','Objectives','Reporters','Images']))),
                      tbody(map {Tr(td($_))} @$ar),
                      tfoot(Tr(td([scalar keys(%line),('')x6,$images]))));
   }
