@@ -22,7 +22,6 @@ def read_messages():
   consumer = KafkaConsumer(ARGS.topic,
                            bootstrap_servers = server_list,
                            group_id = group,
-                           client_id = client,
                            auto_offset_reset = 'earliest',
                            consumer_timeout_ms = int(5000))
 
@@ -34,12 +33,17 @@ def read_messages():
           timestamp = timestamp.replace(' ', 'T')
       head, sep, tail = timestamp.partition('.')
       if msg['operation'] == 'search':
-          print("%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), 'search', 1))
+          print("%s\t%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), 'search', 'search', 1))
       else:
           for split in msg['order']['splits']:
+              line = ''
+              for key, val in split.items():
+                  if key == 'line':
+                      line = val
+                      break
               for key, val in split.items():
                   if key in ['mcfo', 'polarity', 'stabilization']:
-                      print("%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), key, val))
+                      print("%s\t%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), line, key, val))
 
 
 if __name__ == '__main__':
