@@ -12,13 +12,17 @@ def read_messages():
   else:
       server_list = ['kafka.int.janelia.org:9092', 'kafka2.int.janelia.org:9092', 'kafka3.int.janelia.org:9092']
   group = None
+  client = None
   if ARGS.restart:
       group = None
+      client = None
   else:
       group = ARGS.topic + '_log'
+      client = group
   consumer = KafkaConsumer(ARGS.topic,
                            bootstrap_servers = server_list,
                            group_id = group,
+                           client_id = client,
                            auto_offset_reset = 'earliest',
                            consumer_timeout_ms = int(5000))
 
