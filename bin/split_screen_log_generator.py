@@ -22,7 +22,7 @@ def read_messages():
   consumer = KafkaConsumer(ARGS.topic,
                            bootstrap_servers = server_list,
                            group_id = group,
-                           auto_offset_reset = 'earliest',
+                           auto_offset_reset = 'latest',
                            consumer_timeout_ms = int(5000))
 
   for message in consumer:
