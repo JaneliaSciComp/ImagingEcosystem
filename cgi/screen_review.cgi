@@ -49,13 +49,6 @@ my $handle;
 # Database
 our ($dbh,$dbhf);
 my %sth = (
-AD_DBD => "SELECT MAX(ad.name),MAX(dbd.name) FROM line_relationship_vw lr "
-           . "LEFT OUTER JOIN line_property_vw ad ON "
-           . "(lr.object=ad.name AND lr.relationship='child_of' AND "
-           . "ad.value='Split_GAL4-AD' AND ad.type='flycore_project') "
-           . "LEFT OUTER JOIN line_property_vw dbd ON (lr.object=dbd.name "
-           . "AND lr.relationship='child_of' AND dbd.value='Split_GAL4-DBD' "
-           . "AND dbd.type='flycore_project') WHERE lr.subject=?",
 CANORDER => "SELECT data_set FROM image_data_mv WHERE data_set LIKE ? LIMIT 1",
 DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
            . "ON (i.id=ip.image_id AND ip.type='data_set') WHERE i.line=? "
@@ -67,7 +60,7 @@ HALVES => "SELECT lp.value,lp.name,lpp.value AS info FROM line_property_vw lp "
           . "lp.type='flycore_project' AND lr.subject=?",
 IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
-IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' ORDER BY 1",
+IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' AND i.display!=0 ORDER BY 1",
 SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
            . "'JRC\_SS%' AND cross_type IN ('SplitFlipOuts','SplitPolarity','StableSplitScreen') GROUP BY 1,2",
@@ -79,7 +72,7 @@ USERLINES => "SELECT SUBSTRING_INDEX(value,'_',1),COUNT(DISTINCT line) FROM imag
 FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
               . "DISTINCT lab_member) FROM StockFinder sf LEFT OUTER JOIN "
               . "Project_Crosses pc ON (sf.__kp_UniqueID=pc._kf_Parent_UID) "
-              . "WHERE Stock_Name LIKE 'JRC_SS%' GROUP BY 1,2,3",
+              . "WHERE Stock_Name LIKE 'JRC\_SS%' GROUP BY 1,2,3",
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
@@ -203,9 +196,11 @@ sub initializeProgram
     $START = $STOP = '';
   }
   else {
-    $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_IS%'/;
-    if (param('search_mode')) {
-      $sth{IMAGES} =~ s/_IS/_SS/ if (param('search_mode') eq 'ss');
+    if ((param('search_mode')) && (param('search_mode') eq 'ss')) {
+      $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_SS%'/;
+    }
+    else {
+      $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_IS%'/;
     }
     if ($START && $STOP) {
       $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) BETWEEN '$START' AND '$STOP' AND /;
@@ -406,8 +401,8 @@ sub chooseCrosses
       push @$ar,$l;
     }
   }
-  push @performance,sprintf 'Primary query: %.4f sec',
-                            tv_interval($t0,[gettimeofday]);
+  push @performance,sprintf 'Primary query: %.4f sec (rows: %d)',
+                            tv_interval($t0,[gettimeofday]),scalar(@$ar);
   unless (scalar @$ar) {
     print &bootstrapPanel('No screen imagery found',
                           'No screen imagery was found'
