@@ -148,12 +148,12 @@ def generate_cross(fragdict, frag1, frag2):
     max_score = {'score': -1, 'ad': '', 'dbd': ''}
     for f1 in fragdict[frag1]:
         # frag1 = AD, frag2 = DBD
-        if f1['type'] == 'DBD':
+        if f1['type'] == 'DBD' or f1['driver'] != 'GAL4':
             continue
         score = generate_score(f1['line'])
         ls1 = f1['line'].rpartition('_')[-1]
         for f2 in fragdict[frag2]:
-            if f2['type'] == 'AD':
+            if f2['type'] == 'AD' or f2['driver'] != 'GAL4':
                 continue
             ls2 = f2['line'].rpartition('_')[-1]
             if (ls1 == ls2):
@@ -163,12 +163,12 @@ def generate_cross(fragdict, frag1, frag2):
             set_max_score(f1['line'], f2['line'], final_score, max_score)
     for f1 in fragdict[frag1]:
         # frag1 = DBD, frag2 = AD
-        if f1['type'] == 'AD':
+        if f1['type'] == 'AD' or f1['driver'] != 'GAL4':
             continue
         score = generate_score(f1['line'])
         ls1 = f1['line'].rpartition('_')[-1]
         for f2 in fragdict[frag2]:
-            if f2['type'] == 'DBD':
+            if f2['type'] == 'DBD' or f2['driver'] != 'GAL4':
                 continue
             ls2 = f2['line'].rpartition('_')[-1]
             if (ls1 == ls2):
