@@ -475,6 +475,7 @@ sub chooseCrosses
                                    class => 'lineselect',
                                    value => $barcode,
                                    onclick => 'tagCross("'.$line.'");'},'Discard'),'' ]));
+        $discard = '' if (index($dataset,$USERID) == -1);
         my $bump_ordered = 0;
         # Stable stock row
         my $stabilization;
