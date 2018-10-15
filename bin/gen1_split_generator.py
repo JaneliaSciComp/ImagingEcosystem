@@ -161,6 +161,8 @@ def generate_cross(fragdict, frag1, frag2):
                 continue
             final_score = score + generate_score(f2['line'])
             set_max_score(f1['line'], f2['line'], final_score, max_score)
+            if ARG.ALL:
+                good_cross(f1['line'], f2['line'])
     for f1 in fragdict[frag1]:
         # frag1 = DBD, frag2 = AD
         if f1['type'] == 'AD' or f1['driver'] != 'GAL4':
@@ -176,6 +178,8 @@ def generate_cross(fragdict, frag1, frag2):
                 continue
             final_score = score + generate_score(f2['line'])
             set_max_score(f2['line'], f1['line'], final_score, max_score)
+            if ARG.ALL:
+                good_cross(f2['line'], f1['line'])
     return(max_score['ad'], max_score['dbd'])
 
 
@@ -354,7 +358,8 @@ def process_input():
             (ad, dbd) = generate_cross(fragdict, frag1, frag2)
             if (ad and dbd):
                 crosses += 1
-                good_cross(ad, dbd)
+                if not ARG.ALL:
+                    good_cross(ad, dbd)
             elif ((not ad) or (not dbd)):
                 what = "AD and DBD"
                 if ad:
@@ -377,6 +382,8 @@ if __name__ == '__main__':
         description='Generate Gen1 initial splits')
     PARSER.add_argument('--file', dest='FILE', default='', help='Input file')
     PARSER.add_argument('--aline', dest='ALINE', default='', help='A line')
+    PARSER.add_argument('--all', action='store_true', dest='ALL',
+                        default=False, help='Output all cross combinations')
     PARSER.add_argument('--name', dest='NAME', default='', help='Name to use for the order')
     PARSER.add_argument('--task', dest='TASK', default='', help='Task name')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
@@ -398,16 +405,15 @@ if __name__ == '__main__':
 
     initialize_program(ARG.NAME)
     fname = ARG.FILE if ARG.FILE else ARG.TASK if ARG.TASK else 'STDIN'
-    if (ARG.ALINE):
-        CROSSES = open(ARG.ALINE + '-' + fname + '.crosses.txt', 'w')
-        FLYCORE = open(ARG.ALINE + '-' + fname + '.flycore.xls', 'w')
-        nocross_file = ARG.ALINE + '-' + fname + '.no_crosses.txt'
-        NO_CROSSES = open(nocross_file, 'w')
-    else:
-        CROSSES = open(fname + '.crosses.txt', 'w')
-        FLYCORE = open(fname + '.flycore.xls', 'w')
-        nocross_file = fname + '.no_crosses.txt'
-        NO_CROSSES = open(nocross_file, 'w')
+    name_insert = prefix = ''
+    if ARG.ALINE:
+        prefix = ARG.ALINE + '-'
+    if ARG.ALL:
+        name_insert += '-ALL'
+    CROSSES = open(prefix + fname + name_insert + '.crosses.txt', 'w')
+    FLYCORE = open(prefix + fname + name_insert + '.flycore.xls', 'w')
+    nocross_file = prefix + fname + name_insert + '.no_crosses.txt'
+    NO_CROSSES = open(nocross_file, 'w')
 
     for h in ('Who', '#', 'Alias', 'Pfrag'):
         FLYCORE.write("%s\t" % (h))
