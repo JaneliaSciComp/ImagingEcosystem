@@ -1,50 +1,65 @@
 import argparse
 import sys
 from kafka import KafkaConsumer
+from kafka import KafkaProducer
+from kafka.errors import KafkaError
 from datetime import datetime
+from time import gmtime, strftime, sleep
 import json
 from os import path
 from pprint import pprint
 
 def read_messages():
-  if ARGS.server:
-      server_list = [ARGS.server + ':9092']
-  else:
-      server_list = ['kafka.int.janelia.org:9092', 'kafka2.int.janelia.org:9092', 'kafka3.int.janelia.org:9092']
-  group = None
-  client = None
-  if ARGS.restart:
-      group = None
-      client = None
-  else:
-      group = ARGS.topic + '_log'
-      client = group
-  consumer = KafkaConsumer(ARGS.topic,
-                           bootstrap_servers = server_list,
-                           group_id = group,
-                           auto_offset_reset = 'latest',
-                           consumer_timeout_ms = int(5000))
+    producer = KafkaProducer(bootstrap_servers=['kafka.int.janelia.org','kafka2.int.janelia.org','kafka3.int.janelia.org'])
+    if ARGS.server:
+        server_list = [ARGS.server + ':9092']
+    else:
+        server_list = ['kafka.int.janelia.org:9092', 'kafka2.int.janelia.org:9092', 'kafka3.int.janelia.org:9092']
+    offset = 'earliest'
+    consumer = KafkaConsumer(ARGS.topic,
+                             bootstrap_servers=server_list,
+                             group_id=None,
+                             auto_offset_reset='earliest',
+                             consumer_timeout_ms=int(5000))
 
-  for message in consumer:
-      msg = json.loads(message.value)
-      timestamp = datetime.fromtimestamp(message.timestamp/1000).strftime('%Y-%m-%dT%H:%M:%S')
-      if '1969' in timestamp:
-          timestamp = message.key
-          timestamp = timestamp.replace(' ', 'T')
-      head, sep, tail = timestamp.partition('.')
-      if msg['operation'] == 'search':
-          print("%s\t%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), 'search', 'search', 1))
-      else:
-          for split in msg['order']['splits']:
-              line = ''
-              for key, val in split.items():
-                  if key == 'line':
-                      line = val
-                      break
-              for key, val in split.items():
-                  if key in ['mcfo', 'polarity', 'stabilization']:
-                      print("%s\t%s\t%s\t%s\t%s\t%d" % (head, str(msg['user']), str(msg['operation']), line, key, val))
+    for message in consumer:
+        msg = json.loads(message.value)
+        timestamp = datetime.fromtimestamp(message.timestamp/1000).strftime('%Y-%m-%dT%H:%M:%S')
+        if '1969' in timestamp:
+            timestamp = message.key
+            timestamp = timestamp.replace(' ', 'T')
+        head, sep, tail = timestamp.partition('.')
+        if msg['operation'] == 'search':
+            kafka = {"client": "screen_review", "user": str(msg['user']), "category": "search",
+                     "time": message.timestamp/1000, "host": "vm506.int.janelia.org", "count": 1,
+                     "duration": msg['elapsed_time'], "status": 200}
+            if 'line' in msg:
+                kafka['line'] = str(msg['line'])
+            elif 'slide_code' in msg:
+                kafka['slide_code'] = str(msg['slide_code'])
+            else:
+                kafka['date_range'] = str(msg['date_range'])
+        else:
+            for split in msg['order']['splits']:
+                line = ''
+                for key, val in split.items():
+                    if key == 'line':
+                        line = val
+                        break
+                for key, val in split.items():
+                    if key in ['mcfo', 'polarity', 'stabilization']:
+                        kafka = {"client": "screen_review", "user": str(msg['user']), "category": "order",
+                                 "time": message.timestamp/1000, "host": "vm506.int.janelia.org", "count": 1,
+                                 "status": 200, "order": str(msg['order']), str(key): 1, "line": line}
 
+        print(json.dumps(kafka))
+        future = producer.send('screen_review', json.dumps(kafka))
+        try:
+            record_metadata = future.get(timeout=10)
+        except KafkaError:
+            # Decide what to do if produce request failed...
+            print "Failed!"
+            pass
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
