@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import pprint
+import requests
 import subprocess
 import sys
 import urllib2
@@ -25,8 +26,31 @@ SQL = {
 count = {'failure': 0, 'found': 0, 'success': 0}
 dsdict = {}
 indexed = {}
+# Configuration
+CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 
 # -----------------------------------------------------------------------------
+def call_responder(server, endpoint, post=''):
+    url = CONFIG[server]['url'] + endpoint
+    try:
+        if post:
+            req = requests.post(url, post)
+        else:
+            req = requests.get(url)
+    except requests.exceptions.RequestException as err:
+        logger.critical(err)
+        sys.exit(-1)
+    if req.status_code == 200:
+        return req.json()
+    elif req.status_code == 404:
+        return ''
+    else:
+        try:
+            logger.critical('%s: %s', str(req.status_code), req.json()['rest']['message'])
+        except:
+            logger.critical('%s: %s', str(req.status_code), req.text)
+        sys.exit(-1)
+
 def sqlError (e):
     try:
       print 'MySQL error [%d]: %s' % (e.args[0],e.args[1])
@@ -91,7 +115,7 @@ def processImages(cursor):
             chunks = [lsmlist[i:i+50] for i in xrange(0,len(lsmlist),50)]
             for sublist in chunks:
                 post = {"lsmNames": sublist}
-                post_url = 'http://jacs.int.janelia.org:8180/rest-v3/process/owner/system/dataSet/' + dataset + '/lsmPipelines'
+                post_url = CONFIG['jacs']['url'] + 'process/owner/system/dataSet/' + dataset + '/lsmPipelines'
                 req = urllib2.Request(post_url)
                 req.add_header('Content-Type', 'application/json')
                 if DEBUG:
@@ -169,4 +193,6 @@ if __name__ == '__main__':
     if DEBUG:
         VERBOSE = True
     (cursor) = dbConnect()
+    data = call_responder('config', 'config/rest_services')
+    CONFIG = data['config']
     processImages(cursor)
