@@ -22,8 +22,9 @@ use JFRC::Highcharts qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/groups/scicomp/informatics/data/';
+use constant LOG_PATH => '/groups/scicomp/informatics/logs/';
 my $BASE = "/var/www/html/output/";
+my %CONFIG = (config => {url => 'http://config.int.janelia.org/'});
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -32,14 +33,13 @@ my $BASE = "/var/www/html/output/";
 our $APPLICATION = 'Workstation dashboard';
 my @BREADCRUMBS = ('Imagery tools',
                    'http://informatics-prod.int.janelia.org/#imagery');
-my %REST;
 use constant NBSP => '&nbsp;';
 my $MEASUREMENT_DAYS = param('days') || 30;
 my $MEASUREMENT_HOURS = $MEASUREMENT_DAYS * 24;
 my %OCOLOR = (20 => '#294121',
               40 => '#5792BB',
               63 => '#33475F') ;
-my @HOST_NUMBERS = ('',2,3,);
+my @HOST_NUMBERS = ('',2,3,4,5,6);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -80,15 +80,25 @@ exit(0);
 # * Subroutines                                                              *
 # ****************************************************************************
 
+sub getREST
+{
+  my($server,$endpoint) = @_;
+  my $url = join('',$CONFIG{$server}{url},$endpoint);
+  my $response = get $url;
+  return() unless ($response && length($response));
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $url<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  return($rvar);
+}
+
+
 sub initializeProgram
 {
   # Get general REST config
-  my $file = DATA_PATH . 'rest_services.json';
-  open SLURP,$file or &terminateProgram("Can't open $file: $!");
-  sysread SLURP,my $slurp,-s SLURP;
-  close(SLURP);
-  my $hr = decode_json $slurp;
-  %REST = %$hr;
+  my $rvar = &getREST('config','config/rest_services');
+  %CONFIG =  %{$rvar->{config}};
 }
 
 
@@ -102,7 +112,7 @@ sub displayDashboard
   # Intake
   my(%captured,%count,%sum);
   my $ar;
-  my $rvar = &getREST($REST{sage}{url}."/images_tmogged_since/days/$MEASUREMENT_DAYS");
+  my $rvar = &getREST('sage',"images_tmogged_since/days/$MEASUREMENT_DAYS");
   foreach (@{$rvar->{images}}) {
     $_->{'capture_date'} =~ s/ .+//;
     push @$ar,[@{$_}{qw(capture_date create_date capture_tmog_cycle_days capture_tmog_cycle_sec objective)}];
@@ -205,7 +215,7 @@ sub displayDashboard
     }
   }
   # Check for images awaiting indexing
-  $rvar = &getREST($REST{sage}{url}."/unindexed_images");
+  $rvar = &getREST('sage',"unindexed_images");
   my $icount = scalar(@{$rvar->{images}}) || 0;
   $today{all} .= "<span style='color: #fff; background-color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
   $today{all} .= $clock;
@@ -263,7 +273,7 @@ sub displayDashboard
 sub reportStatus
 {
   # Read status counts from workstation_status.log
-  my $file =  DATA_PATH . 'workstation_status.log';
+  my $file =  LOG_PATH . 'workstation_status.log';
   my $stream = new IO::File $file,"<"
     || &terminateProgram("Can't open $file ($!)");
   my (%chash,%disposition);
@@ -284,7 +294,7 @@ sub reportStatus
   my (%count,%donut,%piec,%piei);
   my $total = 0;
   my $ar;
-  my $rvar = &getREST($REST{'jacs'}{url}.$REST{'jacs'}{query}{SampleStatus});
+  my $rvar = &getREST('jacs',$CONFIG{'jacs'}{query}{SampleStatus});
   foreach (@$rvar) {
     $_->{'_id'} ||= 'Null';
     push @$ar,[@{$_}{qw(_id count)}];
@@ -298,7 +308,7 @@ sub reportStatus
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
   my (%bin3,%bin4);
-  $rvar = &getREST($REST{'jacs'}{url}.$REST{'jacs'}{query}{PipelineStatus}
+  $rvar = &getREST('jacs',$CONFIG{'jacs'}{query}{PipelineStatus}
                       . '?hours=' . $MEASUREMENT_HOURS);
   my ($pipeline_acc,$samples,$successful) = (0)x3;
   foreach (@$rvar) {
@@ -388,14 +398,7 @@ sub reportStatus
                                        );
   # Age of processing samples
   @$ar = ();
-  my $rest = $REST{'jacs'}{url}.$REST{'jacs'}{query}{SampleAging};
-  my $response = get $rest;
-  &terminateProgram("<h3>REST GET returned null response</h3>"
-                    . "<br>Request: $rest<br>")
-    unless (length($response));
-  eval {$rvar = decode_json($response)};
-  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                    . "Response: $response<br>Error: $@") if ($@);
+  $rvar = &getREST('jacs',$CONFIG{'jacs'}{query}{SampleAging});
   # {"name":"20160107_31_A2","ownerKey":"group:flylight","updatedDate":1454355394000,"status":"Complete"}
   foreach (@$rvar) {
     push @$ar,[$_->{name},$_->{ownerKey},$_->{updatedDate}];
@@ -554,21 +557,6 @@ sub getColor
     $ct_style = 'orange';
   }
   return($ct_style);
-}
-
-
-sub getREST
-{
-  my($rest) = shift;
-  my $response = get $rest;
-  &terminateProgram("<h3>REST GET returned null response</h3>"
-                    . "<br>Request: $rest<br>")
-    unless (length($response));
-  my $rvar;
-  eval {$rvar = decode_json($response)};
-  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                    . "Response: $response<br>Error: $@") if ($@);
-  return($rvar);
 }
 
 
