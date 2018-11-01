@@ -52,7 +52,7 @@ GetOptions('log=s'    => \my $log_file,
            help       => \my $HELP)
   or pod2usage(-1);
 
-$log_file ||= '/opt/informatics/data/workstation_status.log';
+$log_file ||= '/opt/informatics/logs/workstation_status.log';
 # Display help and exit if the -help parm is specified
 pod2text($0),&terminateProgram() if ($HELP);
 
