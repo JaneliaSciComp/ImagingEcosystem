@@ -52,9 +52,9 @@ def send_mail(sender, recievers, message):
         smtpObj = SMTP()
         smtpObj.connect()
         smtpObj.sendmail(sender, recievers, email)
-        logging.info("Successfully sent email")
+        logger.info("Successfully sent email")
     except SMTPException:
-        logging.error("Error: unable to send email")
+        logger.error("Error: unable to send email")
 
 
 def read_messages():
@@ -82,7 +82,7 @@ def read_messages():
         for typ in ('stabilization', 'polarity', 'mcfo'):
             if typ in msg and msg[typ]:
                 splittype.append(typ)
-        orderlist.append("%s: %s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
+        orderlist.append("%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
     if ARG.START == ARG.END:
         body = 'On ' + ARG.START
     else:
