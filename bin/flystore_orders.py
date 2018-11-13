@@ -65,7 +65,6 @@ def read_messages():
         server_list = rest['config']['broker_list']
     consumer = KafkaConsumer('screen_review',
                              bootstrap_servers=server_list,
-                             group_id=None,
                              auto_offset_reset='earliest',
                              consumer_timeout_ms=int(500))
     orderlist = dict()
@@ -122,6 +121,9 @@ if __name__ == '__main__':
     PARSER.add_argument('--debug', action='store_true',
                         dest='DEBUG', default=False,
                         help='Turn on debug output')
+    PARSER.add_argument('--nolog', action='store_true',
+                        dest='NOLOG', default=False,
+                        help='Set logging for errors only')
     PARSER.add_argument('--user', dest='USER', default='',
                         help='User ID')
     PARSER.add_argument('--start', dest='START', default=today,
@@ -135,6 +137,8 @@ if __name__ == '__main__':
         logger.setLevel(colorlog.colorlog.logging.DEBUG)
     elif ARG.VERBOSE:
         logger.setLevel(colorlog.colorlog.logging.INFO)
+    elif ARG.NOLOG:
+        logger.setLevel(colorlog.colorlog.logging.ERROR)
     else:
         logger.setLevel(colorlog.colorlog.logging.WARNING)
     HANDLER = colorlog.StreamHandler()
