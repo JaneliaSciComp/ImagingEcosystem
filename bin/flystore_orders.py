@@ -69,6 +69,8 @@ def read_messages():
                              auto_offset_reset='earliest',
                              consumer_timeout_ms=int(500))
     orderlist = dict()
+    rest = call_responder('config', 'config/workday')
+    usermap = rest['config']
     for message in consumer:
         msg = json.loads(message.value)
         if msg['category'] != 'order' or message.key == None:
@@ -87,18 +89,24 @@ def read_messages():
             if typ in msg and msg[typ]:
                 splittype.append(typ)
         orderlist[msg['user']].append("%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
-    if ARG.START == ARG.END:
-        body = 'On ' + ARG.START
-    else:
-        body = "Between the dates of %s and %s" % (ARG.START, ARG.END)
-    body += ", you ordered the following stable splits:\n\n"
     for user in orderlist:
+        if ARG.START == ARG.END:
+            body = 'On ' + ARG.START
+        else:
+            body = "Between the dates of %s and %s" % (ARG.START, ARG.END)
+        body += ", you ordered the following stable splits:\n\n"
         for order in orderlist[user]:
             body += order + "\n"
+        if user in usermap:
+            str = ((usermap[user][key]) for key in ('first', 'last'))
+            username = ' '.join(str)
+        else:
+            username = user
+        subject = 'Split screen orders for %s' % (username)
+        primary = '%s@hhmi.org' % (user)
         if ARG.VERBOSE:
-            print(body)
-        subject = 'SPlit screen orders for %s' % (user)
-        send_mail(SENDER, [SENDER], subject, body)
+            print("%s\n%s" % (subject, body))
+        send_mail(SENDER, [primary, SENDER], subject, body)
 
 
 # -----------------------------------------------------------------------------
