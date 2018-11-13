@@ -38,16 +38,16 @@ def initialize_program():
     CONFIG = data['config']
 
 
-def generate_email_message(sender, recievers, message):
+def generate_email_message(sender, recievers, subject, message):
     msg = MIMEText(message)
-    msg['Subject'] = 'Split screen orders'
+    msg['Subject'] = subject
     msg['From'] = sender
     msg['To'] = ", ".join(recievers)
     return msg.as_string()
 
 
-def send_mail(sender, recievers, message):
-    email = generate_email_message(sender, recievers, message)
+def send_mail(sender, recievers, subject, message):
+    email = generate_email_message(sender, recievers, subject, message)
     try:
         smtpObj = SMTP()
         smtpObj.connect()
@@ -68,31 +68,37 @@ def read_messages():
                              group_id=None,
                              auto_offset_reset='earliest',
                              consumer_timeout_ms=int(500))
-    orderlist = list()
+    orderlist = dict()
     for message in consumer:
         msg = json.loads(message.value)
-        if msg['user'] != ARG.USER or msg['category'] != 'order' or message.key == None:
+        if msg['category'] != 'order' or message.key == None:
+            continue
+        if ARG.USER and msg['user'] != ARG.USER:
             continue
         order_date = message.key.split(' ')
         if order_date[0] < ARG.START or order_date[0] > ARG.END:
             continue
         if ARG.DEBUG:
             print(msg)
+        if msg['user'] not in orderlist:
+            orderlist[msg['user']] = list()
         splittype = list()
         for typ in ('stabilization', 'polarity', 'mcfo'):
             if typ in msg and msg[typ]:
                 splittype.append(typ)
-        orderlist.append("%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
+        orderlist[msg['user']].append("%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
     if ARG.START == ARG.END:
         body = 'On ' + ARG.START
     else:
         body = "Between the dates of %s and %s" % (ARG.START, ARG.END)
     body += ", you ordered the following stable splits:\n\n"
-    for order in orderlist:
-        body += order + "\n"
-    if ARG.VERBOSE:
-        print(body)
-    send_mail(SENDER, [SENDER], body)
+    for user in orderlist:
+        for order in orderlist[user]:
+            body += order + "\n"
+        if ARG.VERBOSE:
+            print(body)
+        subject = 'SPlit screen orders for %s' % (user)
+        send_mail(SENDER, [SENDER], subject, body)
 
 
 # -----------------------------------------------------------------------------
