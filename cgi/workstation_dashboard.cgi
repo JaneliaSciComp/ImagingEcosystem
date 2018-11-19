@@ -39,7 +39,7 @@ my $MEASUREMENT_HOURS = $MEASUREMENT_DAYS * 24;
 my %OCOLOR = (20 => '#294121',
               40 => '#5792BB',
               63 => '#33475F') ;
-my @HOST_NUMBERS = ('',2,3,4,5,6);
+my @HOST_NUMBERS = ('',2..8);
 
 # ****************************************************************************
 # * Globals                                                                  *
@@ -128,8 +128,8 @@ sub displayDashboard
   my %max_capture = map { $_ => 0 } qw(all 20 40 63);
   my %max_create = map { $_ => 0 } qw(all 20 40 63);
   my (%ct_acc,%ct_cnt);
-  my %max_ct = map {$_ => 0} qw(all 20 40 63);
-  my %min_ct = map {$_ => 1e9} qw(all 20 40 63);
+  my %max_ct = map {$_ => 0} qw(all 20 40 63 unknown);
+  my %min_ct = map {$_ => 1e9} qw(all 20 40 63 unknown);
   my $img_acc = 0;
   foreach (@$ar) {
     $_->[4] ||= '';
@@ -137,6 +137,7 @@ sub displayDashboard
     $objective = '20' if ($_->[4] =~ /20[Xx]/);
     $objective = '40' if ($_->[4] =~ /40[Xx]/);
     $objective = '63' if ($_->[4] =~ /63[Xx]/);
+    $objective = 'unknown' unless ($objective);
     $count{$objective}++;
     # Capture date
     if ($_->[0] ge $ago) {
@@ -329,7 +330,12 @@ sub reportStatus
   my %bin_days = map { $_ => 1 } keys(%bin3);
   my %bin5;
   foreach (sort keys %bin_days) {
-    $bin5{$_}{'Error rate %'} = 0 + sprintf '%.2f',($bin4{$_} / ($bin3{$_}+$bin4{$_}) * 100);
+    if (exists($bin3{$_}) && exists($bin4{$_})) {
+      $bin5{$_}{'Error rate %'} = 0 + sprintf '%.2f',($bin4{$_} / ($bin3{$_}+$bin4{$_}) * 100);
+    }
+    else {
+      $bin5{$_}{'Error rate %'} = 0;
+    }
   }
   $bin_days{$_} = 1 foreach (keys %bin3);
   my $hashref = {'_categories' => [sort keys %bin_days],
