@@ -15,6 +15,7 @@ use LWP::Simple qw(get);
 use POSIX qw(strftime);
 use REST::Client;
 use Scalar::Util qw(blessed);
+use Sys::Hostname;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Time::Local qw(timelocal);
 use Try::Tiny;
@@ -102,6 +103,7 @@ my $VIEW_ALL = (($Session->param('scicomp'))
                 || ($Session->param('flylight_split_screen')));
 my $RUN_AS = ($VIEW_ALL && param('_userid')) ? param('_userid') : '';
 my $CAN_ORDER = ($VIEW_ALL) ? 0 : 1;
+#($USERID,$VIEW_ALL,$CAN_ORDER) = ('rubing',1,0) if ($USERID eq 'svirskasr'); #PLUG
 $CAN_ORDER = 0 if ($USERID eq 'dolanm' || $RUN_AS eq 'dolanm');
 $CAN_ORDER = 1 if ($USERID eq 'svirskasr' && $RUN_AS);
 $CAN_ORDER = 1 if ($USERID eq 'dicksonb' || $USERID eq 'rubing');
@@ -385,6 +387,7 @@ sub chooseCrosses
   my $DSTYPE = '%';
   if ($VIEW_ALL) {
     $DSUSER = param('user') || $RUN_AS || '%';
+    $DSUSER = '%' if ($RUN_AS && scalar(@{$PERMISSION{$RUN_AS}}));
     #$DSTYPE = param('type') if (param('type'));
   }
   my $ds = $DSUSER . '\_' . $DSTYPE . '\_screen\_review';
@@ -479,6 +482,7 @@ sub chooseCrosses
         my $bump_ordered = 0;
         # Stable stock row
         my $stabilization;
+        $sage_date = 1 if ($line =~ /^(?:BJD|GMR)/);
         if ($sage_date) {
           $class = 'ordered';
           $bump_ordered = 1;
@@ -495,9 +499,11 @@ sub chooseCrosses
               $available = (index($REQUESTER{$stable_line},$USERNAME) >= 0)
                            ? '(available: ordered by you)'
                            : '(available: ordered by others, contact Fly Facility)';
+              $discard = '' if ($available =~ /others/);
             }
           }
           else {
+            $discard = '' if (index($dataset,$USERID) == -1);
             $available = '(available: unknown requester, contact Fly Facility)';
           }
           my $link = a({href => "lineman.cgi?line=$stable_line",
@@ -513,6 +519,7 @@ sub chooseCrosses
         elsif (exists($request{stabilization})) {
           $class = 'ordered';
           $bump_ordered++;
+          $discard = '';
           ($a = $request{stabilization}) =~ s/T.*//;
           $stabilization = Tr(td({style => 'padding-left: 10px'},[
                               "Stable stock (ordered $a)",'']));
@@ -606,8 +613,9 @@ sub chooseCrosses
   my $uname = $USERNAME;
   $uname .= " (running as $RUN_AS)" if ($RUN_AS);
   my @other = &createAdditionalData();
-  $kafka_msg->{elapsed_time} = $elapsed_time;
-  &publish(encode_json($kafka_msg));
+  $kafka_msg->{duration} = $elapsed_time;
+  $kafka_msg->{status} = 200;
+  &publish_json(encode_json($kafka_msg));
   print div({class => 'boxed',
              style => 'background-color: #cff'},
             h2('Performance data'),join(br,@performance),br)
@@ -817,8 +825,10 @@ sub getSplitHalves
       $error = 'unavailable' if ($a && grep(/$a/,@UNUSABLE));
     }
     if (scalar(keys %$hr) == 2) {
+      my @adsplit = split('_',$ad);
+      my @dbdsplit = split('_',$dbd);
       $error = 'ls'
-        if (substr($ad,-2) eq substr($dbd,-2));
+        if ($adsplit[3] eq $dbdsplit[3]);
     }
   }
   ($return_html) ? return($html,$error) : return(\%hash);
@@ -1090,7 +1100,13 @@ sub renderControls
                               onchange => "changeSlider('s');"}) .
                        span({id => 's'},'100%')))));
   my $warn = '';
-  if ($CAN_ORDER) {
+  if ($RUN_AS) {
+    $warn = div({class => 'boxed',style => 'border-color: #f60'},
+                span({style => 'color: #f60;font-size: 14pt;'},
+                     span({class => 'glyphicon glyphicon-warning-sign'},''),
+                        'You can simulate ordering crosses'));
+  }
+  elsif ($CAN_ORDER) {
     $warn = div({class => 'boxed',style => 'border-color: #6c0'},
                 span({style => 'color: #6c0;font-size: 14pt;'},
                      span({class => 'glyphicon glyphicon-ok'},''),
@@ -1125,9 +1141,12 @@ sub submitButton
 sub createAdditionalData
 {
   my @other;
-  $kafka_msg = {program => $PROGRAM,
+  $kafka_msg = {client => $PROGRAM,
                 user => $USERID,
-                operation => 'search'};
+                category => 'search',
+                time => time,
+                host => hostname,
+                count => 1};
   if ($VIEW_ALL) {
     if (param('user')) {
       push @other,Tr(td(['Imaged for: ',&getUsername(param('user'))]));
@@ -1155,15 +1174,15 @@ sub createAdditionalData
 }
 
 
-sub publish
+sub publish_json
 {
-  return unless ($producer);
-  my($message) = shift;
+  my($message,$topic) = @_;
+  $topic ||= 'screen_review';
   try {
     my $t = time;
     my $stamp = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
     $stamp .= sprintf ".%03d", ($t-int($t))*1000;
-    my $response = $producer->send('split_screen',0,$message,$stamp,undef,time*1000);
+    my $response = $producer->send($topic,0,$message,$stamp,undef,time*1000);
   }
   catch {
     my $error = $_;
@@ -1177,6 +1196,20 @@ sub publish
 }
 
 
+sub extractLine
+{
+  my($id) = shift;
+  my($l,$op);
+  if ($id =~ /wJFB/) {
+    ($l,$op) = $id =~ /(.+\d+_wJFB)_(.+)/;
+  }
+  else {
+    ($l,$op) = $id =~ /(.+\d+)_(.+)/;
+  }
+  return($l,$op);
+}
+
+
 sub verifyCrosses
 {
   my (%error,%line);
@@ -1187,7 +1220,7 @@ sub verifyCrosses
     next if (/^(?:_|verify)/);
     $control .= hidden(&identify($_),default => param($_))
       unless ($_ eq 'verify');
-    my $l = join('_',(split('_'))[0,1]);
+    my($l,$op) = extractLine($_);
     if (/cross$/) {
       $line{$l}{p} = param($_);
       my $resp = &getREST('sage',"split_order/$l");
@@ -1233,6 +1266,9 @@ sub verifyCrosses
                          'The following lines cannot have splits ordered: '
                          . join(', ',sort(keys %error))))
     if (scalar(keys %error));
+  my $order_msg = ($CAN_ORDER) ? 'Press the "Request crosses/discards" button to place your order.'
+                               : "This is simply a verification screen; no order will be placed.";
+  $order_msg = 'Press the "Request crosses/discards" button to simulate placing an order.';
   print table({class => 'verify'},
               thead(Tr(th(['Line','Cross barcode',@CROSS,'Discard','AD','DBD']))),
               tbody(map {my @col;
@@ -1250,9 +1286,7 @@ sub verifyCrosses
                  $total_cross,(1 == $total_cross) ? '' : 'es',$USERNAME),br,
         $priority,
         (sprintf 'A total of %d line%s can be discarded.',
-                 $total_discard,(1 == $total_discard) ? '' : 's'),br,
-        (($CAN_ORDER) ? 'Press the "Request crosses/discards" button to place your order.'
-                      : "This is simply a verification screen; no order will be placed."),
+                 $total_discard,(1 == $total_discard) ? '' : 's'),br,$order_msg,
         div({align => 'center'},
                 submit({&identify('cancel'),class => 'btn btn-danger',
                         value => "Cancel",
@@ -1272,8 +1306,9 @@ sub requestCrosses
   my (%cross_line,%discard_line);
   my($total_cross,$total_discard) = (0)x2;
   foreach (param()) {
+    my($l,$op) = extractLine($_);
     if (/cross$/) {
-      $cross_line{my $l = join('_',(split('_'))[0,1])} = param($_);
+      $cross_line{$l} = param($_);
       $total_cross++;
       unless ($type{$l}) {
         $sth{DATASET}->execute($l);
@@ -1282,7 +1317,6 @@ sub requestCrosses
       }
     }
     elsif (/discard$/) {
-      my $l = join('_',(split('_'))[0,1]);
       $l =~ s/_IS/_SS/;
       $discard_line{$l} = param($_);
       $total_discard++;
@@ -1293,6 +1327,8 @@ sub requestCrosses
   print "Crosses to be ordered: $total_cross" . br;
   my (%diagnostic,%error,%success);
   foreach my $line (sort keys %cross_line) {
+    my $count = 0;
+    my %order_type = ();
     my($ad,$dbd,$robot_ad,$robot_dbd);
     my $resp = &getREST('sage',"split_order/$line");
     unless ($resp) {
@@ -1310,6 +1346,8 @@ sub requestCrosses
     foreach my $c (@CROSS) {
       next unless (my $barcode = param(join('_',$line,lc($c),'cross')));
       $split{lc($c)} = (param(join('_',$line,lc($c),'pri'))) ? 2 : 1;
+      $count++;
+      $order_type{lc($c)}++;
     }
     my $order = {username => $USERID,
                  splits => [\%split],
@@ -1323,9 +1361,19 @@ sub requestCrosses
       $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
       $kafka_msg = {program => $PROGRAM,
                     user => $USERID,
-                    operation => 'order',
-                    order => $order};
-      &publish(encode_json($kafka_msg));
+                    category => 'order',
+                    order => $order,
+                    time => time,
+                    host => hostname,
+                    line => $line,
+                    count => $count};
+      foreach my $c (@CROSS) {
+        if (exists $order_type{lc($c)}) {
+          $kafka_msg->{lc($c)} = $order_type{lc($c)};
+        }
+      }
+      $kafka_msg->{status} = $client->responseCode();
+      &publish_json(encode_json($kafka_msg));
       if ($client->responseCode() == 201) {
         $success{$line}++;
       }
@@ -1354,7 +1402,16 @@ sub requestCrosses
     my $order = {username => $USERID,
                  discards => [sort keys %discard_line]};
     my $json_text = $json->encode($order);
+    $kafka_msg = {program => $PROGRAM,
+                  user => $USERID,
+                  category => 'discard',
+                  order => $json_text,
+                  time => time,
+                  host => hostname,
+                  count => $total_discard};
     $client->POST("$FLYSTORE_HOST/api/order/",$json_text);
+    $kafka_msg->{status} = $client->responseCode();
+    &publish_json(encode_json($kafka_msg));
     if ($client->responseCode() == 201) {
       print &bootstrapPanel('Lines discarded',join(', ',sort keys %discard_line),'success');
     }
