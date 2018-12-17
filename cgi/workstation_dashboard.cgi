@@ -47,7 +47,7 @@ my @HOST_NUMBERS = ('',2..8);
 my %PARMS;
 # Web
 our ($USERID,$USERNAME);
-my $INTAKE = 0;
+my ($INTAKE,$WORKSTATION) = (0)x2;
 my $Session;
 # General
 my ($Capture_per_day,$Completed,$CT_cycle_time,$DC_cycle_time,$Errored,
@@ -58,7 +58,8 @@ my %status_count;
 
 # ****************************************************************************
 $INTAKE = param('intake');
-unless ($INTAKE) {
+$WORKSTATION= param('workstation');
+unless ($INTAKE || $WORKSTATION) {
   # Session authentication
   $Session = &establishSession(css_prefix => $PROGRAM);
   &sessionLogout($Session) if (param('logout'));
@@ -108,7 +109,7 @@ sub displayDashboard
   %PARMS = (text_color => '#fff', width => $width.'px',
             height => (sprintf '%d',$width*.6).'px');
   &printHeader();
-  my $pipeline = ($INTAKE) ? '' : &reportStatus();
+  my $pipeline = ($INTAKE || $WORKSTATION) ? '' : &reportStatus();
   # Intake
   my(%captured,%count,%sum);
   my $ar;
@@ -247,6 +248,12 @@ sub displayDashboard
                 . &displayElapsed($sum{$_}/$count{$_},'d')
       if ($count{$_});
   }
+  if ($WORKSTATION) {
+    &reportStatus();
+    &printCurrentStatus();
+    print end_form,end_html;
+    return();
+  }
   my $objective_boxes = '';
   foreach my $o qw(20 40 63) {
     next unless ($last{$o});
@@ -344,7 +351,12 @@ sub reportStatus
   my $last_key = (sort keys %bin_days)[-1];
   $Completed = $bin3{$last_key} + $bin4{$last_key};
   $Errored = $bin4{$last_key} || 0;
-  $Error_rate = sprintf '%.1f',($Errored / $Completed) * 100;
+  if ($Completed) {
+    $Error_rate = sprintf '%.1f',($Errored / $Completed) * 100;
+  }
+  else {
+    $Error_rate = '0.0';
+  }
   my $width = 600;
   %PARMS = (subtitle => "$samples samples over the last $MEASUREMENT_DAYS days",
             text_color => '#fff', width => $width.'px',
@@ -521,7 +533,7 @@ sub printCurrentStatus
     $scheduled = sprintf "%d sample%s scheduled but not queued<br>to a JACS server",$a,($a == 1) ? '' : 's';
     $scheduled = div({class => "panel panel-danger"},
                      div({class => "panel-body"},
-                         span({style => 'font-size: 10pt;color: #f33;'},$scheduled)));
+                         span({style => 'font-size: 10pt;color: #f66;'},$scheduled)));
   }
   my $processing_stats = &getProcessingStats();
   my $panel = 'primary';
