@@ -529,11 +529,17 @@ sub printCurrentStatus
           . div({style => 'font-size: 16pt; padding-left: 10px;'},$it);
   }
   my $scheduled = '';
-  if ($a = $status_count{Scheduled}) {
-    $scheduled = sprintf "%d sample%s scheduled but not queued<br>to a JACS server",$a,($a == 1) ? '' : 's';
-    $scheduled = div({class => "panel panel-danger"},
-                     div({class => "panel-body"},
-                         span({style => 'font-size: 10pt;color: #f66;'},$scheduled)));
+  my @waiting;
+  foreach(qw(New Scheduled)) {
+    if ($a = $status_count{$_}) {
+      push @waiting,sprintf "%d %s",$a,$_;
+    }
+    if (length(@waiting)) {
+      $scheduled = div({class => "panel panel-danger"},
+                       div({class => "panel-body"},
+                           span({style => 'font-size: 10pt;color: #f66;'},
+                                'Samples awaiting queueing: ' . join(', ',@waiting))));
+    }
   }
   my $processing_stats = &getProcessingStats();
   my $panel = 'primary';
