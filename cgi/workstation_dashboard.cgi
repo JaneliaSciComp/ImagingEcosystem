@@ -179,50 +179,54 @@ sub displayDashboard
       }
     }
   }
-  # Histograms
+  my %today;
+  my ($histogram1,$histogram2);
+  my $clock = '';
   &fillDates(\%bin2);
   $Capture_per_day = $img_acc / scalar(keys %bin1);
   $Intake_per_day = $img_acc / scalar(keys %bin2);
-  my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
-  my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
-  my $histogram1 = &generateHistogram(arrayref => \@bin1,
-                                      title => 'LSM file capture per day',
-                                      content => 'capture',
-                                      yaxis_title => '# files',
-                                      color => '#66f',%PARMS);
-  my $histogram2 = &generateHistogram(arrayref => \@bin2,
-                                      title => 'LSM file intake per day',
-                                      content => 'intake',
-                                      yaxis_title => '# files',
-                                      color => '#6f6',%PARMS);
-  # Today
-  my $clock = '';
-  $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
-                          content => 'intakeclock',
-                          title => "LSM intake/hour",
-                          color => ['#009900'],
-                          text_color => 'white',
-                          width => '270px',
-                          height => '270px') if ($max_create{all});
-  my %today = map { $_ => '' } qw(all 20 40 63);
-  foreach (qw(all 20 40 63)) {
-    next if (($_ ne 'all') && (!$max_capture{$_} && !$max_create{$_}));
-    $today{$_} .= "Images captured: $max_capture{$_}<br>";
-    $today{$_} .= "Images ingested: $max_create{$_}";
-    if ($ct_cnt{$_}) {
-      $today{$_} .= '<br>Capture &rarr; TMOG cycle time<br>';
-      $today{$_} .= '&nbsp;&nbsp;' . &displayElapsed($min_ct{$_}/3600) . ' - '
-                    . &displayElapsed($max_ct{$_}/3600) . br;
-      $today{$_} .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc{$_}/$ct_cnt{$_})/3600) . br;
+  unless ($WORKSTATION) {
+    # Histograms
+    my @bin1 = map { [$_,$bin1{$_}] } sort keys %bin1;
+    my @bin2 = map { [$_,$bin2{$_}] } sort keys %bin2;
+    $histogram1 = &generateHistogram(arrayref => \@bin1,
+                                     title => 'LSM file capture per day',
+                                     content => 'capture',
+                                     yaxis_title => '# files',
+                                     color => '#66f',%PARMS);
+    $histogram2 = &generateHistogram(arrayref => \@bin2,
+                                     title => 'LSM file intake per day',
+                                     content => 'intake',
+                                     yaxis_title => '# files',
+                                     color => '#6f6',%PARMS);
+    # Today
+    $clock = &generateClock(arrayref => [map {$cbin{$_}} sort keys %cbin],
+                            content => 'intakeclock',
+                            title => "LSM intake/hour",
+                            color => ['#009900'],
+                            text_color => 'white',
+                            width => '270px',
+                            height => '270px') if ($max_create{all});
+    %today = map { $_ => '' } qw(all 20 40 63);
+    foreach (qw(all 20 40 63)) {
+      next if (($_ ne 'all') && (!$max_capture{$_} && !$max_create{$_}));
+      $today{$_} .= "Images captured: $max_capture{$_}<br>";
+      $today{$_} .= "Images ingested: $max_create{$_}";
+      if ($ct_cnt{$_}) {
+        $today{$_} .= '<br>Capture &rarr; TMOG cycle time<br>';
+        $today{$_} .= '&nbsp;&nbsp;' . &displayElapsed($min_ct{$_}/3600) . ' - '
+                      . &displayElapsed($max_ct{$_}/3600) . br;
+        $today{$_} .= '&nbsp;&nbsp;Average: ' . &displayElapsed(($ct_acc{$_}/$ct_cnt{$_})/3600) . br;
+      }
     }
-  }
-  # Check for images awaiting indexing
-  $rvar = &getREST('sage',"unindexed_images");
-  my $icount = scalar(@{$rvar->{images}}) || 0;
-  $today{all} .= "<span style='color: #fff; background-color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
-  $today{all} .= $clock;
-  foreach (qw(all 20 40 63)) {
-    $today{$_} = h3({style => 'text-align: center'},'Today').$today{$_} if ($today{$_});
+    # Check for images awaiting indexing
+    $rvar = &getREST('sage',"unindexed_images");
+    my $icount = scalar(@{$rvar->{images}}) || 0;
+    $today{all} .= "<span style='color: #fff; background-color: #AB451D'><br>Images awaiting indexing: $icount</span>" if ($icount);
+    $today{all} .= $clock;
+    foreach (qw(all 20 40 63)) {
+      $today{$_} = h3({style => 'text-align: center'},'Today').$today{$_} if ($today{$_});
+    }
   }
   # Last 30 days
   my %last = map { $_ => '' } qw(all 20 40 63);
