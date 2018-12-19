@@ -531,15 +531,15 @@ sub printCurrentStatus
   my $scheduled = '';
   my @waiting;
   foreach(qw(New Scheduled)) {
-    if ($a = $status_count{$_}) {
-      push @waiting,sprintf "%d %s",$a,$_;
+    if ($status_count{$_}) {
+      push @waiting,sprintf "%d %s",$status_count{$_},$_;
     }
-    if (length(@waiting)) {
-      $scheduled = div({class => "panel panel-danger"},
-                       div({class => "panel-body"},
-                           span({style => 'font-size: 10pt;color: #f66;'},
-                                'Samples awaiting queueing: ' . join(', ',@waiting))));
-    }
+  }
+  if (scalar(@waiting)) {
+    $scheduled = div({class => "panel panel-danger"},
+                     div({class => "panel-body"},
+                         span({style => 'font-size: 10pt;color: #f66;'},
+                              'Samples awaiting queueing: ' . join(', ',@waiting))));
   }
   my $processing_stats = &getProcessingStats();
   my $panel = 'primary';
