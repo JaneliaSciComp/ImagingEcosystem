@@ -109,7 +109,13 @@ sub displayDashboard
   %PARMS = (text_color => '#fff', width => $width.'px',
             height => (sprintf '%d',$width*.6).'px');
   &printHeader();
-  my $pipeline = ($INTAKE || $WORKSTATION) ? '' : &reportStatus();
+  if ($WORKSTATION) {
+    &reportStatus();
+    &printCurrentStatus();
+    print end_form,end_html;
+    return();
+  }
+  my $pipeline = ($INTAKE) ? '' : &reportStatus();
   # Intake
   my(%captured,%count,%sum);
   my $ar;
@@ -252,12 +258,6 @@ sub displayDashboard
                 . &displayElapsed($sum{$_}/$count{$_},'d')
       if ($count{$_});
   }
-  if ($WORKSTATION) {
-    &reportStatus();
-    &printCurrentStatus();
-    print end_form,end_html;
-    return();
-  }
   my $objective_boxes = '';
   foreach my $o qw(20 40 63) {
     next unless ($last{$o});
@@ -319,6 +319,7 @@ sub reportStatus
                                                 : $piei{$_->[0]} = $_->[1];
     $donut{($_->[0] =~ /(?:Blocked|Complete|Retired)/) ? 'Complete' : 'In process'} += $_->[1];
   }
+  return if ($WORKSTATION);
   my (%bin3,%bin4);
   $rvar = &getREST('jacs',$CONFIG{'jacs'}{query}{PipelineStatus}
                       . '?hours=' . $MEASUREMENT_HOURS);
@@ -495,13 +496,55 @@ sub reportStatus
 
 sub printCurrentStatus
 {
-  return unless ($Error_rate);
+  return unless ($Error_rate || $WORKSTATION);
+  # Queueing status
+  my $processing_stats = &getProcessingStats();
   my $total_hosts = scalar @HOST_NUMBERS;
   my $active_hosts = $total_hosts - scalar(@Unavailable_hosts);
   my $err_msg;
   if ($active_hosts != $total_hosts) {
     $err_msg = ' (unavailable servers: ' . join(', ',@Unavailable_hosts) . ')';
   }
+  my $srv_style = 'lime';
+  $srv_style = 'red' unless ($active_hosts == $total_hosts);
+  $srv_style = "color: $srv_style";
+  my $scheduled = '';
+  my @waiting;
+  foreach(qw(New Scheduled)) {
+    if ($status_count{$_}) {
+      push @waiting,sprintf "%d %s",$status_count{$_},$_;
+    }
+  }
+  if (scalar(@waiting)) {
+    $scheduled = div({class => "panel panel-danger"},
+                     div({class => "panel-body"},
+                         span({style => 'font-size: 10pt;color: #f66;'},
+                              'Samples awaiting queueing: ' . join(', ',@waiting))));
+  }
+  my $panel = 'primary';
+  my $current = 'Current status';
+  if ($scheduled && !$Total_queued && !$Total_on_cluster) {
+    $panel = 'danger';
+    $current = span({style => 'font-size: 20pt;color: #f33;'},'Pipeline is shut down');
+  }
+  my $workstation_area = div({class=> 'left30'},
+                             $scheduled,
+                             'Available JACS servers: ',
+                             span({style => $srv_style},
+                                  (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg),
+                             $processing_stats);
+  if ($WORKSTATION) {
+    print div({class => "panel panel-$panel"},
+               div({class => 'panel-heading'},
+                  span({class => 'panel-heading;'},$current)),
+              div({class => 'panel-body',style => 'font-size: 18pt'},
+                  div({class => 'left'},
+                  $workstation_area,
+                 ))),
+             div({style => 'clear: both;'},NBSP);
+    return();
+  }
+  # Error rate
   my $err_style = 'lime';
   if ($Error_rate > 10) {
     $err_style = 'red';
@@ -510,9 +553,7 @@ sub printCurrentStatus
     $err_style = 'orange';
   }
   $err_style = "color: $err_style";
-  my $srv_style = 'lime';
-  $srv_style = 'red' unless ($active_hosts == $total_hosts);
-  $srv_style = "color: $srv_style";
+  # Cycle time
   my $ct = '';
   $ct = 'Average cycle time:' . br if ($CT_cycle_time || $DC_cycle_time);
   $ct .= span({style => "color: ".&getColor($CT_cycle_time)},
@@ -532,26 +573,6 @@ sub printCurrentStatus
     $it = 'Average LSMs per day:' . br
           . div({style => 'font-size: 16pt; padding-left: 10px;'},$it);
   }
-  my $scheduled = '';
-  my @waiting;
-  foreach(qw(New Scheduled)) {
-    if ($status_count{$_}) {
-      push @waiting,sprintf "%d %s",$status_count{$_},$_;
-    }
-  }
-  if (scalar(@waiting)) {
-    $scheduled = div({class => "panel panel-danger"},
-                     div({class => "panel-body"},
-                         span({style => 'font-size: 10pt;color: #f66;'},
-                              'Samples awaiting queueing: ' . join(', ',@waiting))));
-  }
-  my $processing_stats = &getProcessingStats();
-  my $panel = 'primary';
-  my $current = 'Current status';
-  if ($scheduled && !$Total_queued && !$Total_on_cluster) {
-    $panel = 'danger';
-    $current = span({style => 'font-size: 20pt;color: #f33;'},'Pipeline is shut down');
-  }
   print div({class => "panel panel-$panel"},
              div({class => 'panel-heading'},
                 span({class => 'panel-heading;'},$current)),
@@ -561,12 +582,7 @@ sub printCurrentStatus
                         'Error rate: ',
                         span({style => $err_style},$Error_rate.'%'),
                         span({style => 'font-size: 11pt'},"($Errored/$Completed samples)")),
-                div({class=> 'left30'},
-                    $scheduled,
-                    'Available JACS servers: ',
-                    span({style => $srv_style},
-                         (sprintf '%d/%d',$active_hosts,$total_hosts),$err_msg),
-                    $processing_stats),
+                $workstation_area,
                 div({class=> 'left30'},$ct,br,$it)
                ))),
            div({style => 'clear: both;'},NBSP);
