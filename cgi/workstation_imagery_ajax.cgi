@@ -24,7 +24,8 @@ my (%CONFIG,%SERVER);
 # ****************************************************************************
 my $TYPE = param('type') || 'mip';
 my $ENTITY = param('entity') || 'lsm';
-my $PRODUCT = param('product') || 'Signal%20MIP';
+my $PRODUCT = param('product') || 'Signal MIP';
+my $BACKUP = 'All Channel MIP';
 my $HEIGHT = param('height') || 200;
 my $COLOR = param('color') || '#ffffff';
 
@@ -37,7 +38,7 @@ my $hr = decode_json $slurp;
 %CONFIG = %$hr;
 $file = DATA_PATH . 'servers.json';
 open SLURP,$file or &terminateProgram("Can't open $file: $!");
-sysread SLURP,my $slurp,-s SLURP;
+sysread SLURP,$slurp,-s SLURP;
 close(SLURP);
 $hr = decode_json $slurp;
 %SERVER = %$hr;
@@ -62,7 +63,7 @@ sub lsmMIP
   &returnError("<h3>REST GET failed</h3><br>Request: $rest<br>"
                . "Response: $response<br>Error: $@") if ($@);
   $PRODUCT = uri_decode($PRODUCT);
-  my $img = $rvar->{files}{$PRODUCT} || '';
+  my $img = $rvar->{files}{$PRODUCT} || $rvar->{files}{$BACKUP} || '';
   if ($img) {
     return(img({src => $SERVER{'jacs-storage'}{address} . $img,
                 height => $HEIGHT}));
