@@ -1,4 +1,4 @@
-var SAGE_RESPONDER = 'http://informatics-flask.int.janelia.org:83/sage_responder';
+var SAGE_RESPONDER = 'http://sage_responder.int.janelia.org';
 var data_set = '';
 var slide_code = '';
 var objective = ''
@@ -51,12 +51,12 @@ $(document).ready(function() {
   if ($("#family").val() == 'all') {
     sql = '_columns=data_set&_distinct=1&_sort=data_set';
   }
-  $.getJSON(SAGE_RESPONDER + '/images?' + sql,
+  $.getJSON(SAGE_RESPONDER + '/image_classifications?' + sql,
       function(data) {})
       .success(function(data) {
         var s = $('<select id="data_set" name="data_set"/>');
         s.append('<option value="">Choose a data set</option>');
-        $.each(data.image_data, function(key, val) {
+        $.each(data.image_classification_data, function(key, val) {
           if (key) {
             s.append($('<option/>').html(val.data_set));
           }
@@ -151,6 +151,11 @@ $(document).ready(function() {
         $.each(data.image_data, function(key, val) {
           var cd = new Date(val.capture_date);
           var td = new Date(val.create_date);
+          var line_link = "http://informatics-prod.int.janelia.org/cgi-bin/lineman.cgi?line=" + val.line;
+          line_link = $('<a>',{text: val.line,
+                        href: line_link,
+                        target: "_blank",
+                        });
           var ws_link = 'http://webstation.int.janelia.org/search?term=' + val.name + '&type_label=LSM+Image';
           link = $('<a>',{text: val.name,
                           href: ws_link,
@@ -164,9 +169,10 @@ $(document).ready(function() {
                           mouseout: function(){ $('#display').html(''); }
                    });
           var row = $('<tr></tr>').appendTo(t);
-          $.each([val.slide_code,cd.toDateString(),td.toDateString(),val.microscope,val.microscope_filename,val.cross_barcode,val.line], function(i,v) {
+          $.each([val.slide_code,cd.toDateString(),td.toDateString(),val.microscope,val.microscope_filename,val.cross_barcode], function(i,v) {
             $('<td></td>').text(v).appendTo(row);
           });
+          $('<td></td>').html(line_link).appendTo(row);
           $('<td></td>').html(link).appendTo(row);
         });
         $("div#data_block").html(t);

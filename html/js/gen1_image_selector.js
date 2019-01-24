@@ -1,7 +1,23 @@
+var time = new Date().getTime();
+$(document.body).bind("mousemove keypress", function(e) {
+  time = new Date().getTime();
+});
+
+function refresh() {
+  if(new Date().getTime() - time >= 60000) 
+    window.location.reload(true);
+  else 
+    setTimeout(refresh, 60000);
+}
+
+function reloadSetup() {
+  setTimeout(refresh, 60000);
+}
+
 function designate(image_id,line_id,image_name,user_name) {
   var status = $('#'+image_id).is(':checked');
   if (status) {
-    fetch('http://informatics-flask-dev.int.janelia.org:83/sage_responder/session',{
+    fetch('http://sage_responder.int.janelia.org/session',{
           method: 'post',
           mode: 'cors',
           headers: { 'Access-Control-Allow-Origin': '*',
@@ -20,7 +36,7 @@ function designate(image_id,line_id,image_name,user_name) {
          });
   }
   else {
-    fetch('http://informatics-flask-dev.int.janelia.org:83/sage_responder/sessions?'
+    fetch('http://sage_responder.int.janelia.org/sessions?'
           + 'cv=flylight_public_annotation&type=annotation_image&lab=flylight&'
           + 'line_id=' + line_id + '&image_id=' + image_id,{
           method: 'get',
@@ -30,7 +46,7 @@ function designate(image_id,line_id,image_name,user_name) {
             return response.json();
           }).then(function(data) {
             session_id = data.session_data[0].id;
-            fetch('http://informatics-flask-dev.int.janelia.org:83/sage_responder/session/'
+            fetch('http://sage_responder.int.janelia.org/session/'
                   + session_id,{
                   method: 'delete',
                   mode: 'cors',
