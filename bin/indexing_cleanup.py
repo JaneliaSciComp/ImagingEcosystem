@@ -11,8 +11,19 @@ from pymongo import MongoClient
 
 # SQL statements
 SQL = {
-  'OVERDUE': "SELECT i.family,ipd.value,ips.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') JOIN image_property_vw ips ON (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample') AND TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
-  'ALL': "SELECT i.family,ipd.value,ips.value,i.name FROM image_vw i JOIN image_property_vw ipd ON (i.id=ipd.image_id AND ipd.type='data_set') JOIN image_property_vw ips ON (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM image_property_vw WHERE type='bits_per_sample')",
+    'OVERDUE': "SELECT i.family,ipd.value,ips.value,i.name FROM image_vw i "
+        + "JOIN image_property_vw ipd ON (i.id=ipd.image_id AND "
+        + "ipd.type='data_set') JOIN image_property_vw ips ON "
+        + "(i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
+        + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
+        + "image_property_vw WHERE type='bits_per_sample') AND "
+        + "TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
+    'ALL': "SELECT i.family,ipd.value,ips.value,i.name FROM image_vw i JOIN "
+        + "image_property_vw ipd ON (i.id=ipd.image_id AND "
+        + "ipd.type='data_set') JOIN image_property_vw ips ON "
+        + "(i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
+        + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
+        + "image_property_vw WHERE type='bits_per_sample')",
 }
 # Counters
 count = {'failure': 0, 'found': 0, 'skipped': 0, 'success': 0}
@@ -90,8 +101,14 @@ def connect_databases():
 
 def processImages(cursor):
     mode = 'ALL' if ALL else 'OVERDUE'
+    stmt = SQL[mode]
+    if SLIDE:
+        addition = '%' + SLIDE + '%'
+        stmt = stmt.replace("sample')",
+                            "sample') AND ips.value LIKE '" + addition + "'")
     try:
-        cursor.execute(SQL[mode])
+        logger.debug(stmt)
+        cursor.execute(stmt)
     except MySQLdb.Error as e:
         sqlError(e)
 
@@ -100,10 +117,6 @@ def processImages(cursor):
         config = ''
         grammar = ''
         count['found'] += 1
-        if SLIDE:
-            if SLIDE not in slide_code:
-                count['skipped'] += 1
-                continue
         if DEBUG:
             print("%s\t%s\t%s\t%s" % (family, data_set, slide_code, name))
         if family == 'rubin_chacrm':
@@ -158,6 +171,7 @@ def indexImage(config, grammar, name, data_set):
     try:
         if TEST:
             tmp = 'OK'
+            logger.warning("Test mode: will not send transactions")
         else:
             tmp = subprocess.check_output(command, stderr=subprocess.STDOUT)
         if (tmp.find('Cannot read file') != -1) or (tmp.find('Permission denied') != -1) or (tmp.find('Unable to uncompress the stack') != -1):
