@@ -28,7 +28,6 @@ function showDetail(id,create_date,name,annotator,microscope,dataset,slide_code,
   var response = 'No image';
   $.post('/cgi-bin/workstation_imagery_ajax.cgi',
          {name: name,
-          product: 'Reference+Signal MIP'},
          function(data) {
   var d = "<div class='left'><div class='left'>" + data + "</div>"
           + "<div class='left'>" + t + "</div></div><div class='clear'></div>";
