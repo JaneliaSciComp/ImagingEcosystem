@@ -1,18 +1,20 @@
 #!/opt/python/bin/python2.7
 
 import argparse
-import json
 import sys
 import colorlog
 import requests
 import MySQLdb
 
 # Database
-READ = {'unsynced': "SELECT id.id,value FROM image_data_mv id JOIN image_property_vw ip ON " +
-                    "(ip.image_id=id.id and ip.type='%s') WHERE %s IS NULL AND id.update_date IS NOT NULL",
+READ = {'unsynced': "SELECT id.id,value FROM image_data_mv id JOIN " +
+                    "image_property_vw ip ON (ip.image_id=id.id " +
+                    "AND  ip.type='%s') WHERE %s IS NULL AND " +
+                    "id.update_date IS NOT NULL",
        }
 WRITE = {'update': "UPDATE image_data_mv SET %s='%s' WHERE id=%s",
-         'refresh': "UPDATE image_property SET update_date=NOW() WHERE image_id=%s",
+         'refresh': "UPDATE image_property SET update_date=NOW() " +
+                    "WHERE image_id=%s",
         }
 CONN = dict()
 CURSOR = dict()
@@ -89,8 +91,8 @@ def update_lineprops(imageprop):
         logger.critical("Could not find line property %s", imageprop)
         sys.exit(-1)
     cursor = READ['unsynced'] % (imageprop, imageprop)
-    print "Syncing image properties for %s (%s) on %s" % (imageprop,
-                                                          j['cvterm_data'][0]['display_name'], db)
+    print("Syncing image properties for %s (%s) on %s" %
+          (imageprop, j['cvterm_data'][0]['display_name'], db))
     try:
         CURSOR[db].execute(cursor)
     except MySQLdb.Error as err:
@@ -99,7 +101,8 @@ def update_lineprops(imageprop):
     for row in rows:
         image_id = row[0]
         value = row[1]
-        logger.debug("Missing %s (%s) for image %s", imageprop, value, image_id)
+        logger.debug("Missing %s (%s) for image %s", imageprop,
+                     value, image_id)
         cursor2 = WRITE['update'] % (imageprop, value, image_id)
         logger.debug(cursor2)
         try:
@@ -118,9 +121,9 @@ def update_lineprops(imageprop):
             COUNT['triggered'] += CURSOR[db].rowcount
     if ARG.WRITE:
         CONN[db].commit()
-    print "Unsynced records: %d" % (len(rows))
-    print "Updated records: %d" % (COUNT['update'])
-    print "Triggered updates: %d" % (COUNT['triggered'])
+    print("Unsynced records: %d" % (len(rows)))
+    print("Updated records: %d" % (COUNT['update']))
+    print("Triggered updates: %d" % (COUNT['triggered']))
 
 
 if __name__ == '__main__':
