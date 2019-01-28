@@ -106,6 +106,10 @@ def processImages(cursor):
         addition = '%' + SLIDE + '%'
         stmt = stmt.replace("sample')",
                             "sample') AND ips.value LIKE '" + addition + "'")
+    if DATASET:
+        addition = '%' + DATASET + '%'
+        stmt = stmt.replace("sample')",
+                            "sample') AND ipd.value LIKE '" + addition + "'")
     try:
         logger.debug(stmt)
         cursor.execute(stmt)
@@ -197,6 +201,8 @@ def indexImage(config, grammar, name, data_set):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Find and index/discover newly tmogged imagery')
+    parser.add_argument('--data_set', dest='dataset', action='store',
+                        help='Data set (optional)')
     parser.add_argument('--slide_code', dest='slide', action='store',
                         help='Slide code (optional)')
     parser.add_argument('--index', action='store_true', dest='index',
@@ -210,6 +216,7 @@ if __name__ == '__main__':
     parser.add_argument('--all', action='store_true', dest='all',
                         default=False, help='Selects all images, not just overdue ones')
     args = parser.parse_args()
+    DATASET = args.dataset
     SLIDE = args.slide
     INDEX_ONLY = args.index
     VERBOSE = args.verbose
