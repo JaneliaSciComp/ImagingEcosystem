@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import colorlog
 import requests
@@ -33,9 +34,12 @@ def call_responder(server, endpoint):
 
 def initialize_program():
     """ Initialize database """
-    global CONFIG
+    global CONFIG, MAIL_CC
     data = call_responder('config', 'config/rest_services')
     CONFIG = data['config']
+    prog = os.path.basename(__file__).replace('.py', '')
+    data = call_responder('config', 'config/' + prog)
+    MAIL_CC = data['config']['recipients']
 
 
 def generate_email_message(sender, recievers, subject, message):
@@ -105,7 +109,11 @@ def read_messages():
         primary = '%s@hhmi.org' % (user)
         if ARG.VERBOSE:
             print("%s\n%s" % (subject, body))
-        send_mail(SENDER, [primary, SENDER], subject, body)
+        copies = [primary, SENDER]
+        if len(MAIL_CC):
+            copies += MAIL_CC
+        logger.info('Sending mail to ' + ', '.join(copies))
+        send_mail(SENDER, copies, subject, body)
 
 
 # -----------------------------------------------------------------------------
