@@ -61,10 +61,10 @@ HALVES => "SELECT lp.value,lp.name,lpp.value AS info FROM line_property_vw lp "
           . "lp.type='flycore_project' AND lr.subject=?",
 IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
-IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' AND i.display!=0 ORDER BY 1",
+IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' AND i.display!=0 ORDER BY line ASC,slide_code DESC",
 SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
-           . "'JRC\_SS%' AND cross_type IN ('SplitFlipOuts','SplitPolarity','StableSplitScreen') GROUP BY 1,2",
+           . "'JRC\_S%' AND cross_type IN ('SplitFlipOuts','SplitPolarity','StableSplitScreen') GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
 USERLINES => "SELECT SUBSTRING_INDEX(value,'_',1),COUNT(DISTINCT line) FROM image_vw i "
              . "JOIN image_property_vw ip ON (i.id=ip.image_id AND ip.type='data_set') "
@@ -73,7 +73,7 @@ USERLINES => "SELECT SUBSTRING_INDEX(value,'_',1),COUNT(DISTINCT line) FROM imag
 FB_ONROBOT => "SELECT Stock_Name,Production_Info,On_Robot,GROUP_CONCAT("
               . "DISTINCT lab_member) FROM StockFinder sf LEFT OUTER JOIN "
               . "Project_Crosses pc ON (sf.__kp_UniqueID=pc._kf_Parent_UID) "
-              . "WHERE Stock_Name LIKE 'JRC\_SS%' GROUP BY 1,2,3",
+              . "WHERE Stock_Name LIKE 'JRC\_S%' GROUP BY 1,2,3",
 );
 my $CLEAR = div({style=>'clear:both;'},NBSP);
 my (%BRIGHTNESS,%DISCARD,%GAIN,%ONORDER,%PERMISSION,%POWER,%REQUESTER,%SSCROSS,%USERNAME);
@@ -199,7 +199,15 @@ sub initializeProgram
   }
   else {
     if ((param('search_mode')) && (param('search_mode') eq 'ss')) {
-      $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_SS%'/;
+      if ((param('driver_mode')) && (param('driver_mode') eq 'gal4')) {
+        $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\\_SS%'/;
+      }
+      elsif ((param('driver_mode')) && (param('driver_mode') eq 'lexa')) {
+        $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\\_SL%'/;
+      }
+      else {
+        $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\\_S%'/;
+      }
     }
     else {
       $sth{IMAGES} =~ s/ LIKE 'LINESEARCH'/ LIKE '%\_IS%'/;
@@ -356,7 +364,16 @@ sub dateDialog
                                  -values => ['is','ss'],
                                  -labels => {is => ' Initial split',
                                              ss => ' Stable split'},
-                                 -default => 'is'));
+                                 -default => 'is'),br,
+                     'Driver: ',
+                     radio_group(&identify('driver_mode'),
+                                 -values => ['gal4','lexa','any'],
+                                 -labels => {gal4 => ' GAL4',
+                                             lexa => ' LexA',
+                                             any => 'Any'},
+                                 -default => 'any'),
+                     ' (only used for Stable split searches)'
+                    );
   my $lsect = div({style => $margin . 'float: left'},'Line: ' . input({&identify('line')}) . ' (optional)' . br
                   'Enter any portion of an Initial or Stable' . br . 'split line name');
   my $scsect = div({style => 'float: left;'},'Slide code: ' . input({&identify('slide_code')}) . ' (optional)'
@@ -387,7 +404,7 @@ sub chooseCrosses
   my $DSTYPE = '%';
   if ($VIEW_ALL) {
     $DSUSER = param('user') || $RUN_AS || '%';
-    $DSUSER = '%' if ($RUN_AS && scalar(@{$PERMISSION{$RUN_AS}}));
+    $DSUSER = '%' if ($RUN_AS && exists($PERMISSION{$RUN_AS}) && scalar(@{$PERMISSION{$RUN_AS}}));
     #$DSTYPE = param('type') if (param('type'));
   }
   my $ds = $DSUSER . '\_' . $DSTYPE . '\_screen\_review';
@@ -442,6 +459,7 @@ sub chooseCrosses
     # channel spec, power 1, power 2, gain 1, gain 2, url, comment, TMOG date
     my($line,$name,$dataset,$slide,$area,$barcode,$requester,
        $chanspec,$power1,$power2,$gain1,$gain2,$url,$comment,$tmog_date) = @$l;
+    print STDERR "Fetched $line $name $slide $area\n";
     my($power,$gain) = ($power{$line}{$area},$gain{$line}{$area});
     $lines{$line}++;
     $DATA_SET{$line} = $dataset;
@@ -462,6 +480,7 @@ sub chooseCrosses
         $request{$_} = $ONORDER{$line}{dateCreated}
           foreach @{$ONORDER{$line}{orders}};
         (my $stable_line = $line) =~ s/IS/SS/;
+        $stable_line =~ s/IL/SL/;
         my $sage_date = exists($SSCROSS{$stable_line});
         if ($sage_date) {
           $cross_type{MCFO} = $stable_line
@@ -699,6 +718,7 @@ sub getFlyStoreOrders
   foreach (@$ar) {
     $is_lines{$_->[0]}++;
     ($a = $_->[0]) =~ s/IS/SS/;
+    $a =~ s/IL/SL/;
     $discards{$a}++;
   }
   @$is_lines = keys %is_lines;
@@ -961,6 +981,7 @@ sub addSingleImage
   push @row,Tr(td({colspan => 5},$pgv));
   my $link = ($sample) ? "http://webstation.int.janelia.org/do/Sample:$sample"
                        : "$PREFIX=$name";
+  print STDERR "$wname -> $link\n";
   div({class => 'single_mip'},$signalmip,br,
       table(Tr(td({width => '14%'},$url),
                td({width => '14%'},NBSP),
@@ -981,7 +1002,7 @@ sub renderLine {
   $imagery = div({class => 'category initialsplit'},
                  span({style => 'padding: 0 60px 0 60px'},'Initial split'))
              . $imagery;
-  $imagery = $adjusted = '' if ($line =~ /SS/);
+  $imagery = $adjusted = '' if ($line =~ /S[SL]/);
   $adjusted = $CLEAR
               . div({class => 'inputblock',style => 'height: 100%;'},
                     div({class => 'category initialsplit_adjusted'},
@@ -1166,9 +1187,12 @@ sub createAdditionalData
   }
   else {
     unshift @other,Tr(td(['TMOG date range:',"$START - $STOP"]));
+    unshift @other,Tr(td(['Driver',param('driver_mode')]))
+      if (param('search_mode') eq 'ss');
     unshift @other,Tr(td(['Search mode',(param('search_mode') eq 'is') ? 'Initial' : 'Stable']));
     $kafka_msg->{date_range} = "$START - $STOP";
     $kafka_msg->{search_mode} = param('search_mode');
+    $kafka_msg->{driver_mode} = param('driver_mode');
   }
   return(@other);
 }
@@ -1212,7 +1236,7 @@ sub extractLine
 
 sub verifyCrosses
 {
-  my (%error,%line);
+  my(%error,%line);
   my($total_cross,$total_discard) = (0)x2;
   my ($control,$priority,$unusable,$warn) = ('')x4;
   my($ad,$dbd) = ('-')x2;
@@ -1268,7 +1292,6 @@ sub verifyCrosses
     if (scalar(keys %error));
   my $order_msg = ($CAN_ORDER) ? 'Press the "Request crosses/discards" button to place your order.'
                                : "This is simply a verification screen; no order will be placed.";
-  $order_msg = 'Press the "Request crosses/discards" button to simulate placing an order.';
   print table({class => 'verify'},
               thead(Tr(th(['Line','Cross barcode',@CROSS,'Discard','AD','DBD']))),
               tbody(map {my @col;
@@ -1318,6 +1341,7 @@ sub requestCrosses
     }
     elsif (/discard$/) {
       $l =~ s/_IS/_SS/;
+      $l =~ s/_IL/_SL/;
       $discard_line{$l} = param($_);
       $total_discard++;
     }
