@@ -6,6 +6,8 @@ echo "Cleaning up Polarity LSMs" >> /tmp/monthly_lsm_cleanup.log
 ~svirskasr/workspace/ImagingEcosystem/bin/image_reconcile_directory.pl -path /groups/flylight/flylight/polarity/confocalStacks -write >>/tmp/monthly_lsm_cleanup.log
 echo "Cleaning up MCFO LSMs" >> /tmp/monthly_lsm_cleanup.log
 ~svirskasr/workspace/ImagingEcosystem/bin/image_reconcile_directory.pl -path /groups/flylight/flylight/flip/confocalStacks -write >>/tmp/monthly_lsm_cleanup.log
+echo "Cleaning up Screen review LSMs" >> /tmp/monthly_lsm_cleanup.log
+~svirskasr/workspace/ImagingEcosystem/bin/image_reconcile_directory.pl -path /groups/flylight/flylight/split_screen_review/confocalStacks -write >>/tmp/monthly_lsm_cleanup.log
 echo "# files staged for deletion" >> /tmp/monthly_lsm_cleanup.log
 find /groups/flylight/flylight/lsm_archive -name *lsm | wc -l >> /tmp/monthly_lsm_cleanup.log
 echo "Disk space staged for deletion" >> /tmp/monthly_lsm_cleanup.log
