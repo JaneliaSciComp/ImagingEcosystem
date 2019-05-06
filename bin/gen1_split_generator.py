@@ -185,7 +185,8 @@ def generate_cross(fragdict, frag1, frag2):
 
 def flycoreData(line):
     response = call_responder('flycore', "?request=linedata&line=" + line)
-    fcdict[line] = response['linedata']
+    if 'linedata' in response:
+        fcdict[line] = response['linedata']
 
 
 def good_cross(ad, dbd):
@@ -196,19 +197,20 @@ def good_cross(ad, dbd):
     if (dbd not in fcdict):
         flycoreData(dbd)
     alias = ad + '-x-' + dbd
-    pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
-    FLYCORE.write("%s\t%s\t%s\t%s\t%s" % (ORDERNAME, '', alias, pfrag, ''))
-    for half in (ad, dbd):
-        FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
-                      % (fcdict[half]['A_Concat_Loc'],
-                         fcdict[half]['__kp_UniqueID'],
-                         fcdict[half]['RobotID'],
-                         fcdict[half]['Genotype_GSI_Name_PlateWell'],
-                         fcdict[half]['Chromosome'], half,
-                         fcdict[half]['fragment'],
-                         fcdict[half]['Production_Info'],
-                         fcdict[half]['Quality_Control']))
-    FLYCORE.write("\n")
+    if ad in fcdict and dbd in fdict:
+        pfrag = fcdict[ad]['fragment'] + '-x-' + fcdict[dbd]['fragment']
+        FLYCORE.write("%s\t%s\t%s\t%s\t%s" % (ORDERNAME, '', alias, pfrag, ''))
+        for half in (ad, dbd):
+            FLYCORE.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s"
+                          % (fcdict[half]['A_Concat_Loc'],
+                             fcdict[half]['__kp_UniqueID'],
+                             fcdict[half]['RobotID'],
+                             fcdict[half]['Genotype_GSI_Name_PlateWell'],
+                             fcdict[half]['Chromosome'], half,
+                             fcdict[half]['fragment'],
+                             fcdict[half]['Production_Info'],
+                             fcdict[half]['Quality_Control']))
+        FLYCORE.write("\n")
 
 
 def search_for_ad_dbd(aline, search_term, new_term, search_option,
