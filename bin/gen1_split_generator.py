@@ -185,7 +185,11 @@ def generate_cross(fragdict, frag1, frag2):
 
 def flycoreData(line):
     response = call_responder('flycore', "?request=linedata&line=" + line)
-    fcdict[line] = response['linedata']
+    if 'linedata' in response:
+        fcdict[line] = response['linedata']
+    else:
+        logger.critical("No connectivity to FlyCore responder")
+        sys.exit(-1)
 
 
 def good_cross(ad, dbd):
@@ -226,6 +230,9 @@ def search_for_ad_dbd(aline, search_term, new_term, search_option,
     if not found:
         response = call_responder('sage', "lines?name=" + new_term +
                                   search_option)
+        if 'line_data' not in response:
+            logger.error("%s was not found in SAGE", search_term)
+            sys.exit(-1)
         ld = response['line_data']
         if ld:
             for l in ld:
