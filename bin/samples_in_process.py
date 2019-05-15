@@ -1,7 +1,7 @@
 #!/opt/python/bin/python2.7
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import sys
 import colorlog
 import requests
@@ -10,7 +10,8 @@ import time
 
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
-COUNT = {'imageprop': 0, 'imagedatamv': 0, 'multiple': 0, 'notfound': 0, 'read': 0}
+LOCAL_TIMEZONE = datetime.now(timezone.utc).astimezone().tzinfo
+TIME_PATTERN = '%Y-%m-%dT%H:%M:%S.%f%z'
 
 
 def call_responder(server, endpoint):
@@ -39,13 +40,12 @@ def initialize_program():
 
 
 def process_list(response):
+
     newlist = sorted(response, key=lambda k: k['updatedDate'], reverse=True)
-    pattern = '%Y-%m-%dT%H:%M:%S.%f%z'
     for sample in newlist:
-        timestamp = sample['updatedDate']
-        pdt = datetime.strptime(timestamp, pattern)
-        now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-        elapsed = (now - pdt).total_seconds()
+        locpdt = datetime.strptime(sample['updatedDate'], TIME_PATTERN).replace(tzinfo=timezone.utc).astimezone(tz=LOCAL_TIMEZONE)
+        timestamp = locpdt.strftime(TIME_PATTERN).split('.')[0].replace('T', ' ')
+        elapsed = (datetime.now().replace(tzinfo=LOCAL_TIMEZONE) - locpdt).total_seconds()
         days, hoursrem = divmod(elapsed, 3600 * 24)
         hours, rem = divmod(hoursrem, 3600)
         minutes, seconds = divmod(rem, 60)
@@ -54,15 +54,16 @@ def process_list(response):
         else:
             etime = "{:0>2}:{:0>2}:{:0>2}".format(int(hours),int(minutes),int(seconds))
         owner = sample['ownerKey'].split(':')[1]
+        # Link format: http://informatics-prod.int.janelia.org/cgi-bin/sample_search.cgi?sample_id=JRC_SS65810-20190426_49_A1
         print("%s\t%s\t%s\t%s" % (sample['name'], owner, timestamp, etime))
 
 
 def check_samples():
     """ Find ssamples thast haven's completed processing
     """
-    response = call_responder('jacs', 'info/sample?totals=false&status=Queued')
-    print("%d sample%s queued" % (len(response), '' if len(response) == 1 else 's'))
-    process_list(response)
+    #response = call_responder('jacs', 'info/sample?totals=false&status=Queued')
+    #print("%d sample%s queued" % (len(response), '' if len(response) == 1 else 's'))
+    #process_list(response)
     response = call_responder('jacs', 'info/sample?totals=false&status=Processing')
     print("%d sample%s in process" % (len(response), '' if len(response) == 1 else 's'))
     process_list(response)
