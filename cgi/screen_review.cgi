@@ -56,13 +56,13 @@ DATASET => "SELECT DISTINCT value FROM image_vw i JOIN image_property_vw ip "
            . "AND i.family LIKE '%screen_review'",
 HALVES => "SELECT lp.value,lp.name,lpp.value AS info FROM line_property_vw lp "
           . "JOIN line_relationship_vw lr ON (lr.object=lp.name AND "
-          . "lr.relationship='child_of') JOIN line_property_vw lpp ON "
-          . "(lp.name=lpp.name AND lpp.type='flycore_production_info') WHERE "
-          . "lp.type='flycore_project' AND lr.subject=?",
+          . "lr.relationship='child_of') LEFT OUTER JOIN line_property_vw lpp "
+          . "ON (lp.name=lpp.name AND lpp.type='flycore_production_info') "
+          . "WHERE lp.type='flycore_project' AND lr.subject=? ORDER BY 1",
 IMAGESL => "SELECT i.name FROM image_vw i LEFT OUTER JOIN image_property_vw ipd "
           . "ON (i.id=ipd.image_id AND ipd.type='data_set') WHERE i.line=?",
 IMAGES => "SELECT line,i.name,data_set,slide_code,area,cross_barcode,lpr.value AS requester,channel_spec,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,im.url,la.value,DATE(i.create_date) FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') JOIN line l ON (i.line=l.name) LEFT OUTER JOIN line_annotation la ON (l.id=la.line_id) WHERE data_set LIKE ? AND line LIKE 'LINESEARCH' AND i.display!=0 ORDER BY line ASC,slide_code DESC",
-SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code,area",
+SIMAGES => "SELECT i.name,area,im.url,lsm_illumination_channel_1_power_bc_1,lsm_illumination_channel_2_power_bc_1,lsm_detection_channel_1_detector_gain,lsm_detection_channel_2_detector_gain,channel_spec,data_set,objective,DATE(i.create_date),slide_code,lpr.value AS requester FROM image_data_mv i JOIN image im ON (im.id=i.id) LEFT OUTER JOIN line_property_vw lpr ON (i.line=lpr.name AND lpr.type='flycore_requester') WHERE line=? AND data_set LIKE ? ORDER BY slide_code DESC,area",
 SSCROSS => "SELECT line,cross_type FROM cross_event_vw WHERE line LIKE "
            . "'JRC\_S%' AND cross_type IN ('SplitFlipOuts','SplitPolarity','StableSplitScreen') GROUP BY 1,2",
 ROBOT => "SELECT robot_id FROM line_vw WHERE name=?",
@@ -222,7 +222,7 @@ sub initializeProgram
       $sth{IMAGES} =~ s/WHERE /WHERE DATE(i.create_date) <= '$STOP' AND /;
     }
   }
-  print STDERR "Primary query: $sth{IMAGES}\n";
+  push @performance,"Primary query: $sth{IMAGES}";
   # Get user permissions
   my $CUSER = $RUN_AS || $USERID;
   $rest = $CONFIG_SERVER . "/$PROGRAM";
@@ -386,7 +386,7 @@ sub dateDialog
                        -values => ['first','all'],
                        -labels => {first => ' First 20X stable split only',
                                    all => ' All 20X stable splits'},
-                       -default => 'first') . br;
+                       -default => 'all') . ' (newest slide codes first)'. br;
   }
   (div({class => 'boxed', style => 'float: left'},$datesect,$lsect,$scsect),$CLEAR,
    $mcfo,$all,
@@ -523,7 +523,7 @@ sub chooseCrosses
           }
           else {
             $discard = '' if (index($dataset,$USERID) == -1);
-            $available = '(available: unknown requester, contact Fly Facility)';
+            $available = '(available: unknown requester or not on robot, contact Fly Facility)';
           }
           my $link = a({href => "lineman.cgi?line=$stable_line",
                         target => '_blank'},
@@ -547,14 +547,9 @@ sub chooseCrosses
           $discard = '';
           $stabilization = &createStabilization($line,$barcode);
         }
-        if ($halferr && $halferr eq 'ls') {
-          my $msg = ($halferr eq 'ls')
-            ? 'AD/DBD landing sites match - contact the Fly Facility'
-            : 'One or more '
-              . span({style => 'background:#fc9'},'split halves')
-              . ' is unavailable';
+        if ($halferr) {
           $controls = &bootstrapPanel('Cannot order stable splits',
-                          span({style => 'color:#000'},$msg));
+                          span({style => 'color:#000'},$halferr));
         }
         elsif ($tossed) {
           $controls = $stabilization;
@@ -608,8 +603,8 @@ sub chooseCrosses
                        );
       }
     }
-    $imagery .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,&getHover($slide,$hover_requester));
-    $adjusted .= &addSingleImage($line,$name,$area,$url,$power,$gain,'',$tmog_date,'',1)
+    $imagery .= &addSingleImage($line,$slide,$name,$area,$url,$power,$gain,'',$tmog_date,&getHover($slide,$hover_requester));
+    $adjusted .= &addSingleImage($line,'',$name,$area,$url,$power,$gain,'',$tmog_date,'',1)
       if (exists $BRIGHTNESS{$line}{$area});
     if ($area eq 'Brain') {
       $cross_count{Line}++;
@@ -686,7 +681,7 @@ sub getPowerGain
 sub createLineHeader
 {
   my($line,$dataset,$barcode,$requester,$slide,$comment) = @_;
-  my($split_halves,$error) = &getSplitHalves($line,1);
+  my($split_halves,$error) = &getAllSplitHalves($line);
   my $type = ($dataset =~ /_ti_/) ? 'Terra incognita' : 'Split screen';
   my $lhtml = h3(&lineLink($line) . (NBSP)x5 . $type);
   my $bh = ($barcode) ? a({href => "/flyboy_search.php?cross=$barcode",
@@ -696,7 +691,7 @@ sub createLineHeader
   $requester = &getUsername((split('_',$dataset))[0])
     if ($VIEW_ALL && !param('user') && !$requester);
   push @row,Tr(td(['Requester:',$requester])) if ($requester);
-  push @row,Tr(td(['Slide code:',$slide])) if ($slide);
+  #push @row,Tr(td(['Slide code:',$slide])) if ($slide);
   $comment ||= '';
   push @row,Tr(td(['Comment:',
                    ($CAN_ORDER) ? div({&identify($line.'_comment'),
@@ -813,8 +808,8 @@ sub getStableImagery
     splice(@$i,3,6,$POWER{$line}{$i->[1]},$GAIN{$line}{$i->[1]},$i->[-1]);
     push @$i,$tmog_date;
     my $hover_requester = $requester || &getUsername((split('_',$i->[-2]))[0]);
-    $img .= &addSingleImage($line,@$i,&getHover($slide_code,$hover_requester));
-    $adjusted .= &addSingleImage($line,@$i,'',1)
+    $img .= &addSingleImage($line,$slide_code,@$i,&getHover($slide_code,$hover_requester));
+    $adjusted .= &addSingleImage($line,$slide_code,@$i,'',1)
       if (exists $BRIGHTNESS{$line}{$i->[1]});
     $used++;
   }
@@ -822,36 +817,42 @@ sub getStableImagery
 }
 
 
-sub getSplitHalves
+sub getAllSplitHalves
 {
-  my($line,$return_html) = @_;
+  my($line) = shift;
+  $split_name = '';
   $sth{HALVES}->execute($line);
-  my $hr = $sth{HALVES}->fetchall_hashref('value');
-  my($html,$split_name) = ('')x2;
+  my $ar = $sth{HALVES}->fetchall_arrayref();
+  return('') unless (scalar(@$ar));
   my %hash;
-  $MISSING_HALF{$line}++ unless (scalar(keys %$hr) > 1);
+  $MISSING_HALF{$line}++ unless (scalar(@$ar) > 1);
   my $error = 0;
-  if (scalar(keys %$hr)) {
-    $html = join(br,table({class => 'halves'},
-                          map {Tr(th($_.':'),td(&lineLink($hr->{$_}{name},
-                                                          $hr->{$_}{info})))}
-                              sort keys %$hr));
-    $split_name = join('-x-',map {$hr->{$_}{name}} sort keys %$hr);
-    my($ad,$dbd) = map {$hr->{$_}{name}} sort keys %$hr;
-    foreach (keys %$hr) {
-      $hash{(/AD$/) ? 'ad' : 'dbd'} = {name => $hr->{$_}{name},
-                                       info => $hr->{$_}{info}};
-      $a = $hr->{$_}{info};
-      $error = 'unavailable' if ($a && grep(/$a/,@UNUSABLE));
-    }
-    if (scalar(keys %$hr) == 2) {
-      my @adsplit = split('_',$ad);
-      my @dbdsplit = split('_',$dbd);
-      $error = 'ls'
-        if ($adsplit[3] eq $dbdsplit[3]);
-    }
+  my @row;
+  my $use_count = (scalar(@$ar) > 2);
+  $error = 'More than 2 split halves - please order through FlyStore'
+    if (scalar(@$ar) > 2);
+  my %landing;
+  foreach (@$ar) {
+    $_->[2] ||= '';
+    my $st = ($_->[0] =~ /AD$/) ? 'ad' : 'dbd';
+    my $ls = (split('_',$_->[1]))[-1];
+    $landing{$st}{$ls}++;
+    push @row,Tr(th($_->[0] . ':'),td(&lineLink($_->[1],$_->[2])));
+    $a = $_->[2];
+    $error = 'One or more ' . span({style => 'background:#fc9'},'split halves')
+              . ' is unavailable' if (grep(/$a/,@UNUSABLE));
   }
-  ($return_html) ? return($html,$error) : return(\%hash);
+  $split_name = join('-x-',map {$_->[1]} @$ar);
+  foreach (keys %{$landing{ad}}) {
+    $error = 'AD/DBD landing sites match - contact the Fly Facility'
+      if (exists $landing{dbd}{$_});
+  }
+  foreach (keys %{$landing{dbd}}) {
+    $error = 'AD/DBD landing sites match - contact the Fly Facility' 
+      if (exists $landing{ad}{$_});
+  }
+  my $html = table({class => 'halves'},@row);
+  return($html,$error)
 }
 
 
@@ -885,7 +886,7 @@ sub createStabilization
 
 sub addSingleImage
 {
-  my($line,$name,$area,$url,$power,$gain,$dataset,$tmog_date,$hover,$adjusted) = @_;
+  my($line,$slide_code,$name,$area,$url,$power,$gain,$dataset,$tmog_date,$hover,$adjusted) = @_;
   $dataset ||= '';
   (my $wname = $name) =~ s/.+\///;
   $wname =~ s/\.bz2//;
@@ -964,6 +965,16 @@ sub addSingleImage
   my $format = "Power&times;Gain %.2f&times;%d (%.2f)";
   $pgv = sprintf $format,$power/100,$gain,($power/100)*$gain
     if ($power && $gain);
+  if ($slide_code) {
+    if ($power && $gain) {
+      $format = "Power&times;Gain %.2f&times;%d (%.2f)<br>Slide code: %s";
+      $pgv = sprintf $format,$power/100,$gain,($power/100)*$gain,$slide_code;
+    }
+    else {
+      $format = "Unknown power/gain<br>Slide code: %s";
+      $pgv = sprintf $format,$slide_code;
+    }
+  }
   if ($adjusted ) {
     $pgv = ($bc) ? (sprintf 'Brightness compensation (%.1f%%)',$bc)
                  : (sprintf 'Power/gain adjusted (%.1f%%)',$pga);
