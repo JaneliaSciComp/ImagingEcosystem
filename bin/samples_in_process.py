@@ -38,11 +38,7 @@ def initialize_program():
     CONFIG = dbc['config']
 
 
-def check_samples():
-    """ Find samples in process
-    """
-    response = call_responder('jacs', 'info/sample?totals=false&status=Processing')
-    print("%d sample%s in process" % (len(response), '' if len(response) == 1 else 's'))
+def process_list(response):
     newlist = sorted(response, key=lambda k: k['updatedDate'], reverse=True)
     pattern = '%Y-%m-%dT%H:%M:%S.%f%z'
     for sample in newlist:
@@ -50,12 +46,27 @@ def check_samples():
         pdt = datetime.strptime(timestamp, pattern)
         now = datetime.utcnow().replace(tzinfo=pytz.UTC)
         elapsed = (now - pdt).total_seconds()
-        hours, rem = divmod(elapsed, 3600)
+        days, hoursrem = divmod(elapsed, 3600 * 24)
+        hours, rem = divmod(hoursrem, 3600)
         minutes, seconds = divmod(rem, 60)
-        etime = "{:0>2}:{:0>2}:{:05.2f}".format(int(hours),int(minutes),seconds)
+        if days:
+            etime = "{:} day(s), {:0>2}:{:0>2}:{:0>2}".format(int(days), int(hours),int(minutes),int(seconds))
+        else:
+            etime = "{:0>2}:{:0>2}:{:0>2}".format(int(hours),int(minutes),int(seconds))
         owner = sample['ownerKey'].split(':')[1]
         print("%s\t%s\t%s\t%s" % (sample['name'], owner, timestamp, etime))
-        sys.exit(0)
+
+
+def check_samples():
+    """ Find ssamples thast haven's completed processing
+    """
+    response = call_responder('jacs', 'info/sample?totals=false&status=Queued')
+    print("%d sample%s queued" % (len(response), '' if len(response) == 1 else 's'))
+    process_list(response)
+    response = call_responder('jacs', 'info/sample?totals=false&status=Processing')
+    print("%d sample%s in process" % (len(response), '' if len(response) == 1 else 's'))
+    process_list(response)
+
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(description="Delete image properties from a set of images")
