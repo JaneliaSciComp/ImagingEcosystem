@@ -13,6 +13,7 @@ use LWP::Simple qw(get);
 use XML::Simple;
 use JFRC::LDAP;
 use JFRC::Utils::DB qw(:all);
+use lib '/groups/scicompsoft/home/svirskasr/workspace/JFRC-Utils-Web/lib';
 use JFRC::Utils::Web qw(:all);
 use lib '/groups/scicompsoft/home/svirskasr/workspace/JFRC-Utils-FLEW/lib';
 use JFRC::Utils::FLEW qw(:all);
@@ -47,16 +48,6 @@ my $Session;
 # Database
 our (%pdbh,%sth);
 our $dbh;
-# Counters
-my (%image_check,%line_check);
-my $release_count;
-
-# ****************************************************************************
-# Session authentication
-$Session = &establishSession(css_prefix => $PROGRAM);
-&sessionLogout($Session) if (param('logout'));
-$USERID = $Session->param('user_id');
-$USERNAME = $Session->param('user_name');
 my %sths = (
   ANNOTATIONS => "SELECT DISTINCT i.line,alps_release,GROUP_CONCAT(DISTINCT "
                  . "o.type SEPARATOR ', ') FROM image_data_mv i LEFT OUTER "
@@ -72,7 +63,11 @@ my %sths = (
                . "COUNT(1) FROM image_data_mv WHERE to_publish='Y' OR published='Y' "
                . "GROUP BY 1,2 ORDER BY 1,2",
   SAMPLES => "SELECT alps_release,COUNT(DISTINCT line),COUNT(DISTINCT workstation_sample_id),COUNT(1) FROM "
-            . "image_data_mv WHERE to_publish='Y' AND published_externally IS NULL GROUP BY 1",
+             . "image_data_mv WHERE to_publish='Y' AND published_externally IS NULL GROUP BY 1",
+  SAMPLESPS => "SELECT alps_release,COUNT(DISTINCT line),COUNT(DISTINCT workstation_sample_id),COUNT(1) FROM "
+               . "image_data_mv WHERE to_publish='Y' AND published IS NULL GROUP BY 1",
+  SAMPLESS => "SELECT alps_release,COUNT(DISTINCT line),COUNT(DISTINCT workstation_sample_id),COUNT(1) FROM "
+              . "image_data_mv WHERE to_publish='Y' AND published='Y' AND published_externally IS NULL GROUP BY 1",
   WAITING => "SELECT line,publishing_name,published_to,alps_release,publishing_user,"
              . "GROUP_CONCAT(DISTINCT publishing_name SEPARATOR ', '),"
              . "GROUP_CONCAT(DISTINCT IFNULL(objective,'NULL') ORDER BY objective SEPARATOR ', '),"
@@ -115,11 +110,20 @@ my %MBEW = (
             . "LEFT JOIN secondary_image s ON (s.image_id=i.id) "
             . "WHERE alps_release=? GROUP BY 2 ORDER BY 1,4,5",
 );
+# Counters
+my (%image_check,%line_check);
+my $release_count;
 
 
 # ****************************************************************************
 # * Main                                                                     *
 # ****************************************************************************
+# Session authentication
+$Session = &establishSession(css_prefix => $PROGRAM);
+&sessionLogout($Session) if (param('logout'));
+$USERID = $Session->param('user_id');
+$USERNAME = $Session->param('user_name');
+# Initialize
 &initializeProgram();
 if (param('release')) {
   &displayRelease(param('release'),param('instance'));
@@ -413,19 +417,17 @@ sub ALPSSummary
   # Staged
   $instance = 'mbew-dev';
   @$ar = ();
-  $sth{$instance}{SAMPLES}->execute();
-  $ar = $sth{$instance}{SAMPLES}->fetchall_arrayref();
+  $sths{SAMPLESS}->execute();
+  $ar = $sths{SAMPLESS}->fetchall_arrayref();
   foreach (@$ar) {
-    next if (exists $step{Production}{$_->[0]});
     $step{Staged}{$_->[0]}{lines} = $_->[1];
     $step{Staged}{$_->[0]}{samples} = $_->[2];
     $step{Staged}{$_->[0]}{images} = $_->[3];
   }
   # Pre-staged
-  $sths{SAMPLES}->execute();
-  $ar = $sths{SAMPLES}->fetchall_arrayref();
+  $sths{SAMPLESPS}->execute();
+  $ar = $sths{SAMPLESPS}->fetchall_arrayref();
   foreach (@$ar) {
-    next if (exists $step{Production}{$_->[0]});
     $step{'Pre-staged'}{$_->[0]}{lines} = $_->[1];
     $step{'Pre-staged'}{$_->[0]}{samples} = $_->[2];
     $step{'Pre-staged'}{$_->[0]}{images} = $_->[3];
