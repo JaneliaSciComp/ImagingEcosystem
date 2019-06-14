@@ -17,7 +17,7 @@ SQL = {
         + "(i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
         + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
         + "image_property_vw WHERE type='bits_per_sample') AND "
-        + "TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 24",
+        + "TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 8",
     'ALL': "SELECT i.family,ipd.value,ips.value,i.name FROM image_vw i JOIN "
         + "image_property_vw ipd ON (i.id=ipd.image_id AND "
         + "ipd.type='data_set') JOIN image_property_vw ips ON "
