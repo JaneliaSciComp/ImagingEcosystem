@@ -453,12 +453,17 @@ sub ALPSSummary
       $step{$use_step}{$name}{samples} += $rel->{$_}{numSamples};
     }
     $step{$use_step}{$name}{lines} = scalar(keys %alc);
+    %alc = ();
     if (exists $step{Production}{$name}) {
       if (int($step{Production}{$name}{lines}) == $step{$use_step}{$name}{lines}) {
         delete $step{$use_step}{$name};
+        next;
+      }
+      if (exists ($step{'Pre-staged'}{$name}) && int($step{Production}{$name}{samples})
+          + int($step{'Pre-staged'}{$name}{samples}) == $step{$use_step}{$name}{samples}) {
+        delete $step{$use_step}{$name};
       }
     }
-    %alc = ();
   }
   my @block;
   my @steps = ('Annotated','Pre-staged','Staged','Production');
