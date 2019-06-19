@@ -437,7 +437,7 @@ sub ALPSSummary
   my %alc;
   foreach my $r (@$resp) {
     my $name = $r->{name};
-    next if (exists $step{Production}{$name});
+    next if ($name eq 'Lateral Horn 2019'); # LH is an unholy mess...
     my $use_step = ($r->{sageSync}) ? 'Annotated' : 'Annotation in progress';
     if (!$r->{sageSync} && $r->{updatedDate}) {
       my $updated = (split('T',$r->{updatedDate}))[0];
@@ -449,9 +449,15 @@ sub ALPSSummary
     my $rel = &getREST('jacs',"process/release/$name/status");
     foreach (keys %$rel) {
       $alc{$_}++;
-      $step{$use_step}{$name}{images} += $rel->{$_}{numSamples};
+      $step{$use_step}{$name}{images} += $rel->{$_}{num20xLsms} + $rel->{$_}{num63xLsms};
+      $step{$use_step}{$name}{samples} += $rel->{$_}{numSamples};
     }
     $step{$use_step}{$name}{lines} = scalar(keys %alc);
+    if (exists $step{Production}{$name}) {
+      if (int($step{Production}{$name}{lines}) == $step{$use_step}{$name}{lines}) {
+        delete $step{$use_step}{$name};
+      }
+    }
     %alc = ();
   }
   my @block;
