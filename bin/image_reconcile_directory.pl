@@ -172,6 +172,10 @@ sub getREST
   #&terminateProgram("<h3>REST GET returned null response</h3>"
   #                  . "<br>Request: $rest<br>")
   #  unless (length($response));
+  unless ($response) {
+    print "No response for call $rest\n";
+    return();
+  }
   return() unless (length($response));
   my $rvar;
   eval {$rvar = decode_json($response)};
