@@ -2,7 +2,7 @@
 
 # A quick&dirty program to crawl a directory tree, look for LSMs, and move
 # them to another directory if that have a JFS path and the file exists on
-# Scality.
+# archive.
 # If a file is not found in SAGE, this program will see if it's elegible for
 # deletion (due to a rename), and will delete it if applicable.
 
@@ -97,8 +97,8 @@ sub wanted
   }
   if ($jfs_path) {
     if ($path) {
-      print "$name is on Scality and /dm11\n";
-      $count{'Files on Scality and /dm11'}++;
+      print "$name is on archive and /dm11\n";
+      $count{'Files on archive and /dm11'}++;
     }
     else {
       &checkScality($File::Find::name,$name,$url);
@@ -148,7 +148,7 @@ sub checkScality
   my($full_path,$name,$url) = @_;
   my $on_scality = head($url);
   if ($on_scality) {
-    print "$name was copied to Scality but not removed from /dm11\n";
+    print "$name was copied to archive but not removed from /dm11\n";
     $count{'Files needing deletion from /dm11'}++;
     if ($WRITE) {
       my($dir,$file) = split('/',$name);
@@ -159,8 +159,8 @@ sub checkScality
     }
   }
   else {
-    print "$name has a JFS path but does not exist on Scality\n";
-    $count{'Files on Scality without working URL'}++;
+    print "$name has a JFS path but does not exist on archive\n";
+    $count{'Files on archive without working URL'}++;
   }
 }
 
