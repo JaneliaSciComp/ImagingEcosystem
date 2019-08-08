@@ -57,7 +57,7 @@ def call_responder(server, endpoint, post=''):
         sys.exit(-1)
 
 
-def sqlError(err):
+def sql_error(err):
     try:
         print('MySQL error [%d]: %s' % (err.args[0], err.args[1]))
     except IndexError:
@@ -114,7 +114,7 @@ def processImages(cursor):
         logger.debug(stmt)
         cursor.execute(stmt)
     except MySQLdb.Error as e:
-        sqlError(e)
+        sql_error(e)
 
     lsm = dict()
     for (family, data_set, slide_code, name) in cursor:
