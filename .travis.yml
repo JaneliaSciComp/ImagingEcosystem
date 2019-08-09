@@ -1,0 +1,13 @@
+dist: xenial
+language: python
+python:
+  - "3.7"
+before_install:
+  - cd bin 
+  - pip install pylint
+# Install dependencies
+install:
+  - pip install -r requirements.txt
+script: 
+  - pylint parse_czi.py
+  - pylint samples_in_process.py
