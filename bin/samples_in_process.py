@@ -1,12 +1,12 @@
-#!/opt/python/bin/python2.7
+''' parse_czi.py
+    Produce a tab-delimited list of samples that are in process
+'''
 
 import argparse
 from datetime import datetime, timezone
 import sys
 import colorlog
 import requests
-import pytz
-import time
 
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
@@ -17,45 +17,45 @@ TIME_PATTERN = '%Y-%m-%dT%H:%M:%S.%f%z'
 def call_responder(server, endpoint):
     """ Call a responder
         Keyword arguments:
-        server: server
-        endpoint: REST endpoint
+          server: server
+          endpoint: REST endpoint
     """
     url = CONFIG[server]['url'] + endpoint
     try:
         req = requests.get(url)
     except requests.exceptions.RequestException as err:
-        logger.critical(err)
+        LOGGER.critical(err)
         sys.exit(-1)
     if req.status_code == 200:
         return req.json()
-    else:
-        logger.error('Status: %s', str(req.status_code))
-        sys.exit(-1)
-
-
-def initialize_program():
-    global CONFIG
-    dbc = call_responder('config', 'config/rest_services')
-    CONFIG = dbc['config']
+    LOGGER.error('Status: %s', str(req.status_code))
+    sys.exit(-1)
 
 
 def process_list(response):
-
+    """ Call a responder
+        Keyword arguments:
+          response: response from JACS REST call
+    """
     newlist = sorted(response, key=lambda k: k['updatedDate'], reverse=True)
     for sample in newlist:
-        locpdt = datetime.strptime(sample['updatedDate'], TIME_PATTERN).replace(tzinfo=timezone.utc).astimezone(tz=LOCAL_TIMEZONE)
+        locpdt = datetime.strptime(sample['updatedDate'],
+                                   TIME_PATTERN).replace\
+                                   (tzinfo=timezone.utc).astimezone(tz=LOCAL_TIMEZONE)
         timestamp = locpdt.strftime(TIME_PATTERN).split('.')[0].replace('T', ' ')
         elapsed = (datetime.now().replace(tzinfo=LOCAL_TIMEZONE) - locpdt).total_seconds()
         days, hoursrem = divmod(elapsed, 3600 * 24)
         hours, rem = divmod(hoursrem, 3600)
         minutes, seconds = divmod(rem, 60)
+        etime = "{:0>2}:{:0>2}:{:0>2}".format(int(hours), int(minutes), int(seconds))
         if days:
-            etime = "{:} day(s), {:0>2}:{:0>2}:{:0>2}".format(int(days), int(hours),int(minutes),int(seconds))
-        else:
-            etime = "{:0>2}:{:0>2}:{:0>2}".format(int(hours),int(minutes),int(seconds))
+            etime = "%d day%s, %s" % (days, '' if days == 1 else 's', etime)
         owner = sample['ownerKey'].split(':')[1]
-        # Link format: http://informatics-prod.int.janelia.org/cgi-bin/sample_search.cgi?sample_id=JRC_SS65810-20190426_49_A1
-        print("%s\t%s\t%s\t%s" % (sample['name'], owner, timestamp, etime))
+        response = call_responder('jacs', 'info/sample/search?name=' + sample['name'])
+        print("%s\t%s\t%s\t%s\t%s\t%s" % (response[0]['line'],
+                                          response[0]['slideCode'],
+                                          response[0]['dataSet'],
+                                          owner, timestamp, etime))
 
 
 def check_samples():
@@ -77,16 +77,16 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
 
-    logger = colorlog.getLogger()
+    LOGGER = colorlog.getLogger()
     if ARG.DEBUG:
-        logger.setLevel(colorlog.colorlog.logging.DEBUG)
+        LOGGER.setLevel(colorlog.colorlog.logging.DEBUG)
     elif ARG.VERBOSE:
-        logger.setLevel(colorlog.colorlog.logging.INFO)
+        LOGGER.setLevel(colorlog.colorlog.logging.INFO)
     else:
-        logger.setLevel(colorlog.colorlog.logging.WARNING)
+        LOGGER.setLevel(colorlog.colorlog.logging.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
-    logger.addHandler(HANDLER)
-
-    initialize_program()
+    LOGGER.addHandler(HANDLER)
+    DATA = call_responder('config', 'config/rest_services')
+    CONFIG = DATA['config']
     check_samples()
