@@ -1,10 +1,18 @@
 ''' parse_czi.py
     Parse a CZI file and optionally update SAGE with image properties
+    Input must be provided by one of the following methods:
+    - --id specifyting a single image ID
+    - --czi_file specifying a single CZI file
+    - --file containing a list of image IDs or file paths
 '''
 
 import argparse
+import inspect
+import os
+import pathlib
 import pprint
 import re
+import select
 import sys
 import bioformats
 import colorlog
@@ -13,12 +21,13 @@ import MySQLdb
 import requests
 import xmltodict
 
+# CZI -> imageprop translation
 TRANSLATE = {'Experimenter': {'@UserName': 'created_by'},
              'Instrument': {'@Gain': 'lsm_detection_channel_'},
              'Image': {'AcquisitionDate': 'capture_date', '@Name': 'microscope_filename'},
              'Pixels': {'@PhysicalSizeX' : 'voxel_size_x', '@PhysicalSizeY' : 'voxel_size_y',
                         '@PhysicalSizeZ' : 'voxel_size_z',
-                        '@SizeC': 'num_channels', '@SizeX' : 'dimension_x',
+                        '@SizeC': 'channels', '@SizeX' : 'dimension_x',
                         '@SizeY' : 'dimension_y', '@SizeZ' : 'dimension_z'},
              'Annotation': {'Experiment|AcquisitionBlock|AcquisitionModeSetup|BitsPerSample': \
                                 'bits_per_sample',
@@ -35,13 +44,36 @@ SUFFIX = {'Information|Image|Channel|DigitalGain': '_detector_gain',
           '@Gain': '_detector_gain',
           'Experiment|AcquisitionBlock|MultiTrackSetup|TrackSetup|Name': '_name',
          }
+# Database
+READ = {
+    'IMAGEID': "SELECT id,path FROM image WHERE name='%s'",
+    'IMAGEPATH': "SELECT path FROM image WHERE id=%s",
+    'PROPERTY': "SELECT id FROM image_property WHERE image_id=%s AND "
+                + "type_id=getCvTermId('light_imagery','%s',NULL)",
+}
+WRITE = {
+    'INSERTPROP': "INSERT INTO image_property (image_id,type_id,value) VALUES "
+                  + "('%s',getCvTermId('light_imagery','%s',NULL),'%s')",
+    'UPDATEPROP': "UPDATE image_property SET value='%s' WHERE id=%s"
+}
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
+# Error handling
+TEMPLATE = "{2}: An exception of type {0} occurred. Arguments:\n{1!r}"
 
 # -----------------------------------------------------------------------------
 
 
+# pylint: disable=W0703
+
+
 def call_responder(server, endpoint, post=''):
+    ''' Call a responder
+        Keyword arguments:
+          server: server
+          endpoint: REST endpoint
+          post: JSON payload
+    '''
     url = CONFIG[server]['url'] + endpoint
     try:
         if post:
@@ -49,21 +81,24 @@ def call_responder(server, endpoint, post=''):
         else:
             req = requests.get(url)
     except requests.exceptions.RequestException as err:
-        logger.critical(err)
+        LOGGER.critical(err)
         sys.exit(-1)
     if req.status_code in (200, 201):
         return req.json()
-    elif req.status_code == 404:
+    if req.status_code == 404:
         return ''
-    else:
-        try:
-            logger.critical('%s: %s', str(req.status_code), req.json()['rest']['message'])
-        except:
-            logger.critical('%s: %s', str(req.status_code), req.text)
-        sys.exit(-1)
+    try:
+        LOGGER.critical('%s: %s', str(req.status_code), req.json()['rest']['message'])
+    except Exception as err:
+        LOGGER.critical('%s: %s', str(req.status_code), req.text)
+    sys.exit(-1)
 
 
-def sqlError(err):
+def sql_error(err):
+    """ Report a SQL error
+        Keyword arguments:
+          err: error object
+    """
     try:
         print('MySQL error [%d]: %s' % (err.args[0], err.args[1]))
     except IndexError:
@@ -71,27 +106,22 @@ def sqlError(err):
     sys.exit(-1)
 
 
-def db_connect(db):
+def db_connect(dba):
     """ Connect to a database
         Keyword arguments:
-        db: database dictionary
+          dba: database dictionary
     """
-    logger.debug("Connecting to %s on %s", db['name'], db['host'])
+    LOGGER.debug("Connecting to %s on %s", dba['name'], dba['host'])
     try:
-        conn = MySQLdb.connect(host=db['host'], user=db['user'],
-                               passwd=db['password'], db=db['name'])
-    except MySQLdb.Error as err:
+        conn = MySQLdb.connect(host=dba['host'], user=dba['user'],
+                               passwd=dba['password'], db=dba['name'])
+    except Exception as err:
         sql_error(err)
     try:
-        cursor = conn.cursor()
-        return(conn, cursor)
-    except MySQLdb.Error as err:
+        cur = conn.cursor()
+        return conn, cur
+    except Exception as err:
         sql_error(err)
-
-
-def connect_databases():
-    (conn, cursor) = db_connect(DATABASE['sage']['prod'])
-    return(cursor)
 
 
 def parse_experimenter(j, record):
@@ -163,68 +193,138 @@ def parse_structuredannotations(j, record):
                     reckey += SUFFIX[key]
                 record[reckey] = chanval
                 chan += 1
-        else:
+        elif DEBUG:
             print("%s\t%s" % (key, value))
+
+
+def update_database(image_id, record):
+    ''' Update the image in SAGE
+        Keyword arguments:
+          record: image properties record
+    '''
+    for term in record:
+        CURSOR.execute(READ['PROPERTY'] % (image_id, term))
+        prop_id = CURSOR.fetchone()
+        if prop_id:
+            prop_id = prop_id[0]
+            cursor = 'UPDATEPROP'
+            bind = (record[term], prop_id)
+        else:
+            cursor = 'INSERTPROP'
+            bind = (image_id, term, record[term])
+        if DEBUG:
+            LOGGER.debug(WRITE[cursor], *bind)
+        try:
+            CURSOR.execute(WRITE[cursor] % bind)
+        except Exception as err:
+            sql_error(err)
+    CONNECTION.commit()
 
 
 def parse_czi(id_or_file):
     ''' Parse a CZI file
     '''
-    filepath = id_or_file
+    filepath = image_id = id_or_file
+    if id_or_file.isdigit():
+        # Get filepath
+        try:
+            CURSOR.execute(READ['IMAGEPATH'] % (id_or_file))
+            filepath = CURSOR.fetchone()
+        except Exception as err:
+            sql_error(err)
+        if filepath:
+            filepath = filepath[0]
+        else:
+            print("No file found for image ID %s" % (image_id))
+            return
+    else:
+        if not ARGS.czi_file:
+            try:
+                CURSOR.execute(READ['IMAGEID'] % (id_or_file))
+                row = CURSOR.fetchone()
+            except Exception as err:
+                sql_error(err)
+            if row:
+                (image_id, filepath) = row
+            else:
+                print("No file found for image ID %s" % (image_id))
+                return
+    path = pathlib.Path(filepath)
+    if not (path.exists() and path.is_file()):
+        print("File %s was not found" % (filepath))
+        return
     xml = bioformats.get_omexml_metadata(filepath)
     j = xmltodict.parse(xml)
     record = dict()
-    ppr = pprint.PrettyPrinter(indent=4)
-    ppr.pprint(j['OME'])
-    print('------------------------------')
+    ppr = pprint.PrettyPrinter(indent=2)
     parse_experimenter(j, record)
     parse_instrument(j, record)
     parse_image(j, record)
     parse_structuredannotations(j, record)
     ppr.pprint(record)
+    if image_id and ARGS.write:
+        update_database(image_id, record)
+
+
+def parse_input():
+    ''' Accept input and parse one or more IDs/files
+    '''
+    if ARGS.id or ARGS.czi_file:
+        parse_czi(ARGS.id if ARGS.id else ARGS.czi_file)
+    elif ARGS.file:
+        try:
+            with open(ARGS.file, "r") as infile:
+                for line in infile:
+                    line = line.rstrip()
+                    parse_czi(line)
+        except Exception as err:
+            mess = TEMPLATE.format(type(err).__name__, err.args, inspect.stack()[0][3])
+            LOGGER.critical(mess)
+    elif select.select([sys.stdin], [], [], 1)[0]:
+        for line in sys.stdin:
+            line = line.rstrip()
+            parse_czi(line)
+    else:
+        LOGGER.critical("You must specify input with --id, --czi_file, --file, or on STDIN")
+
 
 # -----------------------------------------------------------------------------
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Parse CZI files')
-    parser.add_argument('--id', dest='id', action='store',
+    PARSER = argparse.ArgumentParser(description='Parse CZI files')
+    PARSER.add_argument('--id', dest='id', action='store',
                         help='Image ID to identify file to parse (optional)')
-    parser.add_argument('--czi_file', dest='czi_file', action='store',
+    PARSER.add_argument('--czi_file', dest='czi_file', action='store',
                         help='File path of CZI to parse (optional)')
-    parser.add_argument('--verbose', action='store_true', dest='verbose',
+    PARSER.add_argument('--file', dest='file', action='store',
+                        help='File with list of IDs or files to process (optional)')
+    PARSER.add_argument('--verbose', action='store_true', dest='verbose',
                         default=False, help='Turn on verbose output')
-    parser.add_argument('--debug', action='store_true', dest='debug',
+    PARSER.add_argument('--debug', action='store_true', dest='debug',
                         default=False, help='Turn on debug output')
-    parser.add_argument('--write', action='store_true', dest='write',
+    PARSER.add_argument('--write', action='store_true', dest='write',
                         default=False, help='Write parsed data to database')
-    args = parser.parse_args()
-    VERBOSE = args.verbose
-    DEBUG = args.debug
-    WRITE = args.write
+    ARGS = PARSER.parse_args()
+    VERBOSE = ARGS.verbose
+    DEBUG = ARGS.debug
     if DEBUG:
         VERBOSE = True
-    logger = colorlog.getLogger()
+    LOGGER = colorlog.getLogger()
     if DEBUG:
-        logger.setLevel(colorlog.colorlog.logging.DEBUG)
+        LOGGER.setLevel(colorlog.colorlog.logging.DEBUG)
     elif VERBOSE:
-        logger.setLevel(colorlog.colorlog.logging.INFO)
+        LOGGER.setLevel(colorlog.colorlog.logging.INFO)
     else:
-        logger.setLevel(colorlog.colorlog.logging.WARNING)
+        LOGGER.setLevel(colorlog.colorlog.logging.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
-    logger.addHandler(HANDLER)
-
-    data = call_responder('config', 'config/db_config')
-    DATABASE = data['config']
-    (cursor) = connect_databases()
-    javabridge.start_vm(class_path=bioformats.JARS, run_headless=True)
-
-    if args.id or args.czi_file:
-        parse_czi(args.id if args.id else args.czi_file)
-    else:
-        for line in sys.stdin:
-            line = line.rstrip()
-            parse_czi(line)
-
+    LOGGER.addHandler(HANDLER)
+    DATA = call_responder('config', 'config/db_config')
+    DATABASE = DATA['config']
+    (CONNECTION, CURSOR) = db_connect(DATABASE['sage']['prod'])
+    LOG_CONFIG = os.path.join(os.path.split(__file__)[0], "log4j.properties")
+    javabridge.start_vm(args=["-Dlog4j.configuration=file:{}".format(LOG_CONFIG),],
+                        class_path=bioformats.JARS, run_headless=True)
+    parse_input()
     javabridge.kill_vm()
