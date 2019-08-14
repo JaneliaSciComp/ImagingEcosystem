@@ -22,8 +22,8 @@ import requests
 import xmltodict
 
 # CZI -> imageprop translation
-TRANSLATE = {#'Experimenter': {'@UserName': 'created_by'},
-             'Instrument': {'@Gain': 'lsm_detection_channel_'},
+#'Experimenter': {'@UserName': 'created_by'},
+TRANSLATE = {'Instrument': {'@Gain': 'lsm_detection_channel_'},
              'Image': {'AcquisitionDate': 'capture_date', '@Name': 'microscope_filename'},
              'Pixels': {'@PhysicalSizeX' : 'voxel_size_x', '@PhysicalSizeY' : 'voxel_size_y',
                         '@PhysicalSizeZ' : 'voxel_size_z',
