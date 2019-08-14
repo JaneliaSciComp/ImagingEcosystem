@@ -22,7 +22,7 @@ import requests
 import xmltodict
 
 # CZI -> imageprop translation
-TRANSLATE = {'Experimenter': {'@UserName': 'created_by'},
+TRANSLATE = {#'Experimenter': {'@UserName': 'created_by'},
              'Instrument': {'@Gain': 'lsm_detection_channel_'},
              'Image': {'AcquisitionDate': 'capture_date', '@Name': 'microscope_filename'},
              'Pixels': {'@PhysicalSizeX' : 'voxel_size_x', '@PhysicalSizeY' : 'voxel_size_y',
@@ -224,6 +224,7 @@ def update_database(image_id, record):
 def parse_czi(id_or_file):
     ''' Parse a CZI file
     '''
+    LOGGER.info("Processing %s", id_or_file)
     filepath = image_id = id_or_file
     if id_or_file.isdigit():
         # Get filepath
@@ -257,7 +258,8 @@ def parse_czi(id_or_file):
     j = xmltodict.parse(xml)
     record = dict()
     ppr = pprint.PrettyPrinter(indent=2)
-    parse_experimenter(j, record)
+    if 'Experimenter' in TRANSLATE:
+        parse_experimenter(j, record)
     parse_instrument(j, record)
     parse_image(j, record)
     parse_structuredannotations(j, record)
@@ -306,6 +308,9 @@ if __name__ == '__main__':
     PARSER.add_argument('--write', action='store_true', dest='write',
                         default=False, help='Write parsed data to database')
     ARGS = PARSER.parse_args()
+    if ARGS.czi_file and ARGS.write:
+        print("--czi_file cannot be used with --write")
+        sys.exit(0)
     VERBOSE = ARGS.verbose
     DEBUG = ARGS.debug
     if DEBUG:
