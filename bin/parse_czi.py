@@ -34,6 +34,7 @@ TRANSLATE = {'Instrument': {'@Gain': 'lsm_detection_channel_'},
                             'Experiment|AcquisitionBlock|AcquisitionModeSetup|Objective': \
                                 'objective',
                             'Information|Instrument|Microscope|System': 'microscope_model',
+                            'Information|Document|CreationDate': 'capture_date',
                            },
              'Array': {'XXXInformation|Image|Channel|DigitalGain': 'lsm_detection_channel_',
                        'Experiment|AcquisitionBlock|MultiTrackSetup|TrackSetup|Name': \
@@ -52,6 +53,7 @@ READ = {
                 + "type_id=getCvTermId('light_imagery','%s',NULL)",
 }
 WRITE = {
+    'IMAGE': "UPDATE image SET capture_date='%s' WHERE id=%s",
     'INSERTPROP': "INSERT INTO image_property (image_id,type_id,value) VALUES "
                   + "('%s',getCvTermId('light_imagery','%s',NULL),'%s')",
     'UPDATEPROP': "UPDATE image_property SET value='%s' WHERE id=%s"
@@ -202,6 +204,15 @@ def update_database(image_id, record):
         Keyword arguments:
           record: image properties record
     '''
+    if 'capture_date' in record:
+        bind = (record['capture_date'], image_id)
+        if DEBUG:
+            LOGGER.debug(WRITE['IMAGE'], *bind)
+        try:
+            CURSOR.execute(WRITE['IMAGE'] % bind)
+        except Exception as err:
+            sql_error(err)
+        del record['capture_date']
     for term in record:
         CURSOR.execute(READ['PROPERTY'] % (image_id, term))
         prop_id = CURSOR.fetchone()
