@@ -12,6 +12,7 @@ use IO::File;
 use JSON;
 use LWP::Simple qw(get);
 use LWP::UserAgent;
+use Parallel::ForkManager;
 use POSIX qw(strftime);
 use Time::Local;
 use XML::Simple;
@@ -120,6 +121,8 @@ sub displayDashboard
   my(%captured,%count,%sum);
   my $ar;
   my $rvar = &getREST('sage',"images_tmogged_since/days/$MEASUREMENT_DAYS");
+  &terminateProgram("<h3>REST GET failed</h3><br>No response from "
+                    . "SAGE responder<br>") unless ($rvar && scalar @{$rvar->{images}});
   foreach (@{$rvar->{images}}) {
     $_->{'capture_date'} =~ s/ .+//;
     push @$ar,[@{$_}{qw(capture_date create_date capture_tmog_cycle_days capture_tmog_cycle_sec objective)}];
@@ -619,38 +622,67 @@ sub fillDates
 }
 
 
-sub getProcessingStats
+sub callJMX
 {
+  my($hostnum,$suffix) = @_;
+  my $url = 'http://jacs-data' . $hostnum . $suffix;
   my $ua = LWP::UserAgent->new;
-  my $suffix = ':8180/jmx-console/HtmlAdaptor?action=inspectMBean&name=jboss.mq.destination%3Aservice%3DQueue%2Cname%3DsamplePipelineLauncher';
+  my $request = HTTP::Request->new(GET => $url);
+  my $response = $ua->request($request);
+  my $key = 'jacs-data' . $hostnum;
+  my $unavailable = '';
   my %hash;
-  foreach my $hostnum (@HOST_NUMBERS) {
-    my $url = 'http://jacs-data' . $hostnum . $suffix;
-    my $request = HTTP::Request->new(GET => $url);
-    my $response = $ua->request($request);
-    if ($response->code == 200) {
-      my $content = $response->content;
-      my $te = HTML::TableExtract->new(headers => [qw(Name Type Value Access Description)]);
-      $te->parse($content);
-      foreach my $ts ($te->tables) {
-        foreach my $row ($ts->rows) {
-          $hash{'jacs-data'.$hostnum}{$row->[0]} = $row->[2];
-        }
+  if ($response->code == 200) {
+    my $content = $response->content;
+    my $te = HTML::TableExtract->new(headers => [qw(Name Type Value Access Description)]);
+    $te->parse($content);
+    foreach my $ts ($te->tables) {
+      foreach my $row ($ts->rows) {
+        $hash{$row->[0]} = $row->[2];
       }
     }
-    else {
-      push @Unavailable_hosts,'jacs-data'.$hostnum;
-    }
   }
+  else {
+    $unavailable = $key;
+  }
+  return($unavailable,$hash{QueueDepth},$hash{InProcessMessageCount});
+}
+
+
+sub getProcessingStats
+{
+  my $suffix = '.int.janelia.org:8180/jmx-console/HtmlAdaptor?action=inspectMBean&name=jboss.mq.destination%3Aservice%3DQueue%2Cname%3DsamplePipelineLauncher';
+  my %jacs_hash;
+  my $pm = Parallel::ForkManager->new(8);
+  $pm->run_on_finish(sub {
+    my ($pid,$exit_code,$ident,$exit_signal,$core_dump,$processed_data) = @_;
+    if ($exit_signal) {
+      warn("$pid killed by signal $exit_signal\n");
+    }
+    elsif ($exit_code) {
+      warn("$pid exited with error $exit_code\n");
+    }
+    foreach (qw(unavailable QueueDepth InProcessMessageCount)) {
+      $jacs_hash{$processed_data->{key}}{$_} = $processed_data->{$_};
+    }
+  });
+  foreach my $hostnum (@HOST_NUMBERS) {
+    my $key = 'jacs-data' . $hostnum;
+    my $pid = $pm->start and next;
+    my($unavailable,$qd,$ipmc) = &callJMX($hostnum,$suffix);
+    $pm->finish(0,{unavailable => $unavailable,QueueDepth => $qd,InProcessMessageCount => $ipmc,key => $key});
+  }
+  $pm->wait_all_children;
   my @row = ();
   my @sum = (span({style => 'font-weight: bold'},'TOTAL'));
   foreach my $hostnum (@HOST_NUMBERS) {
-    my $host = 'jacs-data' . $hostnum;
-    (my $queued = ($hash{$host}{QueueDepth} || '-')) =~ s/^\s+//;
+    my $key = 'jacs-data' . $hostnum;
+    push @Unavailable_hosts,$key if ($jacs_hash{$key}{unavailable});
+    (my $queued = ($jacs_hash{$key}{QueueDepth} || '-')) =~ s/^\s+//;
     chomp($queued);
-    (my $on_queue = ($hash{$host}{InProcessMessageCount} || '-')) =~ s/^\s+//;
+    (my $on_queue = ($jacs_hash{$key}{InProcessMessageCount} || '-')) =~ s/^\s+//;
     chomp($on_queue);
-    push @row,[$host,$queued,$on_queue];
+    push @row,[$key,$queued,$on_queue];
     $sum[1] += $queued;
     $sum[2] += $on_queue;
   }
