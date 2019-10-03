@@ -9,5 +9,6 @@ before_install:
 install:
   - pip install -r requirements.txt
 script: 
+  - pylint cluster_samples.py
   - pylint parse_czi.py
   - pylint samples_in_process.py
