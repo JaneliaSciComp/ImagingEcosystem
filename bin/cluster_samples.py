@@ -26,7 +26,7 @@ def call_responder(server, endpoint):
         sys.exit(-1)
     if req.status_code == 200:
         return req.json()
-    LOGGER.error('Status: %s', str(req.status_code))
+    LOGGER.critical('Status: %s', str(req.status_code))
     sys.exit(-1)
 
 
@@ -42,6 +42,16 @@ def generate_sample_dict(keylist):
     for key in keylist:
         sid = key.replace('Sample#', '')
         response = call_responder('jacs', 'data/sample?sampleId=' + sid)
+        if len(response) > 1:
+            LOGGER.critical("Sample %s has more than one entry in JACS", key)
+            sys.exit(-1)
+        elif not response:
+            LOGGER.critical("Could not find sample %s", key)
+            sys.exit(-1)
+        for check in ['flycoreAlias', 'line']:
+            if check not in response[0]:
+                LOGGER.critical("Could not find %s for sample %s", check, key)
+                sys.exit(-1)
         line = response[0]['line']
         genotype = response[0]['flycoreAlias'].split('-x-')
         half = []
@@ -59,7 +69,7 @@ def add_parents(parents, key):
           parents: parents list
           key: sample name
     '''
-    print(key)
+    LOGGER.info("Adding %s to group", key)
     for par in SAMPLES[key]['parents']:
         parents[par] = 1
 
@@ -75,7 +85,7 @@ def process_list(sublist, parents, group_name):
           A list of sample names in one group
     '''
     old_plen = len(parents)
-    LOGGER.info("Creating %s", group_name)
+    LOGGER.info("Generating %s", group_name)
     LOGGER.debug(sublist)
     LOGGER.debug(parents)
     LOGGER.debug("In process_list, list length=%d", len(sublist))
@@ -108,28 +118,36 @@ def process_list(sublist, parents, group_name):
     return list(clustkeys)
 
 
+def natural_sort_key(entry):
+    ''' Provide proper sorting key for group[ name]
+    '''
+    return [int(text) if text.isdigit() else text.lower() for text in entry.split('_')]
+
+
 def process_file():
     ''' Process a file of sample names
     '''
     global SAMPLES # pylint: disable=W0603
-    handle = open(ARG.FILE, 'r')
-    skeys = []
-    for line in handle:
-        skeys.append(line.rstrip())
+    try:
+        handle = open(ARG.FILE, 'r')
+    except IOError:
+        LOGGER.critical("Could not open %s", ARG.FILE)
+        sys.exit(-1)
+    skeys = [line.rstrip() for line in handle]
     handle.close()
     SAMPLES = generate_sample_dict(skeys)
-    xxx = dict((s, 1) for s in list(SAMPLES.keys()))
+    sublist = dict((s, 1) for s in list(SAMPLES.keys()))
     done = False
     group = dict()
     group_num = 1
     while not done:
         group_name = 'Group_%d' % (group_num)
         group_num += 1
-        clust = process_list(xxx, dict(), group_name)
+        clust = process_list(sublist, dict(), group_name)
         group[group_name] = clust
-        if not xxx:
+        if not sublist:
             done = True
-    for grp in group:
+    for grp in sorted(group, key=natural_sort_key):
         handle = open(grp + '.txt', 'w')
         print(grp)
         for key in sorted(group[grp]):
