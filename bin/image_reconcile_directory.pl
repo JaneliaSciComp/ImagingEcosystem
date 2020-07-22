@@ -155,6 +155,7 @@ sub checkScality
       unless (-e($NEW_PATH."/$dir")) {
         my @made = make_path($NEW_PATH."/$dir");
       }
+      print "Moved $file to $NEW_PATH/$dir\n" if ($DEBUG);
       move($full_path,$NEW_PATH."/$dir");
     }
   }

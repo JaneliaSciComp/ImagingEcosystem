@@ -11,6 +11,10 @@ READ = {'unsynced': "SELECT id.id,value FROM image_data_mv id JOIN " +
                     "image_property_vw ip ON (ip.image_id=id.id " +
                     "AND  ip.type='%s') WHERE %s IS NULL AND " +
                     "id.update_date IS NOT NULL",
+        'deleted': "SELECT id,%s FROM image_data_mv WHERE id NOT IN " +
+                   "(SELECT image_id FROM image_property_vw WHERE " +
+                   "type='%s') AND " +
+                   "%s IS NOT NULL ORDER BY 1",
        }
 WRITE = {'update': "UPDATE image_data_mv SET %s='%s' WHERE id=%s",
          'refresh': "UPDATE image_property SET update_date=NOW() " +
@@ -95,9 +99,9 @@ def update_lineprops(imageprop):
           (imageprop, j['cvterm_data'][0]['display_name'], db))
     try:
         CURSOR[db].execute(cursor)
+        rows = CURSOR[db].fetchall()
     except MySQLdb.Error as err:
         sql_error(err)
-    rows = CURSOR[db].fetchall()
     for row in rows:
         image_id = row[0]
         value = row[1]
@@ -119,6 +123,14 @@ def update_lineprops(imageprop):
                 logger.error("Could not update rows in image_property")
                 sql_error(err)
             COUNT['triggered'] += CURSOR[db].rowcount
+    cursor = READ['deleted'] % (imageprop, imageprop, imageprop)
+    try:
+        CURSOR[db].execute(cursor)
+        rows = CURSOR[db].fetchall()
+    except MySQLdb.Error as err:
+        sql_error(err)
+    for row in rows:
+        logger.warning("Image ID %s has a %s (%s) in image_data_mv, but not in image_property", row[0], imageprop, row[1])
     if ARG.WRITE:
         CONN[db].commit()
     print("Unsynced records: %d" % (len(rows)))

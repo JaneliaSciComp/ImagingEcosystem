@@ -16,7 +16,7 @@ use JFRC::Utils::Web qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 # Should be "All" or "GAL4"
 my $DRIVER = 'GAL4';
 

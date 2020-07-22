@@ -21,7 +21,7 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-use constant DATA_PATH  => '/opt/informatics/data/';
+use constant DATA_PATH  => '/groups/scicompsoft/informatics/data/';
 use constant NBSP => '&nbsp;';
 my $BASE = "/var/www/html/output/";
 my %CONFIG;
@@ -330,7 +330,8 @@ sub singleImage
     case 'Microscope' { $index = $microscope }
   }
   $block_color{$index} = shift @COLOR unless (exists $block_color{$index});
-  my $loc = "view_sage_imagery.cgi?_op=stack&_image=$name";
+  (my $ws_name = $name) =~ s/.+\///;
+  my $loc = "http://webstation.int.janelia.org/search?term=$ws_name";
   my $block = div({&identify($id),
                    class => 'iblock',
                    style => "background-color: #$block_color{$index}",

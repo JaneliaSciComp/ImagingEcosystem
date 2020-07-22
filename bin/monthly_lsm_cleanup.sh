@@ -16,4 +16,4 @@ echo "Deleting files" >> /tmp/monthly_lsm_cleanup.log
 /bin/rm -rf /groups/flylight/flylight/lsm_archive/2*
 date >> /tmp/monthly_lsm_cleanup.log
 echo "Done" >> /tmp/monthly_lsm_cleanup.log
-echo "The monthly LSM cleanup log for Fly Light is attached." | mail -s "Monthly LSM cleanup" -a /tmp/monthly_lsm_cleanup.log meissnerg@hhmi.org,rokickik@hhmi.org,svirskasr@hhmi.org
+echo "The monthly LSM cleanup log for Fly Light is attached." | mail -s "Monthly LSM cleanup" -a /tmp/monthly_lsm_cleanup.log meissnerg@hhmi.org,svirskasr@hhmi.org
