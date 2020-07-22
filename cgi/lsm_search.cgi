@@ -14,7 +14,7 @@ use JFRC::Utils::Web qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -111,24 +111,38 @@ sub displayResults
                                    . $subtitle)),br;
   my $url = $REST{sage}{url} . "/images?slide_code=$code*";
   $url .= "&data_set=$dataset" unless ($dataset eq ANY);
-  $url .= '&_columns=slide_code,family,data_set,name,renamed_by&_sort=slide_code,data_set,name';
+  $url .= '&_columns=slide_code,family,data_set,name,renamed_by,published_to,publishing_name&_sort=slide_code,data_set,name';
   my $rvar = &getREST($url);
   my $ar;
-  if ($rvar->{rest}{row_count}) {
+  if ($rvar && $rvar->{rest}{row_count}) {
     foreach (@{$rvar->{image_data}}) {
       $url = "view_sage_imagery.cgi?_op=stack;_family="
              . $_->{family} . "&_image=$_->{name}";
       my $sage = button(-value => 'SAGE',
                         -class => 'smallbutton',
-                        -style => 'background: #6c6',
+                        -style => 'background: #0ff',
                         -onclick => 'window.open("' . $url . '");');
       (my $lsm = $_->{name}) =~ s/.+\///;
       $url = "image_secdata.cgi?lsm=$lsm";
       my $ws = button(-value => 'Workstation',
                       -class => 'smallbutton',
-                      -style => 'background: #66c',
+                      -style => 'background: #f60',
                       -onclick => 'window.open("' . $url . '");');
-      push @$ar,[$_->{slide_code},$_->{data_set},$_->{name},$_->{renamed_by},"$sage $ws"];
+      my $ew = '';
+      if ($_->{published_to} && $_->{publishing_name}) {
+        if ($_->{published_to} == 'Split GAL4') {
+          $url = "http://splitgal4.janelia.org/cgi-bin/view_splitgal4_imagery.cgi?line=";
+        }
+        else {
+          $url = "http://flweb.janelia.org/cgi-bin/view_flew_imagery.cgi?line=";
+        }
+        $url .= $_->{publishing_name};
+        $ew = button(-value => 'External',
+                     -class => 'smallbutton',
+                     -style => 'background: #6c6',
+                     -onclick => 'window.open("' . $url . '");');
+      }
+      push @$ar,[$_->{slide_code},$_->{data_set},$_->{name},$_->{renamed_by},"$sage $ws $ew"];
     }
     my $t = table({id => 'lsms',class => 'tablesorter standard'},
                   thead(Tr(th(['Slide code','Data set','Image name','Imaged by','View on']))),
@@ -145,20 +159,29 @@ sub displayResults
 sub getREST
 {
   my($rest) = shift;
-  my $response = get $rest;
-  &terminateProgram("<h3>REST GET returned null response</h3>"
-                    . "<br>Request: $rest<br>")
-    unless (length($response));
+  my $ua = LWP::UserAgent->new;
+  my $response = $ua->get($rest);
   my $rvar;
-  eval {$rvar = decode_json($response)};
-  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                    . "Response: $response<br>Error: $@") if ($@);
-  return($rvar);
+  eval {$rvar = decode_json($response->content())};
+  &terminateProgram("<h3>REST GET decode failed</h3><br>Request: $rest<br>"
+                    . "Response: " . $response->status_line() . "<br>Error: $@") if ($@);
+  if ($response->is_success()) {
+    return($rvar);
+  }
+  else {
+    return('') if ($response->code() == 404);
+    if ($response->status_line()) {
+      my $err = "<h3>REST GET failed</h3><br>Request: $rest<br>"
+                . "Response: " . $response->code() . "<br>Error: " . $response->message();
+      $err .= '<br>Details: ' . $rvar->{rest}{error} if (exists $rvar->{rest});
+      &terminateProgram($err);
+    }
+  }
 }
 
 
 sub printHeader {
-  my($type) = shift;
+  my($type) = shift || '';
   my @js = ($type eq 'initial')
     ? ($PROGRAM) : ('jquery/jquery.tablesorter','tablesorter');
   my @scripts = map { {-language=>'JavaScript',-src=>"/js/$_.js"} } @js;

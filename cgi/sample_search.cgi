@@ -19,7 +19,7 @@ use JFRC::Utils::Web qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-use constant DATA_PATH  => '/opt/informatics/data/';
+use constant DATA_PATH  => '/groups/scicompsoft/informatics/data/';
 use constant NBSP => '&nbsp;';
 my @CLOSED = ('right','display:none;');
 my @OPEN = ('down','display:block;');

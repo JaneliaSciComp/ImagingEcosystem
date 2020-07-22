@@ -16,7 +16,7 @@ use JFRC::Utils::SAGE qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-use constant DATA_PATH  => '/opt/informatics/data/';
+use constant DATA_PATH  => '/groups/scicompsoft/informatics/data/';
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Line manager';
@@ -72,7 +72,7 @@ LINES => "SELECT DISTINCT name FROM line UNION SELECT DISTINCT publishing_name F
 LINEPROP => 'SELECT getCVTermDisplayName(getCVTermID(cv,type,NULL)) AS type,'
             . 'getCVTermDefinition(getCVTermID(cv,type,NULL)) AS definition,'
             . 'value FROM line_property_vw WHERE name=? ORDER BY 1',
-LINEREL => 'SELECT relationship,object FROM line_relationship_vw WHERE '
+LINEREL => "SELECT relationship,object,value FROM line_relationship_vw lr LEFT OUTER JOIN line_property_vw lp ON (lp.name=object AND lp.type='flycore_project') WHERE "
            . 'subject=? ORDER BY 2,1',
 PREFIX => "SELECT cv_term,definition FROM cv_term_vw WHERE cv='lab_prefix'",
 PUBLISHING => "SELECT publishing_name,requester,IF(published,'Yes','No'),IF(label,'Yes','No') FROM publishing_name_vw WHERE line=? ORDER BY 1",
@@ -730,8 +730,9 @@ sub displayLine
         start_form,&hiddenParameters();
 
   my $lp;
+  my %primaryprop;
   $sth{LINE}->execute(($line)x4);
-  ($line,$lp->{'SAGE ID'}{value},$lp->{Lab}{value},$lp->{Organism}{value},$lp->{'SAGE Create date'}{value}) = $sth{LINE}->fetchrow_array;
+  ($line,$primaryprop{'SAGE ID'},$primaryprop{Lab},$primaryprop{Organism},$primaryprop{'SAGE Create date'}) = $sth{LINE}->fetchrow_array;
   # ----- Line properties -----
   # Get gene information
   $sth{GENE}->execute($line);
@@ -749,7 +750,8 @@ sub displayLine
     $lp->{$_}{value} = span({class => 'redacted'},'HIDDEN')
     if ($CLASS =~ /3/ && !$VIEW);
   }
-  if (($lp->{Hide}{value} eq 'Y') && ($UID ne 'svirskasr')) {
+  $lp->{$_}{value} = $primaryprop{$_} foreach (keys %primaryprop);
+  if (($lp->{Hide}{value} eq 'Y') && !$VIEW) {
     print div({&identify('summaryarea'),
                style => 'margin: 0 10px 0 10px;'},
               div({align => 'center'},h3($line),br,
@@ -830,11 +832,13 @@ sub getLineRel
   if (scalar @$ar) {
     my (@tp,@tc);
     foreach (@$ar) {
+      my $link = a({href => '?line='.$_->[1]},$_->[1]);
+      $link .= " ($_->[2])" if ($_->[2]);
       if ($_->[0] eq 'child_of') {
-        push @tc,a({href => '?line='.$_->[1]},$_->[1]);
+        push @tc,$link;
       }
       else {
-        push @tp,a({href => '?line='.$_->[1]},$_->[1]);
+        push @tp,$link;
       }
     }
     my @tr;
@@ -982,10 +986,9 @@ sub renderLightImagery
       }
       $_->[2] = div({class => 'projection',
                      style => 'display: none;'},$_->[2]) if ($_->[2]);
-      $_->[1] = a({href => $LINK_MAP{Imagery}
-                           . (sprintf '_family=%s;_image=%s',$_->[0],$_->[1]),
-                   target => '_blank'},
-                   $_->[1]);
+      my($lsmname) = (split('/',$_->[1]))[-1];
+      $_->[1] = a({href => 'http://webstation.int.janelia.org/search?term=' . $lsmname,
+                   target => '_blank'},$_->[1]);
     }
     $content .= a({href => "?line=$line;mode=ibl",
                    target => '_blank'},'Show all image products') . br;

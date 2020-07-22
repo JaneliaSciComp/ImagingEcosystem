@@ -14,7 +14,7 @@ use JFRC::Utils::Web qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -41,7 +41,8 @@ $Session = &establishSession(css_prefix => $PROGRAM);
 $USERID = $Session->param('user_id');
 $USERNAME = $Session->param('user_name');
 my %sth = (
-  EVENTS=> "SELECT * FROM logs WHERE datetime >= ? AND msg LIKE ? ORDER BY seq",
+  EVENTS=> "SELECT * FROM logs WHERE datetime BETWEEN ? AND DATE_ADD(?,INTERVAL 1 DAY) AND msg LIKE ? ORDER BY seq",
+  EVENTSALL=> "SELECT * FROM logs WHERE datetime >= ? AND msg LIKE ? ORDER BY seq",
 );
 
 
@@ -105,10 +106,17 @@ sub initializeProgram
 sub displayResults
 {
   &printHeader();
-  my $date = param('date') || '2007-01-01';
+  my $stmt = 'EVENTS';
+  my $date = param('date');
   my $image = param('image');
-  $sth{EVENTS}->execute($date,"%$image%");
-  my $ar = $sth{EVENTS}->fetchall_arrayref();
+  my @bind_arr = (($date)x2,"%$image%");
+  unless (param('date')) {
+     $date = '2007-01-01';
+     $stmt = 'EVENTSALL';
+     @bind_arr = ($date,"%$image%");
+  }
+  $sth{$stmt}->execute(@bind_arr);
+  my $ar = $sth{$stmt}->fetchall_arrayref();
   my $events = '';
   if (scalar @$ar) {
     foreach (@$ar) {

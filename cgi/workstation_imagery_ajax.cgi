@@ -12,7 +12,7 @@ use URI::Encode qw(uri_decode);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/groups/scicomp/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *

@@ -32,7 +32,7 @@ use JFRC::Highcharts qw(:all);
 # ****************************************************************************
 # * Constants                                                                *
 # ****************************************************************************
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 use constant NBSP => '&nbsp;';
 use constant USER => 'sageRead';
 my $DB = 'dbi:mysql:dbname=sage;host=';

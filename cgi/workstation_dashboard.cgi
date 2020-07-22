@@ -23,7 +23,7 @@ use JFRC::Highcharts qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant LOG_PATH => '/groups/scicomp/informatics/logs/';
+use constant LOG_PATH => '/groups/scicompsoft/informatics/logs/';
 my $BASE = "/var/www/html/output/";
 my %CONFIG = (config => {url => 'http://config.int.janelia.org/'});
 

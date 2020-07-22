@@ -21,7 +21,7 @@
 #                    XML::Simple
 #                    Time::HiRes
 #                    JFRC::Utils::Web
-#   Config files:    /groups/scicomp/informatics/data/view_sage_imagery-config.xml
+#   Config files:    /groups/scicompsoft/informatics/data/view_sage_imagery-config.xml
 #   Input files:     NONE
 #   CSS:             /css/labcommon.css
 #                    /css/view_sage_imagery.css
@@ -122,7 +122,7 @@ use JFRC::Utils::SAGE qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/groups/scicomp/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *

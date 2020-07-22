@@ -16,7 +16,7 @@ use JFRC::Utils::Web qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -153,7 +153,7 @@ sub displayErrors
     $row[-1][0] = a({href => "sample_search.cgi?sample_id=$row[-1][0]",
                      target => '_blank'},$row[-1][0]);
     if ($row[-1][-1]) {
-      my $url = $SERVER{'jacs-storage'}{address} . "/" . $row[-1][-1];
+      my $url = join('/',$SERVER{'jacs-storage'}{address},$row[-1][-1]);
       $row[-1][-1] = a({href => $url,
                         target => '_blank'},
                             img({src => $url,
