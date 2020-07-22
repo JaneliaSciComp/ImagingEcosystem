@@ -22,7 +22,7 @@ use LWP::Simple;
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 my ($DEBUG,$VERBOSE,$WRITE) = (0)x3;
 my ($NEW_PATH,$PATH);

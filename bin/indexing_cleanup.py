@@ -124,7 +124,7 @@ def processImages(cursor):
         if DEBUG:
             print("%s\t%s\t%s\t%s" % (family, data_set, slide_code, name))
         if family == 'rubin_chacrm':
-            config = '/groups/scicomp/informatics/data/rubin_light_imagery-config.xml'
+            config = '/groups/scicompsoft/informatics/data/rubin_light_imagery-config.xml'
             grammar = '/misc/local/pipeline/grammar/chacrm_sage.gra'
         elif data_set in dsdict:
             config = dsdict[data_set]['config']
@@ -166,7 +166,7 @@ def processImages(cursor):
 
 
 def indexImage(config, grammar, name, data_set):
-    command = ['perl', '/opt/informatics/bin/sage_loader.pl', '-config',
+    command = ['perl', '/groups/scicompsoft/informatics/bin/sage_loader.pl', '-config',
                config, '-grammar', grammar, '-item', name, '-lab',
                'flylight', '-verbose', '-description',
                'Image load from indexing_cleanup']

@@ -16,7 +16,7 @@ use JFRC::Utils::DB qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 my ($VERBOSE,$WRITE) = (0)x2;
 

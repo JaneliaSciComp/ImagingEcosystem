@@ -19,7 +19,7 @@ use JFRC::Utils::DB qw(:all);
 # * Environment-dependent                                                    *
 # ****************************************************************************
 # Change this on foreign installation
-use constant DATA_PATH => '/opt/informatics/data/';
+use constant DATA_PATH => '/groups/scicompsoft/informatics/data/';
 
 # ****************************************************************************
 # * Constants                                                                *
@@ -52,7 +52,7 @@ GetOptions('log=s'    => \my $log_file,
            help       => \my $HELP)
   or pod2usage(-1);
 
-$log_file ||= '/opt/informatics/logs/workstation_status.log';
+$log_file ||= '/groups/scicompsoft/informatics/logs/workstation_status.log';
 # Display help and exit if the -help parm is specified
 pod2text($0),&terminateProgram() if ($HELP);
 
