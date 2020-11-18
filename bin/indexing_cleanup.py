@@ -125,10 +125,11 @@ def processImages(cursor):
             print("%s\t%s\t%s\t%s" % (family, data_set, slide_code, name))
         if family == 'rubin_chacrm':
             config = '/groups/scicompsoft/informatics/data/rubin_light_imagery-config.xml'
-            grammar = '/misc/local/pipeline/grammar/chacrm_sage.gra'
+            grammar = '/misc/sc/pipeline/grammar/chacrm_sage.gra'
         elif data_set in dsdict:
             config = dsdict[data_set]['config']
             grammar = dsdict[data_set]['grammar']
+            grammar = grammar.replace("/misc/local/pipeline", "/misc/sc/pipeline")
         else:
             print('Could not determine configuration and grammar for data set %s' % (data_set))
         lsm.setdefault(data_set, []).append(name)
