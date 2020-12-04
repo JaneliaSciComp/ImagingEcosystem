@@ -2,17 +2,21 @@
 '''
 
 import argparse
+from pathlib import Path
 import sys
 import colorlog
 import requests
 import MySQLdb
+from pymongo import MongoClient
 
 
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
-COUNT = {'read': 0, 'match': 0, 'mismatch': 0}
+COUNT = {'read': 0, 'match': 0, 'mismatch': 0, 'total lsms': 0, 'truncated lsms': 0}
+PROBLEMATIC = dict()
 CONN = dict()
 CURSOR = dict()
+DBM = ''
 
 def sql_error(err):
     """ Log a critical SQL error and exit
@@ -73,15 +77,20 @@ def initialize_program():
     data = call_responder('config', 'config/rest_services')
     CONFIG = data['config']
     data = call_responder('config', 'config/db_config')
-    dbn = ARG.DATABASE
-    (CONN[dbn], CURSOR[dbn]) = db_connect(data['config'][dbn][ARG.MANIFOLD])
     (CONN['sage'], CURSOR['sage']) = db_connect(data['config']['sage']['prod'])
+    try:
+        client = MongoClient('mongodb3.int.janelia.org:27017')
+        DBM = client.jacs
+        DBM.authenticate('flyportalRead', 'flyportalRead')
+    except Exception as err:
+        LOGGER.critical('Could not connect to Mongo: %s', err)
+        sys.exit(-1)
 
 
-def analyze_sample(sid, slide_code=False):
-    stmt = "SELECT name,workstation_sample_id,slide_code FROM image_data_mv WHERE "
+def analyze_sample(sid, outfile, slide_code=False):
+    stmt = "SELECT name,workstation_sample_id,slide_code,jfs_path,line,tile FROM image_data_mv WHERE "
     stmt += 'slide_code' if slide_code else 'workstation_sample_id'
-    stmt += "=%s ORDER BY 1"
+    stmt += "=%s AND display != 0 ORDER BY 1"
     select = slide_code if slide_code else sid
     CURSOR['sage'].execute(stmt, (select,))
     rows = CURSOR['sage'].fetchall()
@@ -99,10 +108,17 @@ def analyze_sample(sid, slide_code=False):
     okay = True
     LOGGER.info("%s: SAGE has %d LSMs, JACS has %d", sid, len(rows), len(lsms))
     for row in rows:
+        COUNT['total lsms'] += 1
         lsm = row['name'].split("/")[1]
+        fsize = Path(row['jfs_path']).stat().st_size
         if lsm not in lsms:
             okay = False
-            LOGGER.warning("%s is in SAGE but not in JACS for %s", row['name'], sid)
+            LOGGER.warning("%s is in SAGE but not in JACS for %s (%dB)", row['name'], sid, fsize)
+        elif fsize < 1000:
+            COUNT['truncated lsms'] += 1
+            LOGGER.warning("%s is in SAGE and JACS for %s but is truncated (%dB)", row['name'], sid, fsize)
+            outfile.write("%s\t%s\t%s\t%s\n" % (row['name'], sid, row['slide_code'], row['tile']))
+            PROBLEMATIC[sid] = 1
     COUNT['match' if okay else 'mismatch'] += 1
 
 
@@ -111,22 +127,24 @@ def process_samples():
         LOGGER.critical("A file of sample IDs is required")
         sys.exit(-1)
     handle = open(ARG.FILE, 'r')
+    outfile = open("lsm_log.tsv", "w")
+    outfile.write("%s\t%s\t%s\t%s\n" % ('Name', 'Sample', 'Slide code', 'Tile'))
     for row in handle:
         COUNT['read'] += 1
         field = row.rstrip().split("\t")
         if len(field) > 1:
-            analyze_sample(field[0], field[1])
+            analyze_sample(field[0], outfile, field[1])
         else:
-            analyze_sample(field[0])
+            analyze_sample(field[0], outfile)
     handle.close()
+    outfile.close()
+    print("Samples with truncated images in Workstation:", len(PROBLEMATIC))
     print(COUNT)
 
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Compare LSMs between SAGE and JACS")
-    PARSER.add_argument('--database', dest='DATABASE', action='store',
-                        default='gen1mcfo', help='database')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='staging', help='manifold')
     PARSER.add_argument('--file', dest='FILE', action='store',
