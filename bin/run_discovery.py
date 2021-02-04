@@ -3,30 +3,35 @@
 '''
 
 import argparse
-import os
+import subprocess
 import sys
 import colorlog
+from tqdm import tqdm
 
 
 # JACS call details
-PREFIX = 'action=invokeOpByName&name=ComputeServer%3Aservice%3DSampleDataManager' \
-         + '&methodName=runSampleDiscovery&arg0='
-SUFFIX = '&argType=java.lang.String" http://jacs-data7.int.janelia.org:8180/jmx-console/HtmlAdaptor'
+# action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=17&arg0=20201211_41_A6
+PREFIX = 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager' \
+         + '&methodIndex=17&arg0='
+SUFFIX = '&argType=java.lang.String" http://jacs-data8.int.janelia.org:8180/jmx-console/HtmlAdaptor'
 
 
 def process_slide_codes():
     codefile = open(ARG.CODES, "r")
     sent = 0
+    slide_code = []
     for code in codefile:
-        command = 'wget -v --post-data="%s%s%s' % (PREFIX, code, SUFFIX)
-        os.system(command)
-        sent += 1
+        slide_code.append(code)
     codefile.close()
+    for code in tqdm(slide_code):
+        command = 'wget -v --post-data="%s%s%s' % (PREFIX, code.strip(), SUFFIX)
+        subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        sent += 1
     print("Slide codes processed: %d" % (sent))
 
 
 if __name__ == '__main__':
-    PARSER = argparse.ArgumentParser(description='Rundiscovery for a list of slide codes')
+    PARSER = argparse.ArgumentParser(description='Run discovery for a list of slide codes')
     PARSER.add_argument('--codes', dest='CODES', action='store',
                         help='File of slide codes')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
