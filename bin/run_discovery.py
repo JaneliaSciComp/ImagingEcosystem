@@ -13,7 +13,7 @@ from tqdm import tqdm
 # action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=17&arg0=20201211_41_A6
 PREFIX = 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager' \
          + '&methodIndex=17&arg0='
-SUFFIX = '&argType=java.lang.String" http://jacs-data8.int.janelia.org:8180/jmx-console/HtmlAdaptor'
+SUFFIX = '&argType=java.lang.String" http://jacs-data7.int.janelia.org:8180/jmx-console/HtmlAdaptor'
 
 
 def process_slide_codes():
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     LOGGER.addHandler(HANDLER)
     if not ARG.CODES:
-        LOGGER.error("Must specidy file of slide codes")
+        LOGGER.error("Must specify file of slide codes")
         sys.exit(-1)
     process_slide_codes()
     sys.exit(0)
