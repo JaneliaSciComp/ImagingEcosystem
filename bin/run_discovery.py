@@ -13,7 +13,7 @@ from tqdm import tqdm
 # action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=17&arg0=20201211_41_A6
 PREFIX = 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager' \
          + '&methodIndex=17&arg0='
-SUFFIX = '&argType=java.lang.String" http://jacs-data7.int.janelia.org:8180/jmx-console/HtmlAdaptor'
+SUFFIX = '&argType=java.lang.String" http://jacs-data8.int.janelia.org:8180/jmx-console/HtmlAdaptor'
 
 
 def process_slide_codes():
@@ -34,6 +34,8 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(description='Run discovery for a list of slide codes')
     PARSER.add_argument('--codes', dest='CODES', action='store',
                         help='File of slide codes')
+    PARSER.add_argument('--server', dest='SERVER', action='store',
+                        help='Server # (2-8)')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
@@ -52,5 +54,7 @@ if __name__ == '__main__':
     if not ARG.CODES:
         LOGGER.error("Must specify file of slide codes")
         sys.exit(-1)
+    if ARG.SERVER:
+        SUFFIX = SUFFIX.replace('jacs-data8', 'jacs-data' + ARG.SERVER)
     process_slide_codes()
     sys.exit(0)
