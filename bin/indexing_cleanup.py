@@ -1,8 +1,10 @@
 #!/opt/python/bin/python2.7
 
 import argparse
+import os
 import subprocess
 import sys
+import time
 import colorlog
 import requests
 import MySQLdb
@@ -12,21 +14,26 @@ from pymongo import MongoClient
 # SQL statements
 SQL = {
     'OVERDUE': "SELECT i.family,ipd.value AS data_set,ips.value AS slide_code,"
-               + "i.name FROM image_vw i JOIN image_property_vw ipd ON "
+               + "i.name,i.line FROM image_vw i JOIN image_property_vw ipd ON "
                + "(i.id=ipd.image_id AND ipd.type='data_set') JOIN image_property_vw ips "
                + "ON (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
                + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
                + "image_property_vw WHERE type='bits_per_sample') AND "
                + "TIMESTAMPDIFF(HOUR,i.create_date,NOW()) > 8",
     'ALL': "SELECT i.family,ipd.value AS data_set,ips.value AS slide_code,"
-           + "i.name FROM image_vw i JOIN image_property_vw ipd ON "
+           + "i.name,i.line FROM image_vw i JOIN image_property_vw ipd ON "
            + "(i.id=ipd.image_id AND ipd.type='data_set') JOIN image_property_vw ips "
            + "ON  (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
            + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
            + "image_property_vw WHERE type='bits_per_sample')",
-    'SINGLE': "SELECT family,data_set,slide_code,name FROM image_data_mv WHERE "
+    'SINGLE': "SELECT family,data_set,slide_code,name,line FROM image_data_mv WHERE "
               + "id=%s",
 }
+# JACS call details
+PREFIX = {"DISCOVER": 'action=invokeOpByName&name=ComputeServer%3Aservice%3DSampleDataManager&&methodName=runSampleDiscovery&arg0=',
+          "PROCESS": 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=18&methodName=runSampleOrFolder&arg0='}
+SUFFIX = {"DISCOVER": '&argType=java.lang.String" http://jacs-data2.int.janelia.org:8180/jmx-console/HtmlAdaptor',
+          "PROCESS": '&arg1=True&arg2=True&arg3=True&arg4=True&arg5=" http://jacs-data3.int.janelia.org:8180/jmx-console/HtmlAdaptor'}
 # Counters
 COUNT = {'failure': 0, 'found': 0, 'skipped': 0, 'success': 0}
 DSDICT = {}
@@ -105,6 +112,34 @@ def connect_databases():
     (CONN['sage'], CURSOR['sage']) = db_connect(DATABASE['sage']['prod'])
 
 
+def get_entity(line, slide_code):
+    sid = line + '-' + slide_code
+    response = call_responder('jacs', 'data/sample?name=' + sid)
+    if not response:
+        LOGGER.error("Could not find sample ID for %s", sid)
+        return ''
+    return response[0]['_id']
+
+
+def discover_and_process(slide_code):
+    #prefix = 'action=invokeOpByName&name=ComputeServer%3Aservice%3DSampleDataManager&methodName=runSampleDiscovery&arg0='
+    #prefix2 = 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=18&'
+    #suffix = '&argType=java.lang.String" http://jacs-data2.int.janelia.org:8180/jmx-console/HtmlAdaptor'
+    #suffix2 = '&arg1=True&arg2=True&arg3=True&arg4=True&arg5=" http://jacs-data5.int.janelia.org:8180/jmx-console/HtmlAdaptor'
+    for code in sorted(slide_code):
+        command = 'wget -v --post-data="%s%s%s' % (PREFIX['DISCOVER'], code,
+                                                   SUFFIX['DISCOVER'])
+        LOGGER.debug(command)
+        os.system(command)
+        time.sleep(3)
+        entity = get_entity(slide_code[code], code)
+        if entity:
+            command = 'wget -v --post-data="%s%s%s' % (PREFIX['PROCESS'], entity,
+                                                       SUFFIX['PROCESS'])
+            LOGGER.debug(command)
+            os.system(command)
+
+
 def process_images():
     mode = 'ALL' if ARG.ALL else 'OVERDUE'
     stmt = SQL[mode]
@@ -133,11 +168,13 @@ def process_images():
             LOGGER.debug(stmt)
             CURSOR['sage'].execute(stmt)
             rows = CURSOR['sage'].fetchall()
-            print(rows)
         except MySQLdb.Error as err:
             sql_error(err)
 
     lsm = dict()
+    slide_code = dict()
+    if ARG.TEST:
+        LOGGER.warning("Test mode: will not send transactions")
     for row in rows:
         config = ''
         grammar = ''
@@ -155,10 +192,11 @@ def process_images():
             LOGGER.error('Could not determine configuration and grammar '
                          + 'for data set %s', row['data_set'])
         lsm.setdefault(row['data_set'], []).append(row['name'])
-        if config and grammar and ARG.INDEX_ONLY:
+        if config and grammar and ARG.INDEX:
+            slide_code[row['slide_code']] = row['line']
             index_image(config, grammar, row['name'], row['data_set'])
     operation = 'indexed'
-    if not ARG.INDEX_ONLY:
+    if not (ARG.INDEX or ARG.DISCOVER):
         operation = 'indexed/discovered'
         for dataset, lsmlist in lsm.items():
             LOGGER.info("Running indexing/discovery on data set " + dataset
@@ -188,6 +226,8 @@ def process_images():
             print('  %s: %d' % (dset, INDEXED[dset]))
     if COUNT['failure']:
         print('Images failing indexing: %d' % COUNT['failure'])
+    if slide_code and (ARG.INDEX or ARG.DISCOVER) and not ARG.TEST:
+        discover_and_process(slide_code)
 
 
 def index_image(config, grammar, name, data_set):
@@ -200,7 +240,6 @@ def index_image(config, grammar, name, data_set):
     try:
         if ARG.TEST:
             tmp = 'OK'
-            LOGGER.warning("Test mode: will not send transactions")
         else:
             tmp = subprocess.check_output(command, stderr=subprocess.STDOUT)
         if (tmp.find('Cannot read file') != -1) or \
@@ -233,15 +272,17 @@ if __name__ == '__main__':
                         help='Data set (optional)')
     PARSER.add_argument('--slide_code', dest='SLIDE', action='store',
                         help='Slide code (optional)')
-    PARSER.add_argument('--index', action='store_true', dest='INDEX_ONLY',
-                        default=False, help='Do not run discovery')
+    PARSER.add_argument('--index', action='store_true', dest='INDEX',
+                        default=False, help='Run indexing')
+    PARSER.add_argument('--discover', action='store_true', dest='DISCOVER',
+                        default=False, help='Run discovery and image processing')
     PARSER.add_argument('--verbose', action='store_true', dest='VERBOSE',
                         default=False, help='Turn on verbose output')
     PARSER.add_argument('--debug', action='store_true', dest='DEBUG',
                         default=False, help='Turn on debug output')
     PARSER.add_argument('--test', action='store_true', dest='TEST',
                         default=False,
-                        help='Test mode - does not actually run the indexer or discovery service')
+                        help='Test mode - does not actually run the indexer or discovery')
     PARSER.add_argument('--all', action='store_true', dest='ALL',
                         default=False,
                         help='Selects all images, not just overdue ones')

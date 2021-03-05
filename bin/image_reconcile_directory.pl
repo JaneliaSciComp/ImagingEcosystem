@@ -146,7 +146,12 @@ sub checkForRename
 sub checkScality
 {
   my($full_path,$name,$url) = @_;
-  my $on_scality = head($url);
+  my $on_scality;
+  $url =~ s/.+\/api\/file/https:\/\/workstation.int.janelia.org\/SCSW\/JADEServices\/v1\/storage_content\/storage_path_redirect/;
+  eval { $on_scality = head($url); };
+  #print "Eval: $@\n";
+  my ($type, $length, $mod) = head($url);
+  #print "$type, $length, $mod\n";
   if ($on_scality) {
     print "$name was copied to archive but not removed from /dm11\n";
     $count{'Files needing deletion from /dm11'}++;
@@ -155,7 +160,7 @@ sub checkScality
       unless (-e($NEW_PATH."/$dir")) {
         my @made = make_path($NEW_PATH."/$dir");
       }
-      print "Moved $file to $NEW_PATH/$dir\n" if ($DEBUG);
+      print "Move $file to $NEW_PATH/$dir\n" if ($VERBOSE);
       move($full_path,$NEW_PATH."/$dir");
     }
   }
