@@ -143,15 +143,15 @@ def update_jacs(slide_code, data_set, sage_prop):
     """
     # Sample
     try:
-        cursor = DBM.sample.find({'dataSet': data_set, 'slideCode': slide_code, 'sageSynced':True})
+        cursor = DBM.sample.find({'dataSet': data_set, 'slideCode': slide_code, 'sageSynced': True})
     except Exception as err:
-        print('Could not get sample from FlyPortal: %s' % (err))
+        LOGGER.error('Could not get sample from FlyPortal: %s', err)
         sys.exit(-1)
     if not cursor:
         LOGGER.error("%s (%s) was not found in JACS", data_set, slide_code)
         COUNT['missingj'] += 1
         return
-    lab = sid = ''
+    prop = sid = ''
     checked = False
     for dset in cursor:
         checked = True
@@ -159,30 +159,33 @@ def update_jacs(slide_code, data_set, sage_prop):
             LOGGER.error("%s (%s) has multiple samples in JACS", data_set, slide_code)
             return
         if PROPMAP['line'][ARG.PROPERTY] not in dset:
-            LOGGER.warning("Sample %s does not have a %s", dset['_id'],
-                           PROPMAP['line'][ARG.PROPERTY])
+            LOGGER.debug("Sample %s does not have a %s", dset['_id'],
+                         PROPMAP['line'][ARG.PROPERTY])
             COUNT['noprop'] += 1
-            return
-        lab = dset[PROPMAP['line'][ARG.PROPERTY]]
+        else:
+            prop = dset[PROPMAP['line'][ARG.PROPERTY]]
         sid = dset['_id']
     if not checked:
         LOGGER.error("%s (%s) was not found in JACS", data_set, slide_code)
         COUNT['missingj'] += 1
         return
     COUNT['samples'] += 1
-    if lab != sage_prop:
-        LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:sample %s", sage_prop, lab, sid)
+    if prop != sage_prop:
+        LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:sample %s", sage_prop, prop, sid)
         update_sample(sid, sage_prop)
+    # Image
     try:
-        cursor = DBM.image.find({'dataSet': data_set, 'slideCode': slide_code})
+        cursor = DBM.image.find({'dataSet': data_set, 'slideCode': slide_code, 'sageSynced': True})
     except Exception as err:
-        print('Could not get sample from FlyPortal: %s' % (err))
+        LOGGER.error('Could not get sample from FlyPortal: %s', err)
         sys.exit(-1)
     for image in cursor:
         COUNT['images'] += 1
-        if image[PROPMAP['line'][ARG.PROPERTY]] != sage_prop:
+        prop = image[PROPMAP['line'][ARG.PROPERTY]] \
+               if PROPMAP['line'][ARG.PROPERTY] in image else ''
+        if prop != sage_prop:
             LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:image %s",
-                         sage_prop, image[PROPMAP['line'][ARG.PROPERTY]], image['_id'])
+                         sage_prop, prop, image['_id'])
             update_image(image['_id'], sage_prop)
 
 
