@@ -2,7 +2,10 @@
 '''
 
 import argparse
+from os import path, remove
 import sys
+from time import strftime
+import bson
 import colorlog
 import requests
 import MySQLdb
@@ -13,15 +16,23 @@ from tqdm import tqdm
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 COUNT = {'images': 0, 'imagemm': 0, 'imageup': 0, 'lines': 0, 'missingj': 0,
-         'missings': 0, 'noprop': 0, 'samples': 0, 'samplemm': 0, 'sampleup': 0}
+         'missingl': 0, 'missings': 0, 'noprop': 0, 'samples': 0, 'samplemm': 0,
+         'sampleup': 0, 'slide_codes': 0}
+CROSSPROPS = ['cross_description', 'effector_description', 'lab_member', 'lab_project']
 # Database
 CONN = dict()
 CURSOR = dict()
-DBM = PROPMAP = ''
+DBM = PROPMAP = PROPSET = ''
 READ = {"LINEPROP": "SELECT type,value FROM line_property_vw WHERE name=%s ORDER BY 1",
+        "IMAGEPROP": "SELECT data_set,cross_barcode,!REPLACE! FROM image_data_mv WHERE "
+                     + "slide_code=%s GROUP BY 1,2,3",
         "IMAGES": "SELECT DISTINCT data_set,slide_code FROM image_data_mv WHERE line=%s "
                   + "AND data_set IS NOT NULL AND slide_code IS NOT NULL ORDER BY 1,2",
        }
+
+# pylint: disable=W0703
+
+# -----------------------------------------------------------------------------
 
 def sql_error(err):
     """ Log a critical SQL error and exit
@@ -108,8 +119,11 @@ def update_sample(sid, sage_prop):
     """
     COUNT['samplemm'] += 1
     if ARG.WRITE:
+        setdict = {PROPMAP[PROPSET][ARG.PROPERTY]: sage_prop}
+        if ARG.PROPERTY == 'flycore_project':
+            setdict[PROPMAP['image']['driver']] = sage_prop
         data = DBM.sample.update_one({"_id": sid},
-                                     {"$set": {PROPMAP['line'][ARG.PROPERTY]: sage_prop}})
+                                     {"$set": setdict})
         COUNT['sampleup'] += data.modified_count
     else:
         COUNT['sampleup'] += 1
@@ -125,25 +139,58 @@ def update_image(iid, sage_prop):
     """
     COUNT['imagemm'] += 1
     if ARG.WRITE:
+        setdict = {PROPMAP[PROPSET][ARG.PROPERTY]: sage_prop}
+        if ARG.PROPERTY == 'flycore_project':
+            setdict[PROPMAP['image']['driver']] = sage_prop
         data = DBM.image.update_one({"_id": iid},
-                                    {"$set": {PROPMAP['line'][ARG.PROPERTY]: sage_prop}})
+                                    {"$set": setdict})
         COUNT['imageup'] += data.modified_count
     else:
         COUNT['imageup'] += 1
 
 
-def update_jacs(slide_code, data_set, sage_prop):
-    """ Check JACS status for an image
+def update_jacs_images(payload, sage_prop):
+    """ Update images in JACS
+        Keyword arguments:
+        payload: Mongo search payload
+          sage_prop: property from SAGE
+        Returns:
+          None
+    """
+    try:
+        cursor = DBM.image.find(payload)
+    except Exception as err:
+        LOGGER.error('Could not get sample from FlyPortal: %s', err)
+        sys.exit(-1)
+    for image in cursor:
+        COUNT['images'] += 1
+        prop = image[PROPMAP[PROPSET][ARG.PROPERTY]] \
+               if PROPMAP[PROPSET][ARG.PROPERTY] in image else ''
+        if prop != sage_prop:
+            LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:image %s",
+                         sage_prop, prop, image['_id'])
+            CHANGES.write("image\t%s\t%s\t%s\n" % (image['_id'], prop, sage_prop))
+            update_image(image['_id'], sage_prop)
+        elif ARG.DEBUG:
+            LOGGER.debug("Image %s (%s) matches in SAGE and JACS", image['_id'], prop)
+
+
+def update_jacs(slide_code, data_set, barcode, sage_prop):
+    """ Update sample and images in JACS
         Keyword arguments:
           slide_code: image slide code
           data_set: image data set
-          sage_prop: lineprop from SAGE
+          barcode: cross barcode
+          sage_prop: property from SAGE
         Returns:
           None
     """
     # Sample
+    payload = {'dataSet': data_set, 'slideCode': slide_code, 'sageSynced': True}
+    if barcode:
+        payload['crossBarcode'] = bson.Int64(barcode)
     try:
-        cursor = DBM.sample.find({'dataSet': data_set, 'slideCode': slide_code, 'sageSynced': True})
+        cursor = DBM.sample.find(payload)
     except Exception as err:
         LOGGER.error('Could not get sample from FlyPortal: %s', err)
         sys.exit(-1)
@@ -158,12 +205,12 @@ def update_jacs(slide_code, data_set, sage_prop):
         if sid:
             LOGGER.error("%s (%s) has multiple samples in JACS", data_set, slide_code)
             return
-        if PROPMAP['line'][ARG.PROPERTY] not in dset:
+        if PROPMAP[PROPSET][ARG.PROPERTY] not in dset:
             LOGGER.debug("Sample %s does not have a %s", dset['_id'],
-                         PROPMAP['line'][ARG.PROPERTY])
+                         PROPMAP[PROPSET][ARG.PROPERTY])
             COUNT['noprop'] += 1
         else:
-            prop = dset[PROPMAP['line'][ARG.PROPERTY]]
+            prop = dset[PROPMAP[PROPSET][ARG.PROPERTY]]
         sid = dset['_id']
     if not checked:
         LOGGER.error("%s (%s) was not found in JACS", data_set, slide_code)
@@ -171,22 +218,15 @@ def update_jacs(slide_code, data_set, sage_prop):
         return
     COUNT['samples'] += 1
     if prop != sage_prop:
-        LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:sample %s", sage_prop, prop, sid)
+        LOGGER.debug("SAGE (%s) does not match sample (%s) for JACS:sample %s",
+                     sage_prop, prop, sid)
+        CHANGES.write("sample\t%s\t%s\t%s\n" % (sid, prop, sage_prop))
         update_sample(sid, sage_prop)
-    # Image
-    try:
-        cursor = DBM.image.find({'dataSet': data_set, 'slideCode': slide_code, 'sageSynced': True})
-    except Exception as err:
-        LOGGER.error('Could not get sample from FlyPortal: %s', err)
-        sys.exit(-1)
-    for image in cursor:
-        COUNT['images'] += 1
-        prop = image[PROPMAP['line'][ARG.PROPERTY]] \
-               if PROPMAP['line'][ARG.PROPERTY] in image else ''
-        if prop != sage_prop:
-            LOGGER.debug("SAGE (%s) does not match image (%s) for JACS:image %s",
-                         sage_prop, prop, image['_id'])
-            update_image(image['_id'], sage_prop)
+    elif ARG.DEBUG:
+        LOGGER.debug("Sample %s (%s) matches in SAGE and JACS", sid, prop)
+        return
+    # Images
+    update_jacs_images(payload, sage_prop)
 
 
 def process_single_line(line):
@@ -203,7 +243,7 @@ def process_single_line(line):
         sql_error(err)
     if not rows:
         LOGGER.error("%s was not found in SAGE", line)
-        COUNT['missings'] += 1
+        COUNT['missingl'] += 1
         return
     COUNT['lines'] += 1
     lineprop = dict()
@@ -217,7 +257,38 @@ def process_single_line(line):
         sql_error(err)
     for image in images:
         LOGGER.info("%s (%s)", image['slide_code'], image['data_set'])
-        update_jacs(image['slide_code'], image['data_set'], lineprop[ARG.PROPERTY])
+        update_jacs(image['slide_code'], image['data_set'], None, lineprop[ARG.PROPERTY])
+
+
+def process_single_slide_code(slide):
+    """ Update properties for one slide code on JACS
+        Keyword arguments:
+          slide: slide code
+        Returns:
+          None
+    """
+    READ['IMAGEPROP'] = READ['IMAGEPROP'].replace('!REPLACE!', ARG.PROPERTY)
+    try:
+
+        CURSOR['sage'].execute(READ['IMAGEPROP'], (slide, ))
+        rows = CURSOR['sage'].fetchall()
+    except Exception as err:
+        sql_error(err)
+    if not rows:
+        LOGGER.error("%s was not found in SAGE", slide)
+        COUNT['missings'] += 1
+        return
+    COUNT['slide_codes'] += 1
+    for row in rows:
+        if not row[ARG.PROPERTY]:
+            LOGGER.warning("%s is null for image %s/%s", ARG.PROPERTY, slide, row['data_set'])
+            continue
+        barcode = row['cross_barcode'] if ARG.PROPERTY in CROSSPROPS else None
+        if barcode:
+            LOGGER.info("%s %s (%s)", slide, barcode, row[ARG.PROPERTY])
+        else:
+            LOGGER.info("%s (%s)", slide, row[ARG.PROPERTY])
+        update_jacs(slide, row['data_set'], barcode, row[ARG.PROPERTY])
 
 
 def process_lines():
@@ -227,16 +298,23 @@ def process_lines():
         Returns:
           None
     """
-    if ARG.LINE:
+    if ARG.FILE:
+        with open(ARG.FILE) as ifile:
+            items = ifile.read().splitlines()
+        ifile.close()
+        for item in tqdm(items):
+            if PROPSET == 'image':
+                process_single_slide_code(item)
+            else:
+                process_single_line(item)
+    elif ARG.LINE:
         process_single_line(ARG.LINE)
-    else:
-        with open(ARG.FILE) as lfile:
-            lines = lfile.read().splitlines()
-        lfile.close()
-        for line in tqdm(lines):
-            process_single_line(line)
+    elif ARG.SLIDE:
+        process_single_slide_code(ARG.SLIDE)
     print("Lines found in SAGE:       %d" % (COUNT['lines']))
-    print("Lines missing from SAGE:   %d" % (COUNT['missings']))
+    print("Lines missing from SAGE:   %d" % (COUNT['missingl']))
+    print("Slides found in SAGE:      %d" % (COUNT['slide_codes']))
+    print("Slides missing from SAGE:  %d" % (COUNT['missings']))
     print("Samples found:             %d" % (COUNT['samples']))
     print("Images found:              %d" % (COUNT['images']))
     print("Samples missing from JACS: %d" % (COUNT['missingj']))
@@ -245,19 +323,28 @@ def process_lines():
     print("Samples updated:           %d" % (COUNT['sampleup']))
     print("Images needing update:     %d" % (COUNT['imagemm']))
     print("Images updated:            %d" % (COUNT['imageup']))
+    if CHANGES:
+        CHANGES.close()
+        if not path.getsize(CHANGE_FILE):
+            remove(CHANGE_FILE)
 
+
+# -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Update line property on JACS")
     PARSER.add_argument('--property', dest='PROPERTY', action='store',
                         default='flycore_lab', help='Line property')
-    PARSER.add_argument('--line', dest='LINE', action='store',
-                        default='', help='Line')
-    PARSER.add_argument('--file', dest='FILE', action='store',
-                        default='', help='File containing lines')
+    INPUT_GROUP = PARSER.add_mutually_exclusive_group(required=True)
+    INPUT_GROUP.add_argument('--line', dest='LINE', action='store',
+                             default='', help='Line')
+    INPUT_GROUP.add_argument('--slide', dest='SLIDE', action='store',
+                             default='', help='Slide code')
+    INPUT_GROUP.add_argument('--file', dest='FILE', action='store',
+                             default='', help='File containing lines')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
-                        default='dev', help='manifold')
+                        choices=['dev', 'prod'], default='dev', help='Manifold')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Actually write to Mongo')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
@@ -278,8 +365,17 @@ if __name__ == '__main__':
     LOGGER.addHandler(HANDLER)
 
     initialize_program()
-    if ARG.PROPERTY not in PROPMAP['line']:
-        LOGGER.error("Line property %s is not mapped to a JACS property name", ARG.PROPERTY)
+    if ARG.PROPERTY in PROPMAP['line']:
+        PROPSET = 'line'
+    elif ARG.PROPERTY in PROPMAP['image']:
+        PROPSET = 'image'
+    else:
+        LOGGER.error("Property %s is not mapped to a JACS property name", ARG.PROPERTY)
         sys.exit(-1)
+    LOGGER.info("%s is a %s property", ARG.PROPERTY, PROPSET)
+    CHANGES = None
+    TIMESTAMP = strftime("%Y%m%dT%H%M%S")
+    CHANGE_FILE = '%s_property_changes_%s.txt' % (PROPSET, TIMESTAMP)
+    CHANGES = open(CHANGE_FILE, 'w')
     process_lines()
     sys.exit(0)
