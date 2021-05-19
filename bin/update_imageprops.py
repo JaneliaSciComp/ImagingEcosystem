@@ -22,8 +22,7 @@ READ = {"EFFECTORS": "SELECT cv_term,definition FROM cv_term_vw WHERE cv='effect
                        + "alps_release=%s AND cross_barcode IS NOT NULL AND "
                        + "lab_member IS NULL ORDER BY id",
         "IDS": "SELECT id,cross_barcode,effector,slide_code FROM image_data_mv WHERE "
-               + "cross_barcode IS NOT NULL AND slide_code=%s AND "
-               + "lab_member IS NULL ORDER BY id",
+               + "slide_code=%s AND lab_member IS NULL ORDER BY id",
         "IMAGE": "SELECT id FROM image WHERE id=%s",
         "PROPERTY": "SELECT value FROM image_property WHERE image_id=%s AND "
                     + "type_id=getCVTermID('fly',%s,NULL)"
@@ -185,7 +184,11 @@ def get_slide_codes():
             CURSOR['sage'].execute(READ['IDS'], (scode,))
             rows = CURSOR['sage'].fetchall()
             for row in rows:
-                codes.append(row)
+                if not row['cross_barcode']:
+                    LOGGER.error("Slide code %s image ID %s has no cross barcode",
+                                 scode, row['id'])
+                else:
+                    codes.append(row)
         except MySQLdb.Error as err:
             sql_error(err)
     return codes
