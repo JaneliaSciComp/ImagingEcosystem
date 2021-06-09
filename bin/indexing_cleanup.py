@@ -38,6 +38,7 @@ SUFFIX = {"DISCOVER": '&argType=java.lang.String" http://jacs-data2.int.janelia.
 COUNT = {'failure': 0, 'found': 0, 'skipped': 0, 'success': 0}
 DSDICT = {}
 INDEXED = {}
+IN_FLYCORE = {}
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 CONN = dict()
@@ -95,7 +96,7 @@ def db_connect(dbd):
         sql_error(err)
 
 
-def connect_databases():
+def connect_databases(database):
     try:
         client = MongoClient('mongodb3.int.janelia.org:27017')
         dbm = client.jacs
@@ -109,7 +110,17 @@ def connect_databases():
     for dset in cursor:
         DSDICT[dset['identifier']] = {'config': dset['sageConfigPath'],
                                       'grammar': dset['sageGrammarPath']}
-    (CONN['sage'], CURSOR['sage']) = db_connect(DATABASE['sage']['prod'])
+    (CONN['sage'], CURSOR['sage']) = db_connect(database['sage']['prod'])
+
+
+def initialize_program():
+    """ Initialize
+    """
+    global CONFIG # pylint: disable=W0603
+    data = call_responder('config', 'config/db_config')
+    connect_databases(data['config'])
+    data = call_responder('config', 'config/rest_services')
+    CONFIG = data['config']
 
 
 def get_entity(line, slide_code):
@@ -122,10 +133,6 @@ def get_entity(line, slide_code):
 
 
 def discover_and_process(slide_code):
-    #prefix = 'action=invokeOpByName&name=ComputeServer%3Aservice%3DSampleDataManager&methodName=runSampleDiscovery&arg0='
-    #prefix2 = 'action=invokeOp&name=ComputeServer%3Aservice%3DSampleDataManager&methodIndex=18&'
-    #suffix = '&argType=java.lang.String" http://jacs-data2.int.janelia.org:8180/jmx-console/HtmlAdaptor'
-    #suffix2 = '&arg1=True&arg2=True&arg3=True&arg4=True&arg5=" http://jacs-data5.int.janelia.org:8180/jmx-console/HtmlAdaptor'
     for code in sorted(slide_code):
         command = 'wget -v --post-data="%s%s%s' % (PREFIX['DISCOVER'], code,
                                                    SUFFIX['DISCOVER'])
@@ -138,6 +145,20 @@ def discover_and_process(slide_code):
                                                        SUFFIX['PROCESS'])
             LOGGER.debug(command)
             os.system(command)
+
+
+def in_flycore(line):
+    if line in IN_FLYCORE:
+        return IN_FLYCORE[line]
+    if '_IS' in line or '_IL' in line:
+        IN_FLYCORE[line] = True
+        return True
+    response = call_responder("flycore", "?request=linedata;line=" + line)
+    if not response['linedata']:
+        IN_FLYCORE[line] = False
+    else:
+        IN_FLYCORE[line] = True
+    return IN_FLYCORE[line]
 
 
 def process_images():
@@ -181,6 +202,9 @@ def process_images():
         COUNT['found'] += 1
         LOGGER.info("%s\t%s\t%s\t%s", row['family'], row['data_set'],
                     row['slide_code'], row['name'])
+        if not in_flycore(row['line']):
+            LOGGER.error("Line %s is not in FlyCore", row['line'])
+            continue
         if row['family'] == 'rubin_chacrm':
             config = '/groups/scicompsoft/informatics/data/rubin_light_imagery-config.xml'
             grammar = '/misc/sc/pipeline/grammar/chacrm_sage.gra'
@@ -235,7 +259,7 @@ def index_image(config, grammar, name, data_set):
                config, '-grammar', grammar, '-item', name, '-lab',
                'flylight', '-verbose', '-description',
                'Image load from indexing_cleanup']
-    LOGGER.info('Processing %s %s' % (data_set, name))
+    LOGGER.info('Processing %s %s', data_set, name)
     LOGGER.debug('  ' + ' '.join(command))
     try:
         if ARG.TEST:
@@ -297,10 +321,5 @@ if __name__ == '__main__':
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     LOGGER.addHandler(HANDLER)
-
-    data = call_responder('config', 'config/db_config')
-    DATABASE = data['config']
-    connect_databases()
-    data = call_responder('config', 'config/rest_services')
-    CONFIG = data['config']
+    initialize_program()
     process_images()
