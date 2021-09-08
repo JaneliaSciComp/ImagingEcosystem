@@ -139,7 +139,6 @@ def process_genotypes():
     codes = list()
     for row in tqdm(rows):
         process_line(row["line"], codes)
-        break
     LOGGER.info("Slide codes to update: %d", len(codes))
     sent = 0
     for code in tqdm(codes):
