@@ -99,7 +99,11 @@ def initialize_program():
     # Connect to Mongo
     rwp = 'write' if ARG.WRITE else 'read'
     try:
-        client = MongoClient(data['config']['jacs-mongo'][ARG.MANIFOLD][rwp]['host'])
+        if ARG.MANIFOLD == 'prod':
+            client = MongoClient(data['config']['jacs-mongo'][ARG.MANIFOLD][rwp]['host'],
+                                 replicaSet='replWorkstation')
+        else:
+            client = MongoClient(data['config']['jacs-mongo'][ARG.MANIFOLD][rwp]['host'])
         DBM = client.jacs
         if ARG.MANIFOLD != 'dev':
             DBM.authenticate(data['config']['jacs-mongo'][ARG.MANIFOLD][rwp]['user'],
