@@ -113,7 +113,7 @@ def process_scopes():
         if ARG.WRITE:
             CONN[db].commit()
     else:
-        print "All MAC addresses are mapped to microscope names"
+        print("All MAC addresses are mapped to microscope names")
 
 
 # -----------------------------------------------------------------------------
