@@ -83,9 +83,8 @@ def initialize_program():
     (CONN['sage'], CURSOR['sage']) = db_connect(data['config']['sage']['prod'])
 
 
-def process_slide_codes():
+def read_code_file():
     codefile = open(ARG.CODES, "r")
-    sent = 0
     slide_code = []
     stmt = "SELECT slide_code FROM image_data_mv WHERE workstation_sample_id=%s LIMIT 1"
     for code in codefile:
@@ -99,6 +98,32 @@ def process_slide_codes():
                 sql_error(err)
         slide_code.append(code)
     codefile.close()
+    return slide_code
+
+
+def read_line_file():
+    linefile = open(ARG.LINES, "r")
+    slide_code = []
+    stmt = "SELECT DISTINCT slide_code FROM image_data_mv WHERE line=%s"
+    for line in linefile:
+        line = line.rstrip()
+        try:
+            CURSOR['sage'].execute(stmt, (line, ))
+            rows = CURSOR['sage'].fetchall()
+            for row in rows:
+                slide_code.append(row['slide_code'])
+        except Exception as err:
+            sql_error(err)
+    linefile.close()
+    return slide_code
+
+
+def process_slide_codes():
+    if ARG.LINES:
+        slide_code = read_line_file()
+    else:
+        slide_code = read_code_file()
+    sent = 0
     for code in tqdm(slide_code):
         command = 'wget -v --post-data="%s%s%s' % (PREFIX, code, SUFFIX)
         if ARG.WRITE:
@@ -111,9 +136,11 @@ def process_slide_codes():
 
 
 if __name__ == '__main__':
-    PARSER = argparse.ArgumentParser(description='Run discovery for a list of slide codes')
+    PARSER = argparse.ArgumentParser(description='Run discovery for a list of slide codes, sample IDs, or lines')
     PARSER.add_argument('--codes', dest='CODES', action='store',
                         help='File of slide codes')
+    PARSER.add_argument('--lines', dest='LINES', action='store',
+                        help='File of lines')
     PARSER.add_argument('--server', dest='SERVER', action='store',
                         help='Server # (2-8)')
     PARSER.add_argument('--write', action='store_true', dest='WRITE',
@@ -133,8 +160,8 @@ if __name__ == '__main__':
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     LOGGER.addHandler(HANDLER)
-    if not ARG.CODES:
-        LOGGER.error("Must specify file of slide codes")
+    if not ARG.CODES and not ARG.LINES:
+        LOGGER.error("Must specify file of slide codes or lines")
         sys.exit(-1)
     if ARG.SERVER:
         SUFFIX = SUFFIX.replace('jacs-data8', 'jacs-data' + ARG.SERVER)
