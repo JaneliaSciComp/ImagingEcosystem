@@ -15,8 +15,10 @@ use File::Copy;
 use File::Find;
 use File::Path qw(make_path);
 use Getopt::Long;
+use HTTP::Request;
 use JSON;
 use LWP::Simple;
+use LWP::UserAgent;
 
 # ****************************************************************************
 # * Environment-dependent                                                    *
@@ -82,7 +84,7 @@ sub wanted
   print "$name\n" if ($DEBUG);
   my $rvar = &getREST($REST{sage}{url}."images?name=$name");
   unless ($rvar) {
-    print "No response for image $name at $_\n";
+    $count{"Files not in SAGE"} += 1;
     return;
   }
   my ($jfs_path,$path,$url) = ('')x3;
@@ -101,12 +103,12 @@ sub wanted
       $count{'Files on archive and /dm11'}++;
     }
     else {
-      &checkScality($File::Find::name,$name,$url);
+      &checkScality($File::Find::name,$name,$jfs_path,$url);
     }
   }
   elsif ($path) {
     print "$name is on /dm11 only\n" if ($DEBUG);
-    $count{'Files on /dm11'}++;
+    $count{'Files to remain on /dm11'}++;
   }
   else {
     print "$name has no paths\n";
@@ -145,27 +147,40 @@ sub checkForRename
 
 sub checkScality
 {
-  my($full_path,$name,$url) = @_;
+  my($full_path,$name,$jfs_path,$url) = @_;
   my $on_scality;
+  if (index($url,'img.int.janelia.org') != -1) {
+    print "$name has a JFS path but old URL $url\n";
+    $count{'Files with old URL'}++;
+    return;
+  }
+  # We attempt access with the URL because tmog can't access the archive location.
+  #print "$url\n";
   $url =~ s/.+\/api\/file/https:\/\/workstation.int.janelia.org\/SCSW\/JADEServices\/v1\/storage_content\/storage_path_redirect/;
-  eval { $on_scality = head($url); };
+  #eval { $on_scality = head($url); };
   #print "Eval: $@\n";
-  my ($type, $length, $mod) = head($url);
+  #my ($type, $length, $mod) = head($url);
   #print "$type, $length, $mod\n";
-  if ($on_scality) {
-    print "$name was copied to archive but not removed from /dm11\n";
+  #if ($on_scality) {
+  my $ua = LWP::UserAgent->new(ssl_opts => {
+    verify_hostname => 0,
+  });
+  my $req = $ua->head($url);
+  if ($req->is_success) {
+    print "$name was copied to archive but not removed from /dm11\n" if ($DEBUG);
     $count{'Files needing deletion from /dm11'}++;
     if ($WRITE) {
       my($dir,$file) = split('/',$name);
       unless (-e($NEW_PATH."/$dir")) {
         my @made = make_path($NEW_PATH."/$dir");
       }
-      print "Move $file to $NEW_PATH/$dir\n" if ($VERBOSE);
+      print "Move $full_path to $NEW_PATH/$dir\n" if ($VERBOSE);
       move($full_path,$NEW_PATH."/$dir");
     }
   }
   else {
-    print "$name has a JFS path but does not exist on archive\n";
+    print "Non-reachable URL $url\n";
+    print $req->status_line . "\n";
     $count{'Files on archive without working URL'}++;
   }
 }
@@ -174,17 +189,19 @@ sub checkScality
 sub getREST
 {
   my($rest) = shift;
-  my $response = get $rest;
-  #&terminateProgram("<h3>REST GET returned null response</h3>"
-  #                  . "<br>Request: $rest<br>")
-  #  unless (length($response));
-  unless ($response) {
-    print "No response for call $rest\n";
+  my $request = HTTP::Request->new(GET => $rest);
+  my $ua = LWP::UserAgent->new;
+  my $response = $ua->request($request);
+  if ($response->code == '404') {
+    return;
+  }
+  elsif ($response->code != '200') {
+    print "$response->code $rest\n";
     return();
   }
   return() unless (length($response));
   my $rvar;
-  eval {$rvar = decode_json($response)};
+  eval {$rvar = decode_json($response->content)};
   &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
                     . "Response: $response<br>Error: $@") if ($@);
   return($rvar);
