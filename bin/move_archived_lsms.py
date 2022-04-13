@@ -15,7 +15,9 @@ DBM = ""
 READ = {"PRIMARY": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
                    + "ON (i.id=im.id) WHERE data_set=%s AND i.name LIKE '%%\.lsm%%' ORDER BY i.name",
         "FROMLSM": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
-                    + "ON (i.id=im.id) WHERE data_set=%s AND im.jfs_path=%s"
+                    + "ON (i.id=im.id) WHERE data_set=%s AND im.jfs_path=%s",
+        "FROMLSM2": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
+                     + "ON (i.id=im.id) WHERE im.jfs_path=%s"
        }
 WRITE = {"IMAGE": "UPDATE image SET jfs_path=%s,url=%s WHERE id=%s",
          "MV": "UPDATE image_data_mv SET jfs_path=%s,image_url=%s WHERE id=%s"
@@ -23,7 +25,9 @@ WRITE = {"IMAGE": "UPDATE image SET jfs_path=%s,url=%s WHERE id=%s",
 # Configuration
 CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 # Stats
-COUNT = {"In SAGE": 0, "Missing": 0, "Already moved": 0, "Incorrect path": 0, "Archived": 0, "In JACS": 0}
+COUNT = {"In SAGE": 0, "Missing": 0, "Not archived": 0, "Already moved": 0, 
+         "Incorrect path": 0, "Archived": 0, "In JACS": 0, "Not flylight": 0,
+         "No path": 0}
 # Constants
 ARCHIVE_PATH = "/groups/scicomp/lsms/JACS/"
 NEW_PATH = "/nearline/flylight/lsms/JACS/"
@@ -126,13 +130,20 @@ def fetch_mongo(name, slide_code=None):
             return None
     else:
         LOGGER.error("%s %s is not in JACS", short, slide_code)
-        dump(response)
+        #dump(response)
+        return None
     return rec
 
 
 def produce_order():
     try:
-        CURSOR["sage"].execute(READ["PRIMARY"], (ARG.DATASET,))
+        if "%" in ARG.DATASET:
+            READ["PRIMARY"] = READ["PRIMARY"].replace("data_set=%s",
+                                                      "data_set LIKE '" + ARG.DATASET + "'")
+            print(READ["PRIMARY"])
+            CURSOR["sage"].execute(READ["PRIMARY"])
+        else:
+            CURSOR["sage"].execute(READ["PRIMARY"], (ARG.DATASET,))
         rows = CURSOR["sage"].fetchall()
     except Exception as err:
         sql_error(err)
@@ -141,8 +152,11 @@ def produce_order():
     order = dict()
     for row in tqdm(rows):
         path = row["jfs_path"] if row["jfs_path"] else row["path"]
+        if not path:
+            COUNT["No path"] += 1
+            continue
         if not "/flylight/" in path:
-            COUNT["Skipped"] += 1
+            COUNT["Not flylight"] += 1
             continue
         if not os.path.exists(path):
             LOGGER.error("%s is not on filesystem", path)
@@ -153,11 +167,15 @@ def produce_order():
         except:
             try:
                 _ = path.index(NEW_PATH)
-                LOGGER.warning("%s was already moved", path)
+                #LOGGER.warning("%s was already moved", path)
                 COUNT["Already moved"] += 1
             except:
-                LOGGER.error("Non-standard location for %s", path)
-                COUNT["Incorrect path"] += 1
+                if "/groups/flylight" in path:
+                    #LOGGER.warning("Not archived %s", path)
+                    COUNT["Not archived"] += 1
+                else:
+                    LOGGER.error("Non-standard location for %s", path)
+                    COUNT["Incorrect path"] += 1
             continue
         COUNT["Archived"] += 1
         LOGGER.debug(path)
@@ -175,17 +193,22 @@ def produce_order():
         order[path] = {"path": newpath, "id": jacs["_id"], "name": jacs["name"],
                        "slide_code": row["slide_code"]}
     if order:
-        output = open(ARG.DATASET + "_files.txt", "w")
-        output2 = open(ARG.DATASET + "_images.txt", "w")
+        dataset = ARG.DATASET.replace("%", "=")
+        output = open(dataset + "_copy.cmd", "w")
+        output2 = open(dataset + "_remove.cmd", "w")
+        output2.write("exit\n")
+        output3 = open(dataset + "_images.txt", "w")
         for path in sorted(order):
-            output.write("%s\t%s\n" % (path, order[path]["path"]))
-            output2.write("%s\t%s\t%s\t%s\n" % (path, order[path]["id"], order[path]["name"], order[path]["slide_code"]))
+            output.write("install -D %s\t%s\n" % (path, order[path]["path"]))
+            output2.write("rm %s\n" % (path))
+            output3.write("%s\t%s\t%s\t%s\n" % (path, order[path]["id"], order[path]["name"], order[path]["slide_code"]))
         output.close()
         output2.close()
 
 
 def process_line(line):
     source,target = line.strip().split("\t")
+    source = source.replace("install -D ", "")
     if ARG.REVERT:
         source, target = target, source
     if not os.path.exists(target):
@@ -194,7 +217,8 @@ def process_line(line):
         sys.exit(-1)
     # SAGE
     try:
-        CURSOR["sage"].execute(READ["FROMLSM"], (ARG.DATASET, source))
+        #CURSOR["sage"].execute(READ["FROMLSM"], (ARG.DATASET, source))
+        CURSOR["sage"].execute(READ["FROMLSM2"], (source,))
         rows = CURSOR["sage"].fetchall()
     except Exception as err:
         sql_error(err)
@@ -255,13 +279,26 @@ def move_files():
         update_databases()
     else:
         produce_order()
-    print(COUNT)
+    if ARG.UPDATE:
+        print("Rows in update file:     %d" % (COUNT["In file"]))
+        print("LSMs updated:            %d" % (COUNT["Updated"]))
+        print("SAGE rows updated:       %d" % (COUNT["SAGE rows"]))
+        print("JACS rows updated:       %d" % (COUNT["JACS rows"]))
+    print("Rows in SAGE:            %d" % (COUNT["In SAGE"]))
+    print("LSMs ready to move:      %d" % (COUNT["Archived"]))
+    print("LSMs in JACS:            %d" % (COUNT["In JACS"]))
+    print("LSMs already moved:      %d" % (COUNT["Already moved"]))
+    print("LSMs not archived:       %d" % (COUNT["Not archived"]))
+    print("No path in SAGE:         %d" % (COUNT["No path"]))
+    print("Not FlyLight image:      %d" % (COUNT["Not flylight"]))
+    print("Missing from filesystem: %d" % (COUNT["Missing"]))
+    print("Non-standard paths:      %d" % (COUNT["Incorrect path"]))
 
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(description="Update ALPS release")
     PARSER.add_argument('--dataset', dest='DATASET', action='store',
-                        required=True, help='Data set')
+                        help='Data set')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         choices=['dev', 'prod'], default='prod', help='Manifold')
     PARSER.add_argument('--update', dest='UPDATE', action='store',
