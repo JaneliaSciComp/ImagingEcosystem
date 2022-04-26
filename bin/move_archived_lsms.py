@@ -1,4 +1,6 @@
 import argparse
+import datetime
+import json
 import os
 import re
 import sys
@@ -13,7 +15,8 @@ CONN = dict()
 CURSOR = dict()
 DBM = ""
 READ = {"PRIMARY": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
-                   + "ON (i.id=im.id) WHERE data_set=%s AND i.name LIKE '%%\.lsm%%' ORDER BY i.name",
+                   + "ON (i.id=im.id) WHERE data_set=%s AND i.name LIKE '%%\.lsm%%' "
+                   + "AND i.jfs_path like '/groups/scicomp/lsms/JACS/%' ORDER BY i.name",
         "FROMLSM": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
                     + "ON (i.id=im.id) WHERE data_set=%s AND im.jfs_path=%s",
         "FROMLSM2": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
@@ -27,7 +30,7 @@ CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
 # Stats
 COUNT = {"In SAGE": 0, "Missing": 0, "Not archived": 0, "Already moved": 0, 
          "Incorrect path": 0, "Archived": 0, "In JACS": 0, "Not flylight": 0,
-         "No path": 0}
+         "No path": 0, "Not in JACS": 0}
 # Constants
 ARCHIVE_PATH = "/groups/scicomp/lsms/JACS/"
 NEW_PATH = "/nearline/flylight/lsms/JACS/"
@@ -111,6 +114,14 @@ def dump(obj):
     print("obj.%s = %r" % (attr, getattr(obj, attr)))
 
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    raise TypeError ("Type %s not serializable" % type(obj))
+
+
 def fetch_mongo(name, slide_code=None):
     short = re.sub("^.*\/", "", name)
     try:
@@ -118,18 +129,21 @@ def fetch_mongo(name, slide_code=None):
     except Exception as err:
         print('Could not get sample from FlyPortal: %s' % (err))
         sys.exit(-1)
-    rec = None
+    rec = []
     cnt = 0
     for entry in response:
         if short in entry["name"]:
-            rec = entry
+            rec.append(entry)
             cnt += 1
     if rec:
         if cnt > 1:
-            LOGGER.error("%d %s %s is in JACS more than once", cnt, short, slide_code)
-            return None
+            pass
+            #print(json.dumps(rec, indent=4, sort_keys=False, default=json_serial))
+            #LOGGER.warning("%d %s %s is in JACS more than once", cnt, short, slide_code)
+            #return None
     else:
         LOGGER.error("%s %s is not in JACS", short, slide_code)
+        COUNT["Not in JACS"] += 1
         #dump(response)
         return None
     return rec
@@ -182,16 +196,23 @@ def produce_order():
         jacs = fetch_mongo(row["name"], row["slide_code"])
         if not jacs:
             continue
-        if jacs["filepath"] != jacs["files"]["LosslessStack"]:
-            LOGGER.error("JACS data mismatch on %s", row["slide_code"])
-            continue
-        if jacs["filepath"] != path:
-            LOGGER.error("JACS path %s does not match %s", jacs["filepath"], path)
+        jacs_err = False
+        for smp in jacs:
+            if smp["filepath"] != smp["files"]["LosslessStack"]:
+                LOGGER.error("JACS data mismatch on %s", row["slide_code"])
+                jacs_err = True
+            if smp["filepath"] != path:
+                #LOGGER.error("JACS path %s does not match %s", smp["filepath"], path)
+                #jacs_err = True
+                pass
+        if jacs_err:
             continue
         COUNT["In JACS"] += 1
         newpath = path.replace(ARCHIVE_PATH, NEW_PATH)
-        order[path] = {"path": newpath, "id": jacs["_id"], "name": jacs["name"],
-                       "slide_code": row["slide_code"]}
+        order[path] = []
+        for smp in jacs:
+            order[path].append({"path": newpath, "id": smp["_id"], "name": smp["name"],
+                                "slide_code": row["slide_code"]})
     if order:
         dataset = ARG.DATASET.replace("%", "=")
         output = open(dataset + "_copy.cmd", "w")
@@ -199,9 +220,10 @@ def produce_order():
         output2.write("exit\n")
         output3 = open(dataset + "_images.txt", "w")
         for path in sorted(order):
-            output.write("install -D %s\t%s\n" % (path, order[path]["path"]))
             output2.write("rm %s\n" % (path))
-            output3.write("%s\t%s\t%s\t%s\n" % (path, order[path]["id"], order[path]["name"], order[path]["slide_code"]))
+            output.write("install -D %s\t%s\n" % (path, order[path][0]["path"]))
+            for itm in order[path]:
+                output3.write("%s\t%s\t%s\t%s\n" % (path, itm["id"], itm["name"], itm["slide_code"]))
         output.close()
         output2.close()
 
@@ -250,14 +272,15 @@ def process_line(line):
         LOGGER.error("Missing from JACS: %s, %s", row["slide_code"], row["name"])
         sys.exit(-1)
     COUNT["In JACS"] += 1
-    LOGGER.debug("Updating JACS %s %s", jacs["_id"], jacs["slideCode"])
-    jacs["filepath"] = jacs["files"]["LosslessStack"] = target
-    if ARG.WRITE:
-        data = DBM.image.update_one({"_id": jacs["_id"]},
-                                    {"$set": jacs})
-        COUNT["JACS rows"] += data.modified_count
-    else:
-        COUNT["JACS rows"] += 1
+    for smp in jacs:
+        LOGGER.debug("Updating JACS %s %s to %s", smp["_id"], smp["slideCode"], target)
+        smp["filepath"] = smp["files"]["LosslessStack"] = target
+        if ARG.WRITE:
+            data = DBM.image.update_one({"_id": smp["_id"]},
+                                        {"$set": smp})
+            COUNT["JACS rows"] += data.modified_count
+        else:
+            COUNT["JACS rows"] += 1
     COUNT["Updated"] += 1
 
 
@@ -286,6 +309,7 @@ def move_files():
         print("JACS rows updated:       %d" % (COUNT["JACS rows"]))
     print("Rows in SAGE:            %d" % (COUNT["In SAGE"]))
     print("LSMs ready to move:      %d" % (COUNT["Archived"]))
+    print("LSMs not in JACS:        %d" % (COUNT["Not in JACS"]))
     print("LSMs in JACS:            %d" % (COUNT["In JACS"]))
     print("LSMs already moved:      %d" % (COUNT["Already moved"]))
     print("LSMs not archived:       %d" % (COUNT["Not archived"]))
