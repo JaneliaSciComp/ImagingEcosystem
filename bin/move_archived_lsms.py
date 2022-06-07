@@ -14,12 +14,12 @@ import MySQLdb
 CONN = dict()
 CURSOR = dict()
 DBM = ""
-READ = {"PRIMARY": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
+READ = {"PRIMARY": "SELECT i.*,slide_code,data_set FROM image_vw i JOIN image_data_mv im "
                    + "ON (i.id=im.id) WHERE data_set=%s AND i.name LIKE '%%\.lsm%%' "
                    + "AND i.jfs_path like '/groups/scicomp/lsms/JACS/%' ORDER BY i.name",
-        "FROMLSM": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
+        "FROMLSM": "SELECT i.*,slide_code,data_set FROM image_vw i JOIN image_data_mv im "
                     + "ON (i.id=im.id) WHERE data_set=%s AND im.jfs_path=%s",
-        "FROMLSM2": "SELECT i.*,slide_code FROM image_vw i JOIN image_data_mv im "
+        "FROMLSM2": "SELECT i.*,slide_code,data_set FROM image_vw i JOIN image_data_mv im "
                      + "ON (i.id=im.id) WHERE im.jfs_path=%s"
        }
 WRITE = {"IMAGE": "UPDATE image SET jfs_path=%s,url=%s WHERE id=%s",
@@ -142,7 +142,7 @@ def fetch_mongo(name, slide_code=None):
             #LOGGER.warning("%d %s %s is in JACS more than once", cnt, short, slide_code)
             #return None
     else:
-        LOGGER.error("%s %s is not in JACS", short, slide_code)
+        #LOGGER.error("%s %s is not in JACS", short, slide_code)
         COUNT["Not in JACS"] += 1
         #dump(response)
         return None
@@ -195,7 +195,7 @@ def produce_order():
         LOGGER.debug(path)
         jacs = fetch_mongo(row["name"], row["slide_code"])
         if not jacs:
-            continue
+            jacs = []
         jacs_err = False
         for smp in jacs:
             if smp["filepath"] != smp["files"]["LosslessStack"]:
@@ -207,11 +207,17 @@ def produce_order():
                 pass
         if jacs_err:
             continue
-        COUNT["In JACS"] += 1
+        else:
+            if not jacs:
+                COUNT["In JACS"] += 1
         newpath = path.replace(ARCHIVE_PATH, NEW_PATH)
         order[path] = []
-        for smp in jacs:
-            order[path].append({"path": newpath, "id": smp["_id"], "name": smp["name"],
+        if jacs:
+            for smp in jacs:
+                order[path].append({"path": newpath, "id": smp["_id"], "name": smp["name"],
+                                    "slide_code": row["slide_code"]})
+        else:
+            order[path].append({"path": newpath, "id": 0, "name": "",
                                 "slide_code": row["slide_code"]})
     if order:
         dataset = ARG.DATASET.replace("%", "=")
@@ -269,8 +275,9 @@ def process_line(line):
     # JACS
     jacs = fetch_mongo(row["name"], row["slide_code"])
     if not jacs:
-        LOGGER.error("Missing from JACS: %s, %s", row["slide_code"], row["name"])
-        sys.exit(-1)
+        #LOGGER.error("Missing from JACS: %s, %s", row["slide_code"], row["name"])
+        COUNT["Updated"] += 1
+        return
     COUNT["In JACS"] += 1
     for smp in jacs:
         LOGGER.debug("Updating JACS %s %s to %s", smp["_id"], smp["slideCode"], target)
