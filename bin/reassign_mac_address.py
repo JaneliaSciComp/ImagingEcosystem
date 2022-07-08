@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import colorlog
 import requests
@@ -21,7 +22,7 @@ SQL = {
 CONN = dict()
 CURSOR = dict()
 # Configuration
-CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
+CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
 
 
 # -----------------------------------------------------------------------------
@@ -133,12 +134,13 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
 
     logger = colorlog.getLogger()
+    ATTR = colorlog.colorlog.logging if "colorlog" in dir(colorlog) else colorlog
     if ARG.DEBUG:
-        logger.setLevel(colorlog.colorlog.logging.DEBUG)
+        LOGGER.setLevel(ATTR.DEBUG)
     elif ARG.VERBOSE:
-        logger.setLevel(colorlog.colorlog.logging.INFO)
+        LOGGER.setLevel(ATTR.INFO)
     else:
-        logger.setLevel(colorlog.colorlog.logging.WARNING)
+        LOGGER.setLevel(ATTR.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(HANDLER)

@@ -26,7 +26,7 @@ WRITE = {"IMAGE": "UPDATE image SET jfs_path=%s,url=%s WHERE id=%s",
          "MV": "UPDATE image_data_mv SET jfs_path=%s,image_url=%s WHERE id=%s"
         }
 # Configuration
-CONFIG = {'config': {'url': 'http://config.int.janelia.org/'}}
+CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
 # Stats
 COUNT = {"In SAGE": 0, "Missing": 0, "Not archived": 0, "Already moved": 0, 
          "Incorrect path": 0, "Archived": 0, "In JACS": 0, "Not flylight": 0,
@@ -344,12 +344,13 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
     LOGGER = colorlog.getLogger()
+    ATTR = colorlog.colorlog.logging if "colorlog" in dir(colorlog) else colorlog
     if ARG.DEBUG:
-        LOGGER.setLevel(colorlog.colorlog.logging.DEBUG)
+        LOGGER.setLevel(ATTR.DEBUG)
     elif ARG.VERBOSE:
-        LOGGER.setLevel(colorlog.colorlog.logging.INFO)
+        LOGGER.setLevel(ATTR.INFO)
     else:
-        LOGGER.setLevel(colorlog.colorlog.logging.WARNING)
+        LOGGER.setLevel(ATTR.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     LOGGER.addHandler(HANDLER)
