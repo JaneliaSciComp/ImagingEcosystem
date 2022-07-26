@@ -17,12 +17,14 @@ import MySQLdb
 CONN = dict()
 CURSOR = dict()
 DBM = ""
-READ = {"PRIMARY": "SELECT * FROM image WHERE path LIKE '/groups/flylight/flylight%'",
+READ = {"PRIMARY": "SELECT * FROM image_vw WHERE path LIKE '/groups/flylight/flylight%' and family like 'flylight%'",
        }
+WRITE = {"JFS": "UPDATE image SET jfs_path=%s WHERE id=%s",
+        }
 # Configuration
 CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
 # General
-COUNT = {"input": 0, "mongo": 0, "not_archived": 0, "missing": 0, "sync": 0}
+COUNT = {"input": 0, "mongo": 0, "no_jfs": 0, "missing": 0, "sync": 0, "name_mismatch": 0, "unarchived": 0}
 
 
 def sql_error(err):
@@ -88,6 +90,15 @@ def initialize_program():
         sys.exit(-1)
 
 
+def update_jfs(row, jfs):
+    try:
+        CURSOR["sage"].execute(WRITE['JFS'], (jfs, row['id']))
+    except Exception as err:
+        sql_error(err)
+    if CURSOR["sage"].rowcount != 1:
+        LOGGER.error("Could not update %s", row['id'])
+
+
 def get_image(row):
     name = row['name'].split("/")[-1]
     try:
@@ -96,18 +107,29 @@ def get_image(row):
         print('Could not get sample from FlyPortal: %s' % (err))
         sys.exit(-1)
     if not mrow:
-    	return
+        COUNT['name_mismatch'] += 1
+        name += ".bz2"
+        try:
+            mrow = DBM.image.find_one({'name': name})
+        except Exception as err:
+            print('Could not get sample from FlyPortal: %s' % (err))
+            sys.exit(-1)
+    if not mrow:
+        return
     COUNT['mongo'] += 1
     if not row['jfs_path']:
-    	COUNT['not_archived'] += 1
+        COUNT['no_jfs'] += 1
     if row['path'] != mrow['filepath']:
-    	COUNT['sync'] += 1
+        COUNT['sync'] += 1
+        if not exists(mrow['filepath']):
+            LOGGER.error("Bad JFS path %s", mrow['filepath'])
+            sys.exit(-1)
+        update_jfs(row, mrow['filepath'])
+        return
     if not exists(row['path']):
-    	COUNT['missing'] += 1
-    return
-    print(row['path'])
-    print(row['jfs_path'])
-    print(mrow['filepath'])
+        COUNT['missing'] += 1
+        return
+    COUNT['unarchived'] += 1
 
 
 def cleanup():
@@ -121,6 +143,8 @@ def cleanup():
         COUNT['input'] += 1
         if (not row['jfs_path']) or '/groups/flylight/flylight' in row['jfs_path']:
             get_image(row)
+    if ARG.WRITE:
+        CONN['sage'].commit()
     print(COUNT)
 
 
