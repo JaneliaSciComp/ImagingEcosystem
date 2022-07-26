@@ -22,7 +22,7 @@ READ = {"PRIMARY": "SELECT * FROM image WHERE path LIKE '/groups/flylight/flylig
 # Configuration
 CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
 # General
-COUNT = {"input": 0, "mongo": 0, "not_archived": 0, "missing": 1}
+COUNT = {"input": 0, "mongo": 0, "not_archived": 0, "missing": 0, "sync": 0}
 
 
 def sql_error(err):
@@ -100,9 +100,10 @@ def get_image(row):
     COUNT['mongo'] += 1
     if not row['jfs_path']:
     	COUNT['not_archived'] += 1
-    if row['path'] == mrow['filepath']:
-    	if not exists(row['path']):
-    		COUNT['missing'] += 1
+    if row['path'] != mrow['filepath']:
+    	COUNT['sync'] += 1
+    if not exists(row['path']):
+    	COUNT['missing'] += 1
     return
     print(row['path'])
     print(row['jfs_path'])
