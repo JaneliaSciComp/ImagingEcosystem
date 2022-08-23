@@ -1,4 +1,4 @@
-''' parse_czi.py
+''' samples_in_process.py
     Produce a tab-delimited list of samples that are in process
 '''
 
