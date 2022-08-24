@@ -274,7 +274,12 @@ sub showQuery {
       }
       my $rvar;
       if ($MONGO) {
-        ($rvar) = &getMONGO($cur,$term);
+        if (($cur eq 'SAMPLESUM') && (param('sample_idi') =~ /^\d+$/)) {
+          ($rvar) = &getMONGO('SAMPLE',$term);
+        }
+        else {
+          ($rvar) = &getMONGO($cur,$term);
+        }
         $ar = [];
         foreach (sort @$rvar) {
           push @$ar,[@{$_}{qw(name line slideCode effector dataSet status defaultImage)}];
@@ -401,6 +406,7 @@ sub getMONGO
     $suffix .= '&wildcard=true';
   }
   my $rest = $CONFIG{'jacs'}{url}.$CONFIG{'jacs'}{query}{$selector} . $suffix;
+  print "$rest<br>";
   my $response = get $rest;
   &terminateProgram("<h3>REST GET returned null response</h3>"
                     . "<br>Request: $rest<br>")
