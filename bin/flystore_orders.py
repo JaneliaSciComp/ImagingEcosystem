@@ -91,7 +91,7 @@ def read_messages():
         for typ in ('stabilization', 'polarity', 'mcfo'):
             if typ in msg and msg[typ]:
                 splittype.append(typ)
-        orderlist[msg['user']].append("%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype)))
+        orderlist[msg['user']].append("%s\t%s\t%s\t%s" % (message.key, msg['line'], ', '.join(splittype), msg['order']['specialInstructions']))
     for user in orderlist:
         if ARG.START == ARG.END:
             body = 'On ' + ARG.START
@@ -113,7 +113,10 @@ def read_messages():
         if len(MAIL_CC):
             copies += MAIL_CC
         logger.info('Sending mail to ' + ', '.join(copies))
-        send_mail(SENDER, copies, subject, body)
+        if ARG.TEST:
+            print('*'*79 + "\nTo: %s\n%s\n" % (copies, body))
+        else:
+            send_mail(SENDER, copies, subject, body)
 
 
 # -----------------------------------------------------------------------------
@@ -123,6 +126,9 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description='Find and index/discover newly tmogged imagery')
     PARSER.add_argument('--server', dest='server', default='', help='Kafka server')
+    PARSER.add_argument('--test', action='store_true',
+                        dest='TEST', default=False,
+                        help="Test mode (don't send emails)")
     PARSER.add_argument('--verbose', action='store_true',
                         dest='VERBOSE', default=False,
                         help='Turn on verbose output')
