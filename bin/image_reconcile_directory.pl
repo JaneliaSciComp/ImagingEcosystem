@@ -150,12 +150,12 @@ sub checkScality
   my($full_path,$name,$jfs_path,$url) = @_;
   my $on_scality;
   if (index($url,'img.int.janelia.org') != -1) {
-    print "$name has a JFS path but old URL $url\n";
+    #print "$name has a JFS path but old URL $url\n";
     $count{'Files with old URL'}++;
     return;
   }
   # We attempt access with the URL because tmog can't access the archive location.
-  #print "$url\n";
+  #print "$name\n$full_path\n$url\n";
   $url =~ s/.+\/api\/file/https:\/\/workstation.int.janelia.org\/SCSW\/JADEServices\/v1\/storage_content\/storage_path_redirect/;
   #eval { $on_scality = head($url); };
   #print "Eval: $@\n";
@@ -167,16 +167,16 @@ sub checkScality
   });
   my $req = $ua->head($url);
   if ($req->is_success) {
-    print "$name was copied to archive but not removed from /dm11\n" if ($DEBUG);
+    print "$name was copied to archive but not removed from /dm11\n" if ($VERBOSE);
     $count{'Files needing deletion from /dm11'}++;
+    my($dir,$file) = split('/',$name);
     if ($WRITE) {
-      my($dir,$file) = split('/',$name);
       unless (-e($NEW_PATH."/$dir")) {
         my @made = make_path($NEW_PATH."/$dir");
       }
-      print "Move $full_path to $NEW_PATH/$dir\n" if ($VERBOSE);
       move($full_path,$NEW_PATH."/$dir");
     }
+    print "Move $full_path to $NEW_PATH/$dir\n" if ($VERBOSE);
   }
   else {
     print "Non-reachable URL $url\n";
