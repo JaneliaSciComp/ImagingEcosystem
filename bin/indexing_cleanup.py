@@ -237,6 +237,7 @@ def process_images():
                     COUNT['success'] += len(sublist)
                     INDEXED[dataset] = INDEXED.setdefault(dataset, 0) + len(sublist)
                 else:
+                    print(post)
                     call_responder('jacs', 'process/owner/system/dataSet/'
                                    + dataset + '/lsmPipelines', post)
                     COUNT['success'] += len(sublist)

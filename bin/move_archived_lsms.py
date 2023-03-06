@@ -153,7 +153,7 @@ def produce_order():
     try:
         if "%" in ARG.DATASET:
             READ["PRIMARY"] = READ["PRIMARY"].replace("data_set=%s",
-                                                      "data_set LIKE '" + ARG.DATASET + "'")
+                                                      "(data_set LIKE '" + ARG.DATASET + "' OR data_set IS NULL)")
             print(READ["PRIMARY"])
             CURSOR["sage"].execute(READ["PRIMARY"])
         else:
@@ -169,7 +169,11 @@ def produce_order():
         if not path:
             COUNT["No path"] += 1
             continue
-        if not "/flylight/" in path:
+        if "/leet_" in path or "/projtechres" in path:
+            COUNT["Not flylight"] += 1
+            continue
+        if ("/flylight/" not in path) and ("flylight" not in row["family"]):
+            print(path)
             COUNT["Not flylight"] += 1
             continue
         if not os.path.exists(path):
@@ -196,6 +200,7 @@ def produce_order():
         jacs = fetch_mongo(row["name"], row["slide_code"])
         if not jacs:
             jacs = []
+            continue
         jacs_err = False
         for smp in jacs:
             if smp["filepath"] != smp["files"]["LosslessStack"]:

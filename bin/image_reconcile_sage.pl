@@ -23,7 +23,8 @@ my ($VERBOSE,$WRITE) = (0)x2;
 my %REST;
 our $dbh;
 my %sth = (
-  LSMS => "SELECT id,family,data_set,name,image_url,path,jfs_path from image_data_mv WHERE data_set IS NOT NULL AND family NOT IN ('dickson_vienna','rubin_ssplit','simpson_descending') ORDER BY 2,3",
+  LSMS => "SELECT id,family,data_set,name,image_url,path,jfs_path from image_data_mv WHERE data_set IS NOT NULL AND family LIKE 'flylight%' and path not like '/nearline%' and path like '%2022%lsm%' ORDER BY 2,3",
+  LSMSx => "SELECT id,family,data_set,name,image_url,path,jfs_path from image_data_mv WHERE data_set IS NOT NULL AND family NOT IN ('dickson_vienna','rubin_ssplit','simpson_descending') ORDER BY 2,3",
 );
 
 GetOptions(write   => \$WRITE,

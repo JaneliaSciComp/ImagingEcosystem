@@ -103,7 +103,7 @@ sub wanted
       $count{'Files on archive and /dm11'}++;
     }
     else {
-      &checkScality($File::Find::name,$name,$jfs_path,$url);
+      &checkArchive($File::Find::name,$name,$jfs_path,$url);
     }
   }
   elsif ($path) {
@@ -145,10 +145,10 @@ sub checkForRename
 }
 
 
-sub checkScality
+sub checkArchive
 {
   my($full_path,$name,$jfs_path,$url) = @_;
-  my $on_scality;
+  my $on_archive;
   if (index($url,'img.int.janelia.org') != -1) {
     #print "$name has a JFS path but old URL $url\n";
     $count{'Files with old URL'}++;
@@ -157,11 +157,11 @@ sub checkScality
   # We attempt access with the URL because tmog can't access the archive location.
   #print "$name\n$full_path\n$url\n";
   $url =~ s/.+\/api\/file/https:\/\/workstation.int.janelia.org\/SCSW\/JADEServices\/v1\/storage_content\/storage_path_redirect/;
-  #eval { $on_scality = head($url); };
+  #eval { $on_archive = head($url); };
   #print "Eval: $@\n";
   #my ($type, $length, $mod) = head($url);
   #print "$type, $length, $mod\n";
-  #if ($on_scality) {
+  #if ($on_archive) {
   my $ua = LWP::UserAgent->new(ssl_opts => {
     verify_hostname => 0,
   });
