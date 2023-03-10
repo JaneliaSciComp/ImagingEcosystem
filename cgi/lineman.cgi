@@ -20,11 +20,6 @@ use constant DATA_PATH  => '/groups/scicompsoft/informatics/data/';
 # General
 (my $PROGRAM = (split('/',$0))[-1]) =~ s/\..*$//;
 our $APPLICATION = 'Line manager';
-my $DB = 'dbi:mysql:dbname=sage;host=';
-my $DBF = 'dbi:mysql:dbname=flyboy;host=prd-db';
-my $DBL = 'dbi:mysql:dbname=sage;host=';
-my $DBW = 'dbi:mysql:dbname=wip;host=mysql2';
-my $DBWS = 'dbi:mysql:dbname=flyportal;host=prd-db';
 use constant NBSP => '&nbsp;';
 my @BREADCRUMBS = ('Database tools',
                    'http://informatics-prod.int.janelia.org/#databases');
@@ -106,6 +101,7 @@ our ($dbh,$dbhf,$dbhl,$dbhw,$dbhws);
 my (%LINK_MAP,%TERM);
 my $js_file = "";
 # Configuration
+my %DBCONFIG;
 my %SERVER;
 # General
 my $height = 60;
@@ -148,6 +144,25 @@ exit(0);
 
 sub initializeProgram
 {
+  # Get config
+  my $rest = 'https://config.int.janelia.org/config/servers';
+  my $response = get $rest;
+  my $rvar;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  %SERVER = %{$rvar->{config}};
+  $rest = 'https://config.int.janelia.org/config/db_config';
+  $response = get $rest;
+  eval {$rvar = decode_json($response)};
+  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
+                    . "Response: $response<br>Error: $@") if ($@);
+  %DBCONFIG = %{$rvar->{config}};
+  my $DB = 'dbi:mysql:dbname=sage;host=';
+  my $DBL = 'dbi:mysql:dbname=sage;host=';
+  my $DBF = "dbi:mysql:dbname=$DBCONFIG{flyboy}{prod}{name};host=$DBCONFIG{flyboy}{prod}{host}";
+  my $DBW = "dbi:mysql:dbname=$DBCONFIG{wip}{prod}{name};host=$DBCONFIG{wip}{prod}{host}";
+  my $DBWS = "dbi:mysql:dbname=$DBCONFIG{workstation}{prod}{name};host=$DBCONFIG{workstation}{prod}{host}";
   # Connect to SAGE database
   $DATABASE = lc(param('_database') || 'prod');
   $DB .= ($DATABASE eq 'prod') ? 'mysql3'
@@ -159,8 +174,11 @@ sub initializeProgram
   $sth{$_} = $dbh->prepare($sth{$_}) || &terminateProgram($dbh->errstr)
     foreach (keys %sth);
   # Connect to FlyBoy database
+  use Data::Dumper; print STDERR Dumper(\%DBCONFIG) . "\n";
   eval {
-    $dbhf = DBI->connect($DBF,('flyfRead')x2,{RaiseError=>1,PrintError=>0});
+    $dbhf = DBI->connect($DBF,$DBCONFIG{flyboy}{prod}{user},
+                         $DBCONFIG{flyboy}{prod}{password},
+                         {RaiseError=>1,PrintError=>0});
   };
   &terminateProgram('Could not connect to FlyBoy database:<br>'.$@)
     if ($@);
@@ -176,7 +194,9 @@ sub initializeProgram
     foreach (keys %sthw);
   # Connect to Janelia Workstation database
   eval {
-    $dbhws = DBI->connect($DBWS,('flyportalRead')x2,{RaiseError=>1,PrintError=>0});
+    $dbhws = DBI->connect($DBWS,$DBCONFIG{workstation}{prod}{user},
+                          $DBCONFIG{workstation}{prod}{password},
+                          ,{RaiseError=>1,PrintError=>0});
   };
   &terminateProgram('Could not connect to Janelia Workstation database:<br>'.$@)
     if ($@);
@@ -186,13 +206,14 @@ sub initializeProgram
   $DATABASE = lc(param('_database') || 'prod');
   $DBL .= ($DATABASE eq 'prod') ? 'larval-sage-db'
                                 : (($DATABASE eq 'val') ? 'val-db' : 'dev-db');
-  eval {
-    $dbhl = DBI->connect($DBL,('sageRead')x2,{RaiseError=>1,PrintError=>0});
-  };
-  &terminateProgram('Could not connect to Larval SAGE database:<br>'.$@)
-    if ($@);
-  $sthl{$_} = $dbhl->prepare($sthl{$_}) || &terminateProgram($dbhl->errstr)
-    foreach (keys %sthl);
+  # PLUG remove larval
+  #eval {
+  #  $dbhl = DBI->connect($DBL,('sageRead')x2,{RaiseError=>1,PrintError=>0});
+  #};
+  #&terminateProgram('Could not connect to Larval SAGE database:<br>'.$@)
+  #  if ($@);
+  #$sthl{$_} = $dbhl->prepare($sthl{$_}) || &terminateProgram($dbhl->errstr)
+  #  foreach (keys %sthl);
   # Configure XML
   my $p;
   eval { 
@@ -203,13 +224,6 @@ sub initializeProgram
   &terminateProgram("Could not configure from XML file: $@") if ($@);
   %TERM = %{$p->{term}};
   $LINK_MAP{$_->{site}} = $_->{content} foreach (@{$p->{link}});
-  my $rest = 'http://config.int.janelia.org/config/servers';
-  my $response = get $rest;
-  my $rvar;
-  eval {$rvar = decode_json($response)};
-  &terminateProgram("<h3>REST GET failed</h3><br>Request: $rest<br>"
-                    . "Response: $response<br>Error: $@") if ($@);
-  %SERVER = %{$rvar->{config}};
 }
 
 
@@ -772,6 +786,12 @@ sub displayLine
                                    target => '_blank'},
                                   $lp->{'Fly Core ID'}{value})
     if (exists $lp->{'Fly Core ID'}{value});
+  $lp->{'SAGE ID'}{value} = a({href => 'http://informatics-prod.int.janelia.org/'
+                                           . 'cgi-bin/flycore_responder.cgi?'
+                                           . "request=linedata&line=$line",
+                                   target => '_blank'},
+                                  $lp->{'SAGE ID'}{value})
+    if (exists $lp->{'Fly Core ID'}{value});
   $lp->{Gene}{value} = join(', ',$cg,sort keys %gene) if ($cg);
   if ($lp->{Strand}{value}) {
     $lp->{Strand}{value} = '+' . $lp->{Strand}{value}
@@ -798,6 +818,12 @@ sub displayLine
     $display_line .= " (hidden)";
   }
   delete($lp->{Hide});
+  if ((exists $lp->{Organism})
+      && ($lp->{Organism}{value} ne 'Drosophila melanogaster')) {
+    $lp->{Organism}{value} = span({style => 'font-weight: bold;color: #933;'
+                                            . 'font-size: 14pt;'},
+                                  $lp->{Organism}{value});
+  }
   print div({&identify('summaryarea'),
              style => 'margin: 0 10px 0 10px;'},
             div({align => 'center'},h3($display_line)),br,
@@ -814,7 +840,7 @@ sub displayLine
   &renderLightImagery($line,$arrow,$display);
   &renderFlyOlympiad($line,$arrow,$display);
   ($arrow,$display) = ('right','display:none;');
-  &renderLarvalOlympiad($line,$arrow,$display);
+  #&renderLarvalOlympiad($line,$arrow,$display);
   &renderCrossesFlips($line,$arrow,$display);
   &renderFlyStore($line,$arrow,$display);
   &renderWIP($line,$arrow,$display);
