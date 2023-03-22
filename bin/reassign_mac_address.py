@@ -136,11 +136,11 @@ if __name__ == '__main__':
     logger = colorlog.getLogger()
     ATTR = colorlog.colorlog.logging if "colorlog" in dir(colorlog) else colorlog
     if ARG.DEBUG:
-        LOGGER.setLevel(ATTR.DEBUG)
+        logger.setLevel(ATTR.DEBUG)
     elif ARG.VERBOSE:
-        LOGGER.setLevel(ATTR.INFO)
+        logger.setLevel(ATTR.INFO)
     else:
-        LOGGER.setLevel(ATTR.WARNING)
+        logger.setLevel(ATTR.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     logger.addHandler(HANDLER)

@@ -9,6 +9,7 @@ import colorlog
 import requests
 import MySQLdb
 from pymongo import MongoClient
+from tqdm import tqdm
 
 
 # SQL statements
@@ -196,7 +197,7 @@ def process_images():
     slide_code = dict()
     if ARG.TEST:
         LOGGER.warning("Test mode: will not send transactions")
-    for row in rows:
+    for row in tqdm(rows):
         config = ''
         grammar = ''
         COUNT['found'] += 1
