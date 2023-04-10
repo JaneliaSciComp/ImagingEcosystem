@@ -153,8 +153,6 @@ if __name__ == '__main__':
                         help='Manifold')
     PARSER.add_argument('--write', action='store_true', dest='WRITE',
                         default=False, help='Write to DynamoDB')
-    PARSER.add_argument('--throttle', type=int, dest='THROTTLE',
-                        default=0, help='DynamoDB batch write throttle (# items)')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     PARSER.add_argument('--debug', dest='DEBUG', action='store_true',
