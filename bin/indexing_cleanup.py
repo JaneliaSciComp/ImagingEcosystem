@@ -1,5 +1,3 @@
-#!/opt/python/bin/python2.7
-
 import argparse
 import os
 import subprocess
@@ -99,14 +97,16 @@ def db_connect(dbd):
 
 def connect_databases(database):
     try:
-        client = MongoClient('mongodb3.int.janelia.org:27017')
+        mdb = database['jacs-mongo']['prod']['read']
+        client = MongoClient(mdb['host'], replicaSet=mdb['replicaset'],
+                             username=mdb['user'], password=mdb['password'])
         dbm = client.jacs
-        dbm.authenticate('flyportalRead', 'flyportalRead')
+        LOGGER.info(f"Connected to {mdb['name']} on {mdb['host']} as {mdb['user']}")
         cursor = dbm.dataSet.find({'sageGrammarPath':{'$exists':True}},
                                   {'_id':0, 'identifier':1, 'sageConfigPath':1,
                                    'sageGrammarPath':1})
     except Exception as err:
-        print('Could not connect to Mongo: %s' % (err))
+        LOGGER.error('Could not connect to Mongo: %s' % (err))
         sys.exit(-1)
     for dset in cursor:
         DSDICT[dset['identifier']] = {'config': dset['sageConfigPath'],
@@ -314,12 +314,13 @@ if __name__ == '__main__':
                         help='Selects all images, not just overdue ones')
     ARG = PARSER.parse_args()
     LOGGER = colorlog.getLogger()
+    ATTR = colorlog.colorlog.logging if "colorlog" in dir(colorlog) else colorlog
     if ARG.DEBUG:
-        LOGGER.setLevel(colorlog.colorlog.logging.DEBUG)
+        LOGGER.setLevel(ATTR.DEBUG)
     elif ARG.VERBOSE:
-        LOGGER.setLevel(colorlog.colorlog.logging.INFO)
+        LOGGER.setLevel(ATTR.INFO)
     else:
-        LOGGER.setLevel(colorlog.colorlog.logging.WARNING)
+        LOGGER.setLevel(ATTR.WARNING)
     HANDLER = colorlog.StreamHandler()
     HANDLER.setFormatter(colorlog.ColoredFormatter())
     LOGGER.addHandler(HANDLER)
