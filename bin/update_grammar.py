@@ -75,7 +75,8 @@ def initialize_program():
     try:
         dbc = getattr(getattr(getattr(dbconfig, "jacs-mongo"), ARG.MANIFOLD), rwp)
         if ARG.MANIFOLD == 'prod':
-            client = MongoClient(dbc.host, replicaSet=dbc.replicaset)
+            client = MongoClient(dbc.host, replicaSet=dbc.replicaset,
+                                 username=dbc.user, password=dbc.password)
             DATABASE["JACS"] = client.jacs
         else:
             client = MongoClient(dbc.host)
@@ -83,11 +84,6 @@ def initialize_program():
             return
     except Exception as err:
         terminate_program(f"Could not connect to Mongo: {err}")
-    try:
-        if ARG.MANIFOLD != 'dev':
-            DATABASE["JACS"].authenticate(dbc.user, dbc.password)
-    except Exception as err:
-        terminate_program(f"Could not authenticate to Mongo as {dbc.user}: {err}")
 
 
 def update_grammar(dataset):
