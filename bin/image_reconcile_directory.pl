@@ -45,7 +45,10 @@ $NEW_PATH ||= '/groups/flylight/flylight/lsm_archive';
 $PATH ||= getcwd;
 
 &initialize();
-find(\&wanted,$PATH);
+find({wanted => \&wanted, follow => 1},$PATH);
+unless (scalar(keys(%count))) {
+  &terminateProgram("No files found in $PATH");
+}
 foreach (sort keys %count) {
   print "$_: $count{$_}\n";
 }
@@ -55,7 +58,7 @@ sub terminateProgram
 {
   my($msg) = shift || 0;
   print "$msg\n" if ($msg);
-  exit ($msg) ? -1 : 0;
+  exit (($msg) ? -1 : 0);
 }
 
 
