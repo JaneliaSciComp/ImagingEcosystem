@@ -25,6 +25,11 @@ SQL = {
            + "ON  (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
            + "LIKE 'simpson%' AND i.id NOT IN (SELECT image_id FROM "
            + "image_property_vw WHERE type='bits_per_sample')",
+    'OVERRIDE': "SELECT i.family,ipd.value AS data_set,ips.value AS slide_code,"
+           + "i.name,i.line FROM image_vw i JOIN image_property_vw ipd ON "
+           + "(i.id=ipd.image_id AND ipd.type='data_set') JOIN image_property_vw ips "
+           + "ON  (i.id=ips.image_id AND ips.type='slide_code') WHERE i.family NOT "
+           + "LIKE 'simpson%'",
     'SINGLE': "SELECT family,data_set,slide_code,name,line FROM image_data_mv WHERE "
               + "id=%s",
 }
@@ -164,6 +169,8 @@ def in_flycore(line):
 
 def process_images():
     mode = 'ALL' if ARG.ALL else 'OVERDUE'
+    if ARG.OVERRIDE:
+        mode = 'OVERRIDE'
     stmt = SQL[mode]
     if ARG.SLIDE:
         addition = '%' + ARG.SLIDE + '%'
@@ -173,6 +180,8 @@ def process_images():
         addition = '%' + ARG.DATASET + '%'
         stmt = stmt.replace("sample')",
                             "sample') AND ipd.value LIKE '" + addition + "'")
+    if ARG.OVERRIDE:
+        stmt += " AND ips.value LIKE '" + addition + "'"
     rows = list()
     if ARG.IDS:
         idfile = open(ARG.IDS, "r")
@@ -238,6 +247,7 @@ def process_images():
                     COUNT['success'] += len(sublist)
                     INDEXED[dataset] = INDEXED.setdefault(dataset, 0) + len(sublist)
                 else:
+                    print(f"process/owner/system/dataSet/{dataset}/lsmPipelines")
                     print(post)
                     call_responder('jacs', 'process/owner/system/dataSet/'
                                    + dataset + '/lsmPipelines', post)
@@ -260,9 +270,11 @@ def index_image(config, grammar, name, data_set):
     command = ['perl', '/groups/scicompsoft/informatics/bin/sage_loader.pl', '-config',
                config, '-grammar', grammar, '-item', name, '-lab',
                'flylight', '-verbose', '-description',
-               'Image load from indexing_cleanup']
+               '"Image load from indexing_cleanup"']
     LOGGER.info('Processing %s %s', data_set, name)
     LOGGER.debug('  ' + ' '.join(command))
+    with open("sage_loader_commands.sh", "a", encoding="ascii") as OUTSTREAM:
+        OUTSTREAM.write(' '.join(command) + "\n")
     try:
         if ARG.TEST:
             tmp = 'OK'
@@ -312,6 +324,9 @@ if __name__ == '__main__':
     PARSER.add_argument('--all', action='store_true', dest='ALL',
                         default=False,
                         help='Selects all images, not just overdue ones')
+    PARSER.add_argument('--override', action='store_true', dest='OVERRIDE',
+                        default=False,
+                        help='Selects all images regardless of prior load')
     ARG = PARSER.parse_args()
     LOGGER = colorlog.getLogger()
     ATTR = colorlog.colorlog.logging if "colorlog" in dir(colorlog) else colorlog
