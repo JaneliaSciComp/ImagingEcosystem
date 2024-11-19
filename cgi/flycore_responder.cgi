@@ -26,12 +26,12 @@ my %sthf = (
   DOILIST => "SELECT DISTINCT doi FROM StockFinder WHERE doi IS NOT NULL",
   INITIAL_SPLITS => "SELECT Barcode_CrossSerialNumber AS cross_barcode,"
                     . "initial_split AS line,stockname_reserved AS genotype,Project AS project "
-                    . "FROM Project_Crosses WHERE project IN ('Fly Light','FLE') AND "
+                    . "FROM Project_Crosses WHERE project IN ('Fly Light','FLE','Lab') AND "
                     . "cross_type IN ('SplitGAL4','IntermediateSplit') AND "
                     . "initial_split LIKE 'JRC_I%'",
   INITIAL_SPLIT => "SELECT Barcode_CrossSerialNumber AS cross_barcode,"
                    . "initial_split AS line,stockname_reserved AS genotype,Project AS project "
-                   . "FROM Project_Crosses WHERE project IN ('Fly Light','FLE') AND "
+                   . "FROM Project_Crosses WHERE project IN ('Fly Light','FLE','Lab') AND "
                    . "cross_type IN ('SplitGAL4','IntermediateSplit') AND "
                    . "initial_split=?",
   LINELIST => "SELECT Stock_Name FROM StockFinder WHERE Stock_Name IS NOT NULL",
@@ -63,11 +63,15 @@ my %sthf = (
                     . "create_date FROM all_names",
   PUBLISHING_48=> 'SELECT "_kf_parent_UID","__kp_name_serial_number",'
                     . 'all_names,for_publishing,published,label,display_genotype,who,notes,'
-                    . "create_date FROM all_names WHERE Hour(Timestamp()-create_date)/24 <= 30",
+                    . "create_date FROM all_names WHERE display_genotype='Yes'",
+  PUBLISHING_SYNC => 'SELECT "_kf_parent_UID","__kp_name_serial_number",'
+                     . 'all_names,for_publishing,published,label,display_genotype,who,notes,'
+                     . "create_date,modified_date FROM all_names WHERE "
+                     . "(for_publishing='Yes' OR display_genotype='Yes') AND Hour(Timestamp()-modified_date)/24 <= ?",
   PUBLISH_JOIN => 'SELECT a."_kf_parent_UID",a."__kp_name_serial_number",a.all_names,a.for_publishing,'
-                  . 'a.published,a.label,a.display_genotype,a.who,a.notes,a.create_date,s.Stock_Name FROM all_names a '
+                  . 'a.published,a.label,a.display_genotype,a.who,a.notes,a.create_date,a.modified_date FROM all_names a '
                   . 'JOIN StockFinder s ON s."__kp_UniqueID"=a."_kf_Parent_UID" WHERE s.Stock_Name IS NOT NULL '
-                  . "AND a.for_publishing='Yes' AND Hour(Timestamp()-a.create_date)/24 <= 220",
+                  . "AND s.Stock_Name=? AND (a.for_publishing='Yes' OR a.display_genotype='Yes')",
   STABLE_SPLITS => "SELECT DISTINCT sf.Stock_Name,pc.Cross_Type FROM Project_Crosses pc,"
                    . "StockFinder sf WHERE sf.Stock_Name LIKE 'JRC\_S%' AND "
                    . "pc.Cross_Type IN ('SplitFlipOuts','SplitPolarity',"
@@ -87,6 +91,7 @@ sub errorResponse
 my $Line = param('line') || '';
 my $Robot_id = param('robot_id') || '';
 my $Kp = param('kp') || '';
+my $Days = param('days') || 120;
 my $Cross_barcode = param('cross_barcode') || '';
 if (!$Line) {
   my $sub = '';
@@ -198,7 +203,10 @@ elsif ($REQUEST eq 'crossdatatmog') {
   my $hr = $sthf{uc($REQUEST)}->fetchrow_hashref();
   $response{$ROOT} = '';
   if ($hr) {
-    $hr->{$_} ||= '' foreach (keys %$hr);
+    foreach (keys %$hr) {
+      $hr->{$_} ||= '';
+      $hr->{$_} =~ s/[[:^print:]]//g;
+    }
     $response{$ROOT} = $hr;
   }
 }
@@ -287,9 +295,15 @@ elsif ($REQUEST eq 'publishing_names_48') {
   my $ar = $sthf{PUBLISHING_48}->fetchall_arrayref();
   $response{$ROOT} = $ar;
 }
+elsif ($REQUEST eq 'publishing_names_sync') {
+  $response{$ROOT = 'publishing'} = '';
+  $sthf{PUBLISHING_SYNC}->execute($Days);
+  my $ar = $sthf{PUBLISHING_SYNC}->fetchall_arrayref();
+  $response{$ROOT} = $ar;
+}
 elsif ($REQUEST eq 'publishing_names_join') {
   $response{$ROOT = 'publishing'} = '';
-  $sthf{PUBLISH_JOIN}->execute();
+  $sthf{PUBLISH_JOIN}->execute($Line);
   my $ar = $sthf{PUBLISH_JOIN}->fetchall_arrayref();
   $response{$ROOT} = $ar;
 }
